@@ -1,0 +1,203 @@
+"""Step handlers — bind Gherkin step text to the analyst system internals.
+
+This is the "strange hybrid of Cucumber and the test fixtures" (Uncle Bob):
+each handler carries deep knowledge of the system under test and drives it
+through the in-process seam:
+
+    IngestionService(DatasetStore(base_dir=...)).ingest(<csv path>)
+
+A single :class:`ScenarioContext` flows Given -> When -> Then. Given steps
+build CSV fixtures in a pytest tmp dir; When steps act on the real service;
+Then steps assert against the real :class:`DatasetProfile` and queried rows.
+
+Binding status (Slice A):
+- FULLY BOUND: the walking-skeleton scenario
+  "A clean CSV becomes a profiled, queryable dataset".
+- Every other step is intentionally left unbound. The dispatcher fails such
+  steps explicitly with "NOT YET IMPLEMENTED", producing a deliberately red
+  board that drives Slices B-F. Nothing is skipped or xfail'd.
+
+The step registry uses regular-expression matching (an optional extension
+over exact-text matching); named groups become keyword arguments to the
+handler, letting one handler serve parameterised (Scenario Outline) rows.
+"""
+from __future__ import annotations
+
+import csv
+import re
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Callable
+
+import pytest
+
+from analyst.domain.types import ColumnType
+from analyst.engine.store import DatasetStore
+from analyst.service.ingestion import IngestionService
+
+
+# --------------------------------------------------------------------------- #
+# Scenario context — shared state flowing Given -> When -> Then
+# --------------------------------------------------------------------------- #
+@dataclass
+class ScenarioContext:
+    """Mutable state for a single scenario execution.
+
+    A fresh instance is created per scenario (state is cleared between
+    scenarios by construction), so handlers never leak into one another.
+    """
+
+    tmp_path: Path
+    scenario: str = ""
+    spec: str = ""
+
+    # Given-phase fixtures
+    file_path: Path | None = None
+    header: list[str] = field(default_factory=list)
+    rows: list[list[object]] = field(default_factory=list)
+
+    # When-phase system objects
+    service: IngestionService | None = None
+    result: object | None = None
+
+
+# --------------------------------------------------------------------------- #
+# Step registry + dispatcher
+# --------------------------------------------------------------------------- #
+_REGISTRY: list[tuple[re.Pattern[str], Callable[..., None]]] = []
+
+
+def step(pattern: str) -> Callable[[Callable[..., None]], Callable[..., None]]:
+    """Register a handler for step text fully matching ``pattern`` (regex).
+
+    Named groups in the pattern are passed to the handler as keyword args.
+    """
+    compiled = re.compile(pattern)
+
+    def register(func: Callable[..., None]) -> Callable[..., None]:
+        _REGISTRY.append((compiled, func))
+        return func
+
+    return register
+
+
+def run_step(ctx: ScenarioContext, keyword: str, text: str) -> None:
+    """Dispatch one concrete (post-substitution) step to its handler.
+
+    - No matching handler  -> explicit NOT YET IMPLEMENTED failure.
+    - Handler assertion    -> failure annotated with scenario + spec source.
+    Both paths report the source spec.md and the failing scenario name.
+    """
+    for pattern, func in _REGISTRY:
+        match = pattern.fullmatch(text)
+        if match is None:
+            continue
+        try:
+            func(ctx, **match.groupdict())
+        except AssertionError as exc:  # readable acceptance board
+            pytest.fail(
+                f"{keyword} {text}\n"
+                f"  assertion: {exc}\n"
+                f"  scenario:  {ctx.scenario}\n"
+                f"  spec:      {ctx.spec}",
+                pytrace=False,
+            )
+        return
+
+    pytest.fail(
+        f"NOT YET IMPLEMENTED: {keyword} {text}\n"
+        f"  scenario: {ctx.scenario}\n"
+        f"  spec:     {ctx.spec}",
+        pytrace=False,
+    )
+
+
+# --------------------------------------------------------------------------- #
+# Bound steps — scenario: "A clean CSV becomes a profiled, queryable dataset"
+# --------------------------------------------------------------------------- #
+@step(r'a clean CSV file "(?P<name>[^"]+)" with a header row and (?P<n>\d+) data rows')
+def given_clean_csv_with_rows(ctx: ScenarioContext, name: str, n: str) -> None:
+    """Write a clean CSV fixture: one header row + N data rows.
+
+    Columns span three inferable types (integer / text / decimal) so the
+    profile has something meaningful to report per column.
+    """
+    count = int(n)
+    header = ["id", "name", "amount"]
+    rows: list[list[object]] = [
+        [i, f"user{i}", round(i * 1.5, 2)] for i in range(1, count + 1)
+    ]
+    path = ctx.tmp_path / name
+    with path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.writer(handle)
+        writer.writerow(header)
+        writer.writerows(rows)
+    ctx.file_path = path
+    ctx.header = header
+    ctx.rows = rows
+
+
+@step(r"the user ingests the file")
+def when_user_ingests_the_file(ctx: ScenarioContext) -> None:
+    """Drive the real facade: build a store in the tmp dir and ingest."""
+    assert ctx.file_path is not None, "no file was prepared by a Given step"
+    ctx.service = IngestionService(DatasetStore(base_dir=ctx.tmp_path / "store"))
+    ctx.result = ctx.service.ingest(ctx.file_path)
+
+
+@step(r'a dataset named "(?P<name>[^"]+)" is available')
+def then_dataset_named_available(ctx: ScenarioContext, name: str) -> None:
+    assert ctx.result is not None, "ingestion did not run"
+    assert ctx.result.dataset_name == name, (
+        f"expected dataset name {name!r}, got {ctx.result.dataset_name!r}"
+    )
+    # "available" == queryable through the store.
+    rows = ctx.service.store.fetch_all(name)
+    assert rows is not None
+
+
+@step(r"the dataset has the same columns as the file")
+def then_same_columns(ctx: ScenarioContext) -> None:
+    got = [c.name for c in ctx.result.profile.columns]
+    assert got == ctx.header, f"expected columns {ctx.header}, got {got}"
+
+
+@step(r"querying the dataset returns the same (?P<n>\d+) rows as the file")
+def then_same_rows(ctx: ScenarioContext, n: str) -> None:
+    expected = int(n)
+    queried = ctx.service.store.fetch_all(ctx.result.dataset_name)
+    assert len(queried) == expected, (
+        f"expected {expected} queried rows, got {len(queried)}"
+    )
+    assert len(queried) == len(ctx.rows), (
+        f"queried rows ({len(queried)}) differ from source rows ({len(ctx.rows)})"
+    )
+
+
+@step(r"the dataset reports a row count of (?P<n>\d+)")
+def then_row_count(ctx: ScenarioContext, n: str) -> None:
+    expected = int(n)
+    assert ctx.result.profile.row_count == expected, (
+        f"expected row_count {expected}, got {ctx.result.profile.row_count}"
+    )
+
+
+@step(
+    r"each column reports an inferred type, a null rate, a distinct-value "
+    r"count, and representative sample values"
+)
+def then_each_column_profiled(ctx: ScenarioContext) -> None:
+    profile = ctx.result.profile
+    assert profile.columns, "profile has no columns"
+    for col in profile.columns:
+        assert isinstance(col.inferred_type, ColumnType), (
+            f"column {col.name!r} has no inferred type"
+        )
+        rate = profile.null_rate(col.name)
+        assert 0.0 <= rate <= 1.0, f"column {col.name!r} null_rate out of range: {rate}"
+        assert isinstance(col.distinct_count, int) and col.distinct_count >= 0, (
+            f"column {col.name!r} has no distinct-value count"
+        )
+        assert isinstance(col.samples, tuple) and len(col.samples) >= 1, (
+            f"column {col.name!r} has no representative sample values"
+        )
