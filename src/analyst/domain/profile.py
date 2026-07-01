@@ -18,6 +18,11 @@ class ColumnProfile:
     minimum: object | None = None
     maximum: object | None = None
     quantiles: tuple[object, ...] = ()
+    # Mixed-type facts (AC-9): a text column whose values mostly fit a narrower
+    # type but not entirely — widened to text, with the mixture recorded.
+    is_mixed: bool = False
+    dominant_type: ColumnType | None = None
+    off_type_examples: tuple[object, ...] = ()
     # Null rate is dataset-relative (needs the row count); see DatasetProfile.null_rate.
 
 

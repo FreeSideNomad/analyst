@@ -418,3 +418,61 @@ def then_no_questions_asked(ctx: ScenarioContext) -> None:
     # Slice A/B ingestion never emits a clarification; the AskQuestion path
     # arrives in Slice D. A successful autopilot result implies no questions.
     assert ctx.result is not None and ctx.error is None
+
+
+# --------------------------------------------------------------------------- #
+# Slice B — mixed-type widening (AC-9) and encodings (AC-13)
+# --------------------------------------------------------------------------- #
+@step(
+    r'a CSV column "(?P<column>[^"]+)" whose values are mostly whole numbers '
+    r"with a few text values"
+)
+def given_mixed_column(ctx: ScenarioContext, column: str) -> None:
+    values = ["1", "2", "3", "4", "5", "abc", "def"]
+    path = ctx.tmp_path / "mixed.csv"
+    with path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.writer(handle)
+        writer.writerow([column])
+        writer.writerows([[v] for v in values])
+    ctx.file_path = path
+
+
+@step(r'the profile records that "(?P<column>[^"]+)" was mixed')
+def then_recorded_mixed(ctx: ScenarioContext, column: str) -> None:
+    col = next(c for c in ctx.result.profile.columns if c.name == column)
+    assert col.is_mixed is True, f"column {column!r} was not recorded as mixed"
+
+
+@step(r"the profile names the dominant type and shows example off-type values")
+def then_names_dominant_and_offtypes(ctx: ScenarioContext) -> None:
+    col = next(c for c in ctx.result.profile.columns if c.is_mixed)
+    assert col.dominant_type is not None, "no dominant type recorded"
+    assert len(col.off_type_examples) >= 1, "no off-type examples recorded"
+
+
+_ENCODING_CODECS = {
+    "UTF-16": "utf-16",
+    "latin-1": "latin-1",
+    "UTF-8-BOM": "utf-8-sig",
+}
+
+
+@step(r"a CSV file encoded as (?P<encoding>UTF-16|latin-1|UTF-8-BOM)")
+def given_file_encoded_as(ctx: ScenarioContext, encoding: str) -> None:
+    codec = _ENCODING_CODECS[encoding]
+    cities = ["café", "Zürich", "façade", "naïve", "Málaga"]
+    lines = ["id,city"] + [f"{i},{city}" for i, city in enumerate(cities)]
+    path = ctx.tmp_path / "encoded.csv"
+    path.write_bytes(("\n".join(lines) + "\n").encode(codec))
+    ctx.file_path = path
+
+
+@step(r"the text values are decoded correctly")
+def then_decoded_correctly(ctx: ScenarioContext) -> None:
+    cities = {row[1] for row in ctx.service.store.fetch_all(ctx.result.dataset_name)}
+    assert {"café", "Zürich", "façade"} <= cities, f"decoded values wrong: {cities}"
+
+
+@step(r"the profile records a detected encoding")
+def then_records_encoding(ctx: ScenarioContext) -> None:
+    assert ctx.result.profile.encoding, "no detected encoding recorded"

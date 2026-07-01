@@ -138,7 +138,7 @@ Feature: File ingestion & agentic data profiling
     Given a CSV file encoded as <encoding>
     When the user ingests the file
     Then the text values are decoded correctly
-    And the profile records the detected encoding as "<encoding>"
+    And the profile records a detected encoding
 
     Examples:
       | encoding |

@@ -71,3 +71,36 @@ def test_non_numeric_columns_do_not_report_distribution_statistics():
     assert name.minimum is None
     assert name.maximum is None
     assert name.quantiles == ()
+
+
+def _con_with_mixed():
+    con = duckdb.connect()
+    con.execute(
+        "CREATE TABLE m AS SELECT * FROM (VALUES "
+        "('1'),('2'),('3'),('4'),('5'),('abc'),('def')) AS v(code)"
+    )
+    return con
+
+
+def test_mixed_column_is_widened_to_text_and_recorded():
+    prof = profile_relation(_con_with_mixed(), "m")
+    code = next(c for c in prof.columns if c.name == "code")
+    assert code.inferred_type == ColumnType.TEXT
+    assert code.is_mixed is True
+    assert code.dominant_type == ColumnType.INTEGER
+    assert any("abc" == str(v) or "def" == str(v) for v in code.off_type_examples)
+
+
+def test_pure_text_column_is_not_mixed():
+    con = duckdb.connect()
+    con.execute("CREATE TABLE t AS SELECT * FROM (VALUES ('alice'),('bob')) AS v(name)")
+    prof = profile_relation(con, "t")
+    name = next(c for c in prof.columns if c.name == "name")
+    assert name.is_mixed is False
+    assert name.dominant_type is None
+
+
+def test_pure_numeric_column_is_not_mixed():
+    prof = profile_relation(_con_with_table(), "t")
+    ident = next(c for c in prof.columns if c.name == "id")
+    assert ident.is_mixed is False

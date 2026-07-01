@@ -10,6 +10,35 @@ from analyst.domain.types import from_duckdb_type
 DEFAULT_SAMPLE_CAP = 20
 NUMERIC_QUANTILES = (0.25, 0.5, 0.75)
 
+# Narrower types a text column's values are tested against, most-specific first.
+_MIXED_CANDIDATES = (
+    (ColumnType.INTEGER, "BIGINT"),
+    (ColumnType.DECIMAL, "DOUBLE"),
+    (ColumnType.BOOLEAN, "BOOLEAN"),
+    (ColumnType.DATE, "DATE"),
+    (ColumnType.DATETIME, "TIMESTAMP"),
+)
+MIXED_MAJORITY = 0.5
+
+
+def _detect_mixed(con, rel, col, non_null, sample_cap):
+    """If a text column is a majority-narrower-type with off-type stragglers,
+    report (dominant_type, off_type_examples). Otherwise (None, ())."""
+    if non_null <= 0:
+        return None, ()
+    for cand_type, cast_type in _MIXED_CANDIDATES:
+        match = con.execute(
+            f"SELECT COUNT(TRY_CAST({col} AS {cast_type})) FROM {rel}"
+        ).fetchone()[0]
+        if 0 < match < non_null and match >= MIXED_MAJORITY * non_null:
+            off = con.execute(
+                f"SELECT DISTINCT {col} FROM {rel} "
+                f"WHERE {col} IS NOT NULL AND TRY_CAST({col} AS {cast_type}) IS NULL "
+                f"LIMIT {int(sample_cap)}"
+            ).fetchall()
+            return cand_type, tuple(o[0] for o in off)
+    return None, ()
+
 
 def _quote_ident(name: str) -> str:
     return '"' + name.replace('"', '""') + '"'
@@ -57,6 +86,13 @@ def profile_relation(
             minimum, maximum = agg[2], agg[3]
             quantiles = tuple(agg[4]) if agg[4] is not None else ()
 
+        dominant_type = None
+        off_type_examples: tuple[object, ...] = ()
+        if inferred_type is ColumnType.TEXT:
+            dominant_type, off_type_examples = _detect_mixed(
+                con, rel, col, int(row_count) - int(null_count), sample_cap
+            )
+
         samples = con.execute(
             f"SELECT DISTINCT {col} FROM {rel} "
             f"WHERE {col} IS NOT NULL LIMIT {int(sample_cap)}"
@@ -72,6 +108,9 @@ def profile_relation(
                 minimum=minimum,
                 maximum=maximum,
                 quantiles=quantiles,
+                is_mixed=dominant_type is not None,
+                dominant_type=dominant_type,
+                off_type_examples=off_type_examples,
             )
         )
 
