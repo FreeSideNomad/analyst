@@ -124,3 +124,17 @@ class DatasetStore:
 
     def fetch_all(self, dataset: str) -> list[tuple]:
         return self._con.execute(f"SELECT * FROM {_quote_ident(dataset)}").fetchall()
+
+    def delete(self, dataset: str) -> None:
+        """Drop the dataset's view and remove its materialized files (AC-20)."""
+        self._con.execute(f"DROP VIEW IF EXISTS {_quote_ident(dataset)}")
+        for suffix in (".parquet", ".norm.csv"):
+            path = self.base_dir / f"{dataset}{suffix}"
+            path.unlink(missing_ok=True)
+
+    def exists(self, dataset: str) -> bool:
+        rows = self._con.execute(
+            "SELECT 1 FROM information_schema.tables WHERE table_name = ?",
+            [dataset],
+        ).fetchall()
+        return len(rows) > 0

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from analyst.domain.profile import DatasetProfile
 from analyst.domain.types import ColumnType
 
 
@@ -54,3 +55,22 @@ class CatalogPayload:
     dataset: str
     row_count: int
     columns: tuple[ColumnMetadata, ...] = field(default_factory=tuple)
+
+
+def payload_from_profile(dataset: str, profile: DatasetProfile) -> CatalogPayload:
+    """Build the metadata-only egress payload from a dataset profile.
+
+    Samples are sorted so the rendered prompt is deterministic (stable
+    record/replay keys). Only metadata + samples — never bulk rows (AC-16).
+    """
+    columns = tuple(
+        ColumnMetadata(
+            name=col.name,
+            inferred_type=col.inferred_type,
+            null_rate=profile.null_rate(col.name),
+            distinct_count=col.distinct_count,
+            samples=tuple(sorted(col.samples, key=lambda v: str(v))),
+        )
+        for col in profile.columns
+    )
+    return CatalogPayload(dataset=dataset, row_count=profile.row_count, columns=columns)

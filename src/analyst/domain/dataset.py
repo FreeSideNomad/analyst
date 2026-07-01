@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from analyst.domain.catalog import CatalogEntry
 from analyst.domain.profile import DatasetProfile
 
 
@@ -13,6 +14,7 @@ class DatasetSummary:
 
     name: str
     profile: DatasetProfile
+    catalog: CatalogEntry | None = None
 
 
 @dataclass(frozen=True)

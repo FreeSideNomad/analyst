@@ -12,7 +12,10 @@ import os
 import re
 from pathlib import Path
 
+from analyst.agentic.cataloguer import Cataloguer
+from analyst.domain.catalog import CatalogEntry, payload_from_profile
 from analyst.domain.dataset import DatasetSummary, IngestionResult
+from analyst.domain.profile import DatasetProfile
 from analyst.engine.excel import ExcelReader
 from analyst.engine.reader import UnsupportedFormatError
 from analyst.engine.store import DatasetStore
@@ -28,10 +31,31 @@ def _sanitize(name: str) -> str:
 
 
 class IngestionService:
-    """Orchestrates ingestion. Thin — no bulk data handling of its own."""
+    """Orchestrates ingestion. Thin — no bulk data handling of its own.
 
-    def __init__(self, store: DatasetStore):
+    A cataloguer is optional: when present, each dataset gets an agent-authored
+    catalog entry (AC-4). If cataloguing fails, the dataset is rolled back so no
+    partial dataset remains (AC-17).
+    """
+
+    def __init__(self, store: DatasetStore, cataloguer: Cataloguer | None = None):
         self.store = store
+        self.cataloguer = cataloguer
+
+    def delete(self, dataset: str) -> None:
+        """Remove a dataset's data and (a later feature) its catalog entry (AC-20)."""
+        self.store.delete(dataset)
+
+    def _catalog(self, dataset: str, profile: DatasetProfile) -> CatalogEntry | None:
+        if self.cataloguer is None:
+            return None
+        from analyst.agentic.cataloguer import CatalogingError
+
+        try:
+            return self.cataloguer.catalog(payload_from_profile(dataset, profile))
+        except CatalogingError:
+            self.store.delete(dataset)  # rollback — no partial dataset (AC-17)
+            raise
 
     def ingest(self, source: str | os.PathLike[str]) -> IngestionResult:
         path = Path(source)
@@ -61,7 +85,7 @@ class IngestionService:
             synthesized_headers=plan.synthesized_headers,
             had_duplicate_columns=plan.had_duplicate_columns,
         )
-        return DatasetSummary(dataset, profile)
+        return DatasetSummary(dataset, profile, self._catalog(dataset, profile))
 
     def _ingest_json(
         self, dataset: str, path: str | os.PathLike[str]
@@ -74,7 +98,7 @@ class IngestionService:
                 for c in profile.columns
             )
             profile = dataclasses.replace(profile, columns=columns)
-        return DatasetSummary(dataset, profile)
+        return DatasetSummary(dataset, profile, self._catalog(dataset, profile))
 
     def _ingest_excel(self, path: Path) -> IngestionResult:
         summaries = [

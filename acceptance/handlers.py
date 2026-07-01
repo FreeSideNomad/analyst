@@ -61,6 +61,8 @@ class ScenarioContext:
     service: IngestionService | None = None
     result: object | None = None
     error: BaseException | None = None
+    cataloguer: object | None = None  # Slice D: optional agentic cataloguer
+    egress_log: object | None = None  # Slice D: governance audit surface
 
 
 # --------------------------------------------------------------------------- #
@@ -174,7 +176,9 @@ def when_user_ingests_the_file(ctx: ScenarioContext) -> None:
     rejection scenarios share this When step.
     """
     assert ctx.file_path is not None, "no file was prepared by a Given step"
-    ctx.service = IngestionService(DatasetStore(base_dir=ctx.tmp_path / "store"))
+    ctx.service = IngestionService(
+        DatasetStore(base_dir=ctx.tmp_path / "store"), cataloguer=ctx.cataloguer
+    )
     try:
         ctx.result = ctx.service.ingest(ctx.file_path)
         ctx.error = None
@@ -420,9 +424,11 @@ def then_ingestion_succeeds(ctx: ScenarioContext) -> None:
 
 @step(r"the user was not asked any questions")
 def then_no_questions_asked(ctx: ScenarioContext) -> None:
-    # Slice A/B ingestion never emits a clarification; the AskQuestion path
-    # arrives in Slice D. A successful autopilot result implies no questions.
+    # Autopilot: successful result, and (when catalogued) no clarifications.
     assert ctx.result is not None and ctx.error is None
+    catalog = ctx.result.datasets[0].catalog
+    if catalog is not None:
+        assert not catalog.clarifications, "the agent asked a question"
 
 
 # --------------------------------------------------------------------------- #
@@ -610,3 +616,179 @@ def then_fails_clearly(ctx: ScenarioContext) -> None:
 @step(r"no partial dataset remains")
 def then_no_partial_dataset(ctx: ScenarioContext) -> None:
     assert ctx.result is None, "a dataset remained after failure"
+
+
+# --------------------------------------------------------------------------- #
+# Slice D — agentic cataloguing (AC-4), governance (AC-16), atomicity (AC-17),
+# AskQuestion (AC-22), delete (AC-20).
+# --------------------------------------------------------------------------- #
+
+from acceptance.fixtures import (  # noqa: E402
+    AMBIGUOUS_CASSETTE,
+    AMBIGUOUS_CSV,
+    ORDERS_CASSETTE,
+    ORDERS_CSV,
+)
+from analyst.agentic.cataloguer import Cataloguer  # noqa: E402
+from analyst.agentic.gateway import (  # noqa: E402
+    EgressLog,
+    LLMGateway,
+    ReplayBackend,
+    StubBackend,
+)
+
+
+# --- AC-4: agent-authored catalog entry (recorded real response) ----------- #
+@step(r"a clean CSV file describing customer orders")
+def given_orders_csv(ctx: ScenarioContext) -> None:
+    path = ctx.tmp_path / "orders.csv"
+    path.write_text(ORDERS_CSV, encoding="utf-8")
+    ctx.file_path = path
+    ctx.cataloguer = Cataloguer(LLMGateway(ReplayBackend(ORDERS_CASSETTE)))
+
+
+@step(r"a catalog entry for the dataset exists")
+def then_catalog_exists(ctx: ScenarioContext) -> None:
+    assert ctx.result.datasets[0].catalog is not None
+
+
+@step(r"the catalog entry has a plain-English description of the table")
+def then_table_description(ctx: ScenarioContext) -> None:
+    assert ctx.result.datasets[0].catalog.table_description.strip()
+
+
+@step(r"each column has a plain-English description and an inferred role")
+def then_each_column_described(ctx: ScenarioContext) -> None:
+    catalog = ctx.result.datasets[0].catalog
+    assert catalog.columns, "no columns catalogued"
+    for col in catalog.columns:
+        assert col.description.strip(), f"{col.name} has no description"
+        assert col.role.strip(), f"{col.name} has no role"
+
+
+# --- AC-16: governance — only capped metadata/samples leave the box -------- #
+@step(r"a CSV file with (?P<n>[\d,]+) rows")
+def given_large_csv(ctx: ScenarioContext, n: str) -> None:
+    count = int(n.replace(",", ""))
+    path = ctx.tmp_path / "big.csv"
+    with path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.writer(handle)
+        writer.writerow(["id", "value"])
+        writer.writerows([[i, i * 2] for i in range(count)])
+    ctx.file_path = path
+    ctx.egress_log = EgressLog()
+    valid = _json.dumps(
+        {
+            "table_description": "rows of ids and values",
+            "columns": [
+                {"name": "id", "description": "the id", "role": "identifier"},
+                {"name": "value", "description": "the value", "role": "measure"},
+            ],
+            "clarifications": [],
+        }
+    )
+    ctx.cataloguer = Cataloguer(
+        LLMGateway(StubBackend(valid), egress_log=ctx.egress_log, sample_cap=5)
+    )
+
+
+@step(
+    r"the AI model receives only schema, profiles, and a capped number of "
+    r"small samples"
+)
+def then_only_metadata_sent(ctx: ScenarioContext) -> None:
+    assert ctx.egress_log.entries, "nothing was sent"
+    for entry in ctx.egress_log.entries:
+        for col in entry["columns"]:
+            assert {"type", "null_rate", "distinct_count", "sample_count"} <= set(col)
+
+
+@step(r"the number of sample values sent is within the enforced cap")
+def then_within_cap(ctx: ScenarioContext) -> None:
+    for entry in ctx.egress_log.entries:
+        for col in entry["columns"]:
+            assert col["sample_count"] <= 5
+
+
+@step(r"every AI model interaction is recorded in an egress log")
+def then_interactions_logged(ctx: ScenarioContext) -> None:
+    assert len(ctx.egress_log.entries) >= 1
+
+
+@step(r"no bulk row data appears in the egress log")
+def then_no_bulk_in_log(ctx: ScenarioContext) -> None:
+    assert ctx.egress_log.sent_value_count() < ctx.result.profile.row_count
+
+
+# --- AC-17: atomicity — cataloguing failure leaves no partial dataset ------ #
+@step(r"a file whose cataloguing fails partway through")
+def given_cataloguing_fails(ctx: ScenarioContext) -> None:
+    path = ctx.tmp_path / "f.csv"
+    path.write_text("id,name\n1,alice\n2,bob\n", encoding="utf-8")
+    ctx.file_path = path
+    ctx.cataloguer = Cataloguer(LLMGateway(StubBackend("this is not valid json")))
+
+
+@step(r"no dataset is left behind")
+def then_no_dataset_left(ctx: ScenarioContext) -> None:
+    assert ctx.error is not None, "ingestion did not fail"
+    assert not ctx.service.store.exists("f"), "a partial dataset remained"
+
+
+@step(r"the user sees a clear error and can retry")
+def then_clear_error_and_retry(ctx: ScenarioContext) -> None:
+    assert ctx.error is not None and str(ctx.error).strip()
+
+
+# --- AC-22: AskQuestion on low confidence (recorded real clarification) ----- #
+@step(r"a column the agent cannot confidently describe or assign a role to")
+def given_ambiguous_column(ctx: ScenarioContext) -> None:
+    path = ctx.tmp_path / "ambiguous.csv"
+    path.write_text(AMBIGUOUS_CSV, encoding="utf-8")
+    ctx.file_path = path
+    ctx.cataloguer = Cataloguer(LLMGateway(ReplayBackend(AMBIGUOUS_CASSETTE)))
+
+
+@step(r"the file is ingested")
+def when_file_is_ingested(ctx: ScenarioContext) -> None:
+    when_user_ingests_the_file(ctx)
+
+
+@step(r"the agent asks the user a question with concrete options")
+def then_agent_asks_question(ctx: ScenarioContext) -> None:
+    catalog = ctx.result.datasets[0].catalog
+    assert catalog.clarifications, "the agent did not ask a question"
+    assert all(len(c.options) >= 2 for c in catalog.clarifications)
+
+
+@step(r"the agent does not fabricate a description for that column")
+def then_no_fabrication(ctx: ScenarioContext) -> None:
+    catalog = ctx.result.datasets[0].catalog
+    clarified = {c.column for c in catalog.clarifications}
+    assert "x7" in clarified, "the ambiguous column was not flagged"
+
+
+# --- AC-20: delete a dataset cleanly --------------------------------------- #
+@step(r'an existing dataset "(?P<name>[^"]+)"')
+def given_existing_dataset(ctx: ScenarioContext, name: str) -> None:
+    path = ctx.tmp_path / f"{name}.csv"
+    path.write_text("id,amount\n1,10\n2,20\n", encoding="utf-8")
+    ctx.service = IngestionService(DatasetStore(base_dir=ctx.tmp_path / "store"))
+    ctx.result = ctx.service.ingest(path)
+
+
+@step(r"the user deletes it")
+def when_user_deletes(ctx: ScenarioContext) -> None:
+    ctx.service.delete(ctx.result.dataset_name)
+
+
+@step(r"the dataset is no longer available")
+def then_dataset_not_available(ctx: ScenarioContext) -> None:
+    assert not ctx.service.store.exists(ctx.result.dataset_name)
+
+
+@step(r"its data and its catalog entry are removed with no orphaned artifacts")
+def then_no_orphaned_artifacts(ctx: ScenarioContext) -> None:
+    name = ctx.result.dataset_name
+    base = ctx.service.store.base_dir
+    assert not (base / f"{name}.parquet").exists()
