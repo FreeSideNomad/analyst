@@ -1,0 +1,28 @@
+# DAE build artifacts
+.build/
+**/.build/
+
+# Python (uv)
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+
+# Node / frontend
+node_modules/
+dist/
+.vite/
+
+# DuckDB / data artifacts
+*.duckdb
+*.duckdb.wal
+data/*.parquet
+
+# OS / editor
+.DS_Store
+.idea/
+
+# Claude Code local state
+.claude/scheduled_tasks.lock
+.claude/settings.local.json

@@ -1,0 +1,74 @@
+# DAE manifest — analyst
+# Checkpoint 0 (onboard). Schema: Foundation Design §2. Validated by dae_resolve.py.
+
+methodology_version: "0.2"
+project: analyst
+
+repos:
+  layout: single
+
+paths:
+  features: features
+  handoffs: .engineer/handoffs
+  discussions: .engineer/discussions.log
+
+roadmap:
+  type: local
+  ref: .engineer/roadmap.md
+
+tracker:
+  type: local
+
+team:
+  default_roles: [spec-writer, spec-reviewer, engineer, refiner, verifier]
+
+quality_thresholds:
+  unit_coverage: 80
+  mutation_score: 60
+
+mutation:
+  scope: changed_files
+  cadence: per_pr
+  default_per_feature: opt_in
+
+verification:
+  enforce_independence: true
+
+autonomy:
+  # Human chose "full" autonomy; DAE's ceiling level is `high`, so full maps to high.
+  default_level: high
+  allowed_levels: [low, medium, high]
+  stuck_loop_threshold: 3
+
+git:
+  manual: false
+
+acceptance:
+  impact_analysis: on
+
+agentic_summary:
+  format: markdown
+
+validation:
+  lsp:
+    servers:
+      python: pyright
+      typescript: typescript-language-server
+  clis:
+    available: [git, gh, uv, python3, node, npm, docker]
+    suggested: []
+  # staging / prod / feature_flags: none yet (omitted)
+
+remote:
+  ready: false
+  channel: none
+  stdio_mcp_blocker: false
+  notes: "No git origin yet. gh is installed — add a GitHub remote to enable cloud-agent dispatch (isolation-remote)."
+
+infra_quirks:
+  runtime_pins:
+    python: "3.14"
+    node: "24.x"
+  framework_constraints:
+    - "All DuckDB/Parquet access must go through the data-engine layer (no raw DuckDB in API/agentic code)."
+    - "Backend managed exclusively with uv; never bare python3/pip."
