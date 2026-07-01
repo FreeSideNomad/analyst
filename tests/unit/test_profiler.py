@@ -51,3 +51,23 @@ def test_collects_sample_values_within_cap():
     prof = profile_relation(con, "t", sample_cap=2)
     by_name = {c.name: c for c in prof.columns}
     assert 0 < len(by_name["id"].samples) <= 2
+
+
+def test_reports_numeric_distribution_statistics():
+    con = _con_with_table()
+    prof = profile_relation(con, "t")
+    by_name = {c.name: c for c in prof.columns}
+    amount = by_name["amount"]
+    assert amount.minimum == 10.5
+    assert amount.maximum == 30.25
+    assert len(amount.quantiles) == 3
+
+
+def test_non_numeric_columns_do_not_report_distribution_statistics():
+    con = _con_with_table()
+    prof = profile_relation(con, "t")
+    by_name = {c.name: c for c in prof.columns}
+    name = by_name["name"]
+    assert name.minimum is None
+    assert name.maximum is None
+    assert name.quantiles == ()

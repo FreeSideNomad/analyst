@@ -15,6 +15,9 @@ class ColumnProfile:
     null_count: int
     distinct_count: int
     samples: tuple[object, ...] = ()
+    minimum: object | None = None
+    maximum: object | None = None
+    quantiles: tuple[object, ...] = ()
 
     @property
     def null_rate(self) -> float:

@@ -137,6 +137,26 @@ def given_clean_csv_with_rows(ctx: ScenarioContext, name: str, n: str) -> None:
     ctx.rows = rows
 
 
+@step(r'a clean CSV file with a numeric column "(?P<column>[^"]+)"')
+def given_clean_csv_with_numeric_column(ctx: ScenarioContext, column: str) -> None:
+    """Write a small CSV fixture with one numeric column for distribution stats."""
+    header = ["id", column]
+    rows: list[list[object]] = [
+        [1, 10.0],
+        [2, 20.0],
+        [3, 30.0],
+        [4, 40.0],
+    ]
+    path = ctx.tmp_path / "numeric.csv"
+    with path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.writer(handle)
+        writer.writerow(header)
+        writer.writerows(rows)
+    ctx.file_path = path
+    ctx.header = header
+    ctx.rows = rows
+
+
 @step(r"the user ingests the file")
 def when_user_ingests_the_file(ctx: ScenarioContext) -> None:
     """Drive the real facade: build a store in the tmp dir and ingest."""
@@ -201,3 +221,18 @@ def then_each_column_profiled(ctx: ScenarioContext) -> None:
         assert isinstance(col.samples, tuple) and len(col.samples) >= 1, (
             f"column {col.name!r} has no representative sample values"
         )
+
+
+@step(r'the profile for "(?P<column>[^"]+)" reports its minimum, maximum, and quantiles')
+def then_numeric_distribution_statistics(ctx: ScenarioContext, column: str) -> None:
+    profile = ctx.result.profile
+    col = next(c for c in profile.columns if c.name == column)
+    assert col.minimum is not None, f"column {column!r} has no minimum"
+    assert col.maximum is not None, f"column {column!r} has no maximum"
+    assert col.minimum <= col.maximum, (
+        f"column {column!r} minimum {col.minimum!r} exceeds maximum {col.maximum!r}"
+    )
+    assert len(col.quantiles) >= 3, f"column {column!r} has no quantiles"
+    assert all(q is not None for q in col.quantiles), (
+        f"column {column!r} has empty quantile values"
+    )
