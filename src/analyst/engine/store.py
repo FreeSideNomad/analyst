@@ -108,13 +108,35 @@ class DatasetStore:
         return nested
 
     def _register_parquet(self, dataset: str, select_sql: str) -> None:
-        parquet_path = self.base_dir / f"{dataset}.parquet"
+        """Write the next version's Parquet and point the dataset view at it.
+
+        Each materialization is a new, retained version (AC-19); the view always
+        resolves to the latest.
+        """
+        version = len(self.versions(dataset)) + 1
+        parquet_path = self.base_dir / f"{dataset}.v{version}.parquet"
         self._con.execute(
             f"COPY ({select_sql}) TO {_sql_str(str(parquet_path))} (FORMAT PARQUET)"
         )
         self._con.execute(
             f"CREATE OR REPLACE VIEW {_quote_ident(dataset)} AS "
             f"SELECT * FROM read_parquet({_sql_str(str(parquet_path))})"
+        )
+
+    def versions(self, dataset: str) -> list[int]:
+        """Sorted version numbers retained on disk for a dataset."""
+        prefix = f"{dataset}.v"
+        out: list[int] = []
+        for path in self.base_dir.glob(f"{dataset}.v*.parquet"):
+            num = path.name[len(prefix) : -len(".parquet")]
+            if num.isdigit():
+                out.append(int(num))
+        return sorted(out)
+
+    def schema(self, dataset: str) -> tuple[tuple[str, str], ...]:
+        """The established schema: (column name, inferred type) pairs."""
+        return tuple(
+            (col.name, col.inferred_type.value) for col in self.profile(dataset).columns
         )
 
     def profile(self, dataset: str, sample_cap: int | None = None) -> DatasetProfile:
@@ -126,10 +148,10 @@ class DatasetStore:
         return self._con.execute(f"SELECT * FROM {_quote_ident(dataset)}").fetchall()
 
     def delete(self, dataset: str) -> None:
-        """Drop the dataset's view and remove its materialized files (AC-20)."""
+        """Drop the dataset's view and remove all its versions (AC-20)."""
         self._con.execute(f"DROP VIEW IF EXISTS {_quote_ident(dataset)}")
-        for suffix in (".parquet", ".norm.csv"):
-            path = self.base_dir / f"{dataset}{suffix}"
+        (self.base_dir / f"{dataset}.norm.csv").unlink(missing_ok=True)
+        for path in self.base_dir.glob(f"{dataset}.v*.parquet"):
             path.unlink(missing_ok=True)
 
     def exists(self, dataset: str) -> bool:

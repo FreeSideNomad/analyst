@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from analyst.domain.catalog import CatalogEntry
+from analyst.domain.catalog import CatalogEntry, Clarification
 from analyst.domain.profile import DatasetProfile
 
 
@@ -15,6 +15,21 @@ class DatasetSummary:
     name: str
     profile: DatasetProfile
     catalog: CatalogEntry | None = None
+
+
+@dataclass(frozen=True)
+class RefreshResult:
+    """Outcome of refreshing a dataset (AC-18, AC-19).
+
+    replaced=True → new data validated and installed as a new version.
+    clarification set → non-conforming data; the user is asked to loosen first.
+    """
+
+    dataset_name: str
+    replaced: bool
+    version: int | None = None
+    clarification: Clarification | None = None
+    profile: DatasetProfile | None = None
 
 
 @dataclass(frozen=True)

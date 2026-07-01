@@ -13,8 +13,8 @@ import re
 from pathlib import Path
 
 from analyst.agentic.cataloguer import Cataloguer
-from analyst.domain.catalog import CatalogEntry, payload_from_profile
-from analyst.domain.dataset import DatasetSummary, IngestionResult
+from analyst.domain.catalog import CatalogEntry, Clarification, payload_from_profile
+from analyst.domain.dataset import DatasetSummary, IngestionResult, RefreshResult
 from analyst.domain.profile import DatasetProfile
 from analyst.engine.excel import ExcelReader
 from analyst.engine.reader import UnsupportedFormatError
@@ -45,6 +45,52 @@ class IngestionService:
     def delete(self, dataset: str) -> None:
         """Remove a dataset's data and (a later feature) its catalog entry (AC-20)."""
         self.store.delete(dataset)
+
+    def refresh(
+        self,
+        dataset: str,
+        source: str | os.PathLike[str],
+        loosen: bool = False,
+    ) -> RefreshResult:
+        """Reload new data into an existing dataset's schema (AC-18, AC-19).
+
+        The new data is validated against the established schema BEFORE the
+        existing data is touched. Conforming data (or loosen=True) is installed
+        as a new, non-destructive version; non-conforming data leaves the
+        existing data untouched and returns a clarification asking to loosen.
+        """
+        src = Path(source)
+        if src.suffix.lower() not in _DELIMITED:
+            raise UnsupportedFormatError(
+                f"Refresh currently supports delimited files; got '{src.suffix}'."
+            )
+        delimiter = _DELIMITED[src.suffix.lower()]
+        established = self.store.schema(dataset)
+
+        candidate = f"{dataset}__candidate"
+        self.store.materialize_delimited(candidate, src, delimiter)
+        candidate_schema = self.store.schema(candidate)
+        self.store.delete(candidate)
+
+        if candidate_schema == established or loosen:
+            self.store.materialize_delimited(dataset, src, delimiter)
+            return RefreshResult(
+                dataset_name=dataset,
+                replaced=True,
+                version=len(self.store.versions(dataset)),
+                profile=self.store.profile(dataset),
+            )
+        return RefreshResult(
+            dataset_name=dataset,
+            replaced=False,
+            clarification=Clarification(
+                question=(
+                    f"The new data does not conform to the established schema of "
+                    f"'{dataset}'. Loosen the validations and replace anyway?"
+                ),
+                options=("Loosen validations and replace", "Keep the existing data"),
+            ),
+        )
 
     def _catalog(self, dataset: str, profile: DatasetProfile) -> CatalogEntry | None:
         if self.cataloguer is None:

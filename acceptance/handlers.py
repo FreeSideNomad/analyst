@@ -63,6 +63,8 @@ class ScenarioContext:
     error: BaseException | None = None
     cataloguer: object | None = None  # Slice D: optional agentic cataloguer
     egress_log: object | None = None  # Slice D: governance audit surface
+    refresh_file: Path | None = None  # Slice E: refresh source
+    refresh_result: object | None = None  # Slice E: refresh outcome
 
 
 # --------------------------------------------------------------------------- #
@@ -424,7 +426,10 @@ def then_ingestion_succeeds(ctx: ScenarioContext) -> None:
 
 @step(r"the user was not asked any questions")
 def then_no_questions_asked(ctx: ScenarioContext) -> None:
-    # Autopilot: successful result, and (when catalogued) no clarifications.
+    # Refresh context: no clarification. Ingest context: successful autopilot.
+    if ctx.refresh_result is not None:
+        assert ctx.refresh_result.clarification is None, "the agent asked a question"
+        return
     assert ctx.result is not None and ctx.error is None
     catalog = ctx.result.datasets[0].catalog
     if catalog is not None:
@@ -792,3 +797,94 @@ def then_no_orphaned_artifacts(ctx: ScenarioContext) -> None:
     name = ctx.result.dataset_name
     base = ctx.service.store.base_dir
     assert not (base / f"{name}.parquet").exists()
+
+
+# --------------------------------------------------------------------------- #
+# Slice E — refresh with schema validation (AC-18) + versioning (AC-19).
+# --------------------------------------------------------------------------- #
+_SALES_ESTABLISHED = "id,amount\n1,10\n2,20\n"
+_SALES_CONFORMING = "id,amount\n5,50\n6,60\n7,70\n"
+_SALES_VIOLATING = "id,amount\n5,notanumber\n6,alsotext\n"
+
+
+@step(r'an existing dataset "(?P<name>[^"]+)" with an established schema')
+def given_existing_dataset_with_schema(ctx: ScenarioContext, name: str) -> None:
+    path = ctx.tmp_path / f"{name}.csv"
+    path.write_text(_SALES_ESTABLISHED, encoding="utf-8")
+    ctx.service = IngestionService(DatasetStore(base_dir=ctx.tmp_path / "store"))
+    ctx.result = ctx.service.ingest(path)
+
+
+@step(r"a new file whose data conforms to that schema")
+def given_conforming_file(ctx: ScenarioContext) -> None:
+    path = ctx.tmp_path / "refresh_ok.csv"
+    path.write_text(_SALES_CONFORMING, encoding="utf-8")
+    ctx.refresh_file = path
+
+
+@step(r"a new file whose data violates that schema")
+def given_violating_file(ctx: ScenarioContext) -> None:
+    path = ctx.tmp_path / "refresh_bad.csv"
+    path.write_text(_SALES_VIOLATING, encoding="utf-8")
+    ctx.refresh_file = path
+
+
+@step(r'the user refreshes "(?P<name>[^"]+)" with the new file')
+def when_user_refreshes(ctx: ScenarioContext, name: str) -> None:
+    ctx.refresh_result = ctx.service.refresh(name, ctx.refresh_file)
+
+
+@step(r"the new data is validated against the schema before replacement")
+def then_validated_before_replacement(ctx: ScenarioContext) -> None:
+    assert ctx.refresh_result.replaced is True
+
+
+@step(r"the dataset's data is replaced with the new data")
+def then_data_replaced(ctx: ScenarioContext) -> None:
+    rows = ctx.service.store.fetch_all(ctx.refresh_result.dataset_name)
+    assert {r[0] for r in rows} == {5, 6, 7}, "data was not replaced"
+
+
+@step(r"the existing data is not silently replaced")
+def then_existing_not_replaced(ctx: ScenarioContext) -> None:
+    assert ctx.refresh_result.replaced is False
+    rows = ctx.service.store.fetch_all(ctx.refresh_result.dataset_name)
+    assert {r[0] for r in rows} == {1, 2}, "existing data was changed"
+
+
+@step(r"the user is asked, with concrete options, whether to loosen the validations")
+def then_asked_to_loosen(ctx: ScenarioContext) -> None:
+    clarification = ctx.refresh_result.clarification
+    assert clarification is not None and len(clarification.options) >= 2
+
+
+@step(r"the data is replaced only after the user chooses to loosen them")
+def then_replaced_after_loosen(ctx: ScenarioContext) -> None:
+    result = ctx.service.refresh(
+        ctx.refresh_result.dataset_name, ctx.refresh_file, loosen=True
+    )
+    assert result.replaced is True
+    rows = ctx.service.store.fetch_all(result.dataset_name)
+    assert {r[0] for r in rows} == {5, 6}
+
+
+@step(r"the user refreshes it with new data that conforms")
+def when_user_refreshes_conforming(ctx: ScenarioContext) -> None:
+    path = ctx.tmp_path / "refresh_v2.csv"
+    path.write_text(_SALES_CONFORMING, encoding="utf-8")
+    ctx.refresh_result = ctx.service.refresh(ctx.result.dataset_name, path)
+
+
+@step(r'a new version of "(?P<name>[^"]+)" is created')
+def then_new_version_created(ctx: ScenarioContext, name: str) -> None:
+    assert ctx.refresh_result.version == 2
+
+
+@step(r"the prior version is retained")
+def then_prior_version_retained(ctx: ScenarioContext) -> None:
+    assert 1 in ctx.service.store.versions(ctx.result.dataset_name)
+
+
+@step(r"the catalog links the versions")
+def then_catalog_links_versions(ctx: ScenarioContext) -> None:
+    assert ctx.service.store.versions(ctx.result.dataset_name) == [1, 2]
