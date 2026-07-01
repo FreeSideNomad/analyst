@@ -14,7 +14,7 @@ This repo was initialized through Claude Code plugins, especially DAE/ATDD and S
 ## Current Feature
 
 - Active feature: `features/001-file-ingestion-and-profiling/`.
-- Current implemented slice: CSV ingestion → Parquet/DuckDB materialization → deterministic profile.
+- Current implemented slices: CSV ingestion → Parquet/DuckDB materialization → deterministic profile, numeric distribution stats, and post-restart queryability.
 - Current in-process seam: `IngestionService(DatasetStore(...)).ingest(...)`.
 - Step bindings live in `acceptance/handlers.py`.
 - Acceptance generator lives in `acceptance/generator.py`.

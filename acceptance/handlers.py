@@ -157,12 +157,26 @@ def given_clean_csv_with_numeric_column(ctx: ScenarioContext, column: str) -> No
     ctx.rows = rows
 
 
+@step(r'the user has ingested a clean CSV file "(?P<name>[^"]+)"')
+def given_user_has_ingested_clean_csv(ctx: ScenarioContext, name: str) -> None:
+    """Prepare and ingest a clean CSV so a later step can simulate restart."""
+    given_clean_csv_with_rows(ctx, name=name, n="3")
+    when_user_ingests_the_file(ctx)
+
+
 @step(r"the user ingests the file")
 def when_user_ingests_the_file(ctx: ScenarioContext) -> None:
     """Drive the real facade: build a store in the tmp dir and ingest."""
     assert ctx.file_path is not None, "no file was prepared by a Given step"
     ctx.service = IngestionService(DatasetStore(base_dir=ctx.tmp_path / "store"))
     ctx.result = ctx.service.ingest(ctx.file_path)
+
+
+@step(r"the system restarts")
+def when_system_restarts(ctx: ScenarioContext) -> None:
+    """Drop in-memory service objects and reopen the same store directory."""
+    assert ctx.result is not None, "no dataset was ingested before restart"
+    ctx.service = IngestionService(DatasetStore(base_dir=ctx.tmp_path / "store"))
 
 
 @step(r'a dataset named "(?P<name>[^"]+)" is available')
@@ -174,6 +188,16 @@ def then_dataset_named_available(ctx: ScenarioContext, name: str) -> None:
     # "available" == queryable through the store.
     rows = ctx.service.store.fetch_all(name)
     assert rows is not None
+
+
+@step(r'the dataset "(?P<name>[^"]+)" is still available and returns the same rows')
+def then_dataset_still_available_after_restart(ctx: ScenarioContext, name: str) -> None:
+    assert ctx.service is not None, "system was not restarted"
+    queried = ctx.service.store.fetch_all(name)
+    assert len(queried) == len(ctx.rows), (
+        f"expected {len(ctx.rows)} rows after restart, got {len(queried)}"
+    )
+    assert [tuple(row) for row in ctx.rows] == queried
 
 
 @step(r"the dataset has the same columns as the file")

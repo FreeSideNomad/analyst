@@ -55,9 +55,14 @@ Run the whole pipeline with:
   never skipped or xfail'd. A red board is intended: it drives the next slice.
 - Always run Python via `uv run` (see `pyproject.toml`).
 
-### Current state (Slice A — walking skeleton)
+### Current state (Feature 001 in progress)
 
-Fully bound and **passing**: `A clean CSV becomes a profiled, queryable
-dataset`. Every other scenario is generated as an explicit failing test that
-documents the desired behavior, driving Slices B–F. As each slice lands, add
-its step bindings to `acceptance/handlers.py` and re-run the pipeline.
+Fully bound and **passing**:
+
+- `A clean CSV becomes a profiled, queryable dataset`
+- `Numeric columns get distribution statistics`
+- `An ingested dataset remains queryable after a restart`
+
+Remaining scenarios are generated as explicit failing tests that document the
+desired behavior, driving later slices. As each slice lands, add its step
+bindings to `acceptance/handlers.py` and re-run the pipeline.

@@ -43,3 +43,13 @@ def test_query_returns_faithful_values(tmp_path):
     service.ingest(_write_csv(tmp_path))
     names = {r[1] for r in service.store.fetch_all("sales")}
     assert "alice" in names and "bob" in names
+
+
+def test_ingested_dataset_is_queryable_after_reopening_store(tmp_path):
+    service = _service(tmp_path)
+    service.ingest(_write_csv(tmp_path))
+    expected_rows = service.store.fetch_all("sales")
+
+    reopened = DatasetStore(base_dir=tmp_path / "store")
+
+    assert reopened.fetch_all("sales") == expected_rows
