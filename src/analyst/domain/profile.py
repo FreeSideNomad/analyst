@@ -24,6 +24,8 @@ class ColumnProfile:
     is_mixed: bool = False
     dominant_type: ColumnType | None = None
     off_type_examples: tuple[object, ...] = ()
+    # Nested-structure fact (AC-7): JSON object/array values preserved as text.
+    is_nested: bool = False
     # Null rate is dataset-relative (needs the row count); see DatasetProfile.null_rate.
 
 

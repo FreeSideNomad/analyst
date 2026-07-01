@@ -18,6 +18,14 @@ class EmptyFileError(ValueError):
     """Raised when a file has no usable content (AC-11)."""
 
 
+class UnsupportedFormatError(ValueError):
+    """Raised when a file's format is not supported (AC-14)."""
+
+
+class MalformedFileError(ValueError):
+    """Raised when a file cannot be parsed (AC-15)."""
+
+
 def _detect_encoding(raw: bytes) -> str:
     """Deterministic encoding detection (AC-13).
 
@@ -78,7 +86,7 @@ def _disambiguate(names: list[str]) -> tuple[list[str], bool]:
 class CsvReader:
     """Inspects a delimited file to plan its ingestion."""
 
-    def plan(self, path: str | os.PathLike[str]) -> ReadPlan:
+    def plan(self, path: str | os.PathLike[str], delimiter: str = ",") -> ReadPlan:
         raw = Path(path).read_bytes()
         if not raw.strip():
             raise EmptyFileError("The file is empty — there is no data to ingest.")
@@ -86,7 +94,7 @@ class CsvReader:
         encoding = _detect_encoding(raw)
         text = raw.decode(encoding, errors="replace")
 
-        reader = csv.reader(io.StringIO(text))
+        reader = csv.reader(io.StringIO(text), delimiter=delimiter)
         first_row = next(reader, [])
         if not first_row:
             raise EmptyFileError("The file has no columns.")

@@ -120,3 +120,13 @@ def test_infers_rich_scalar_types_end_to_end(tmp_path):
     assert t["active"] == ColumnType.BOOLEAN
     assert t["order_date"] == ColumnType.DATE
     assert t["created_at"] == ColumnType.DATETIME
+
+
+def test_ingestion_result_exposes_datasets_list(tmp_path):
+    result = _service(tmp_path).ingest(_write_csv(tmp_path))
+    assert len(result.datasets) == 1
+    assert result.datasets[0].name == "sales"
+    assert result.datasets[0].profile.row_count == 3
+    # backward-compat single-dataset accessors still work
+    assert result.dataset_name == "sales"
+    assert result.profile.row_count == 3

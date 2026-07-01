@@ -321,7 +321,7 @@ def given_header_only_csv(ctx: ScenarioContext) -> None:
 def then_dataset_with_n_rows(ctx: ScenarioContext, n: str) -> None:
     assert ctx.result is not None, "ingestion did not run"
     assert ctx.result.profile.row_count == int(n)
-    assert ctx.service.store.fetch_all(ctx.result.dataset_name) == []
+    assert len(ctx.service.store.fetch_all(ctx.result.dataset_name)) == int(n)
 
 
 @step(r"the dataset's schema is fully profiled")
@@ -481,3 +481,132 @@ def then_decoded_correctly(ctx: ScenarioContext) -> None:
 @step(r"the profile records a detected encoding")
 def then_records_encoding(ctx: ScenarioContext) -> None:
     assert ctx.result.profile.encoding, "no detected encoding recorded"
+
+
+# --------------------------------------------------------------------------- #
+# Slice C — formats (TSV, JSON, Excel) and rejection (AC-6, AC-7, AC-14, AC-15)
+# --------------------------------------------------------------------------- #
+import json as _json  # noqa: E402
+
+from openpyxl import Workbook  # noqa: E402
+
+
+@step(r'a clean tab-separated file "(?P<name>[^"]+)" with a header row')
+def given_clean_tsv(ctx: ScenarioContext, name: str) -> None:
+    path = ctx.tmp_path / name
+    path.write_text("id\tname\n1\talice\n2\tbob\n", encoding="utf-8")
+    ctx.file_path = path
+
+
+@step(r'a profiled, queryable dataset "(?P<name>[^"]+)" is available')
+def then_profiled_queryable_dataset(ctx: ScenarioContext, name: str) -> None:
+    assert ctx.result is not None
+    assert ctx.result.dataset_name == name
+    assert ctx.result.profile.columns, "dataset was not profiled"
+    assert ctx.service.store.fetch_all(name) is not None
+
+
+@step(r"a JSON file containing an array of (?P<n>\d+) order records")
+def given_json_array(ctx: ScenarioContext, n: str) -> None:
+    records = [{"id": i, "name": f"user{i}"} for i in range(int(n))]
+    path = ctx.tmp_path / "orders.json"
+    path.write_text(_json.dumps(records), encoding="utf-8")
+    ctx.file_path = path
+
+
+@step(r"each record field is a profiled column")
+def then_record_fields_profiled(ctx: ScenarioContext) -> None:
+    names = {c.name for c in ctx.result.profile.columns}
+    assert {"id", "name"} <= names, f"expected record fields, got {names}"
+
+
+@step(r'a JSON file whose records contain a nested object under "(?P<field>[^"]+)"')
+def given_nested_json(ctx: ScenarioContext, field: str) -> None:
+    records = [
+        {"id": 1, field: {"city": "NYC", "zip": "10001"}},
+        {"id": 2, field: {"city": "LA", "zip": "90001"}},
+    ]
+    path = ctx.tmp_path / "nested.json"
+    path.write_text(_json.dumps(records), encoding="utf-8")
+    ctx.file_path = path
+
+
+@step(r'the "(?P<field>[^"]+)" content is preserved in the dataset')
+def then_nested_preserved(ctx: ScenarioContext, field: str) -> None:
+    idx = [c.name for c in ctx.result.profile.columns].index(field)
+    values = [row[idx] for row in ctx.service.store.fetch_all(ctx.result.dataset_name)]
+    assert all(v not in (None, "") for v in values), "nested content was dropped"
+
+
+@step(r'the profile records that "(?P<field>[^"]+)" holds nested structure')
+def then_records_nested(ctx: ScenarioContext, field: str) -> None:
+    col = next(c for c in ctx.result.profile.columns if c.name == field)
+    assert col.is_nested is True
+
+
+@step(r'an Excel workbook with two non-empty sheets "(?P<a>[^"]+)" and "(?P<b>[^"]+)"')
+def given_excel_workbook(ctx: ScenarioContext, a: str, b: str) -> None:
+    wb = Workbook()
+    first = wb.active
+    first.title = a
+    first.append(["id", "total"])
+    first.append([1, 100])
+    second = wb.create_sheet(b)
+    second.append(["order_id"])
+    second.append([1])
+    path = ctx.tmp_path / "book.xlsx"
+    wb.save(path)
+    ctx.file_path = path
+
+
+@step(r"the user ingests the workbook")
+def when_user_ingests_the_workbook(ctx: ScenarioContext) -> None:
+    when_user_ingests_the_file(ctx)
+
+
+@step(r'a dataset "(?P<name>[^"]+)" is available')
+def then_named_dataset_available(ctx: ScenarioContext, name: str) -> None:
+    names = {d.name for d in ctx.result.datasets}
+    assert name in names, f"expected dataset {name!r} among {names}"
+    assert ctx.service.store.fetch_all(name) is not None
+
+
+@step(r"each dataset is independently profiled and catalogued")
+def then_each_dataset_profiled(ctx: ScenarioContext) -> None:
+    assert ctx.result.datasets, "no datasets produced"
+    assert all(d.profile.columns for d in ctx.result.datasets)
+
+
+@step(r"a file in an unsupported format")
+def given_unsupported_file(ctx: ScenarioContext) -> None:
+    path = ctx.tmp_path / "report.pdf"
+    path.write_bytes(b"%PDF-1.4 not really a pdf")
+    ctx.file_path = path
+
+
+@step(
+    r"ingestion is rejected with a message naming the supported formats "
+    r"CSV, TSV, Excel, and JSON"
+)
+def then_rejected_naming_formats(ctx: ScenarioContext) -> None:
+    assert ctx.error is not None, "expected rejection"
+    message = str(ctx.error)
+    assert all(fmt in message for fmt in ("CSV", "TSV", "Excel", "JSON"))
+
+
+@step(r"a corrupt file that cannot be parsed")
+def given_corrupt_file(ctx: ScenarioContext) -> None:
+    path = ctx.tmp_path / "broken.xlsx"
+    path.write_bytes(b"this is not a real workbook")
+    ctx.file_path = path
+
+
+@step(r"ingestion fails with a clear, actionable error")
+def then_fails_clearly(ctx: ScenarioContext) -> None:
+    assert ctx.error is not None, "expected a failure"
+    assert str(ctx.error).strip(), "error message was empty"
+
+
+@step(r"no partial dataset remains")
+def then_no_partial_dataset(ctx: ScenarioContext) -> None:
+    assert ctx.result is None, "a dataset remained after failure"

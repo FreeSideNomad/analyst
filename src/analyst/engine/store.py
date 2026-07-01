@@ -26,6 +26,17 @@ def _quote_ident(name: str) -> str:
     return '"' + name.replace('"', '""') + '"'
 
 
+def _is_nested_type(duckdb_type: str) -> bool:
+    """True for DuckDB composite types (objects/arrays/maps) and JSON."""
+    upper = duckdb_type.upper()
+    return (
+        upper.startswith("STRUCT")
+        or upper.startswith("MAP")
+        or upper == "JSON"
+        or upper.endswith("[]")
+    )
+
+
 class DatasetStore:
     """Owns the analytical store: Parquet files + a DuckDB connection.
 
@@ -38,10 +49,14 @@ class DatasetStore:
         self._con = duckdb.connect(str(self.base_dir / "catalog.duckdb"))
         self._reader = CsvReader()
 
-    def materialize_csv(
-        self, dataset: str, csv_path: str | os.PathLike[str]
+    def materialize_delimited(
+        self,
+        dataset: str,
+        source_path: str | os.PathLike[str],
+        delimiter: str = ",",
     ) -> ReadPlan:
-        """Read a CSV via the reader, normalize it, and materialize to Parquet.
+        """Read a delimited file (CSV/TSV) via the reader, normalize it, and
+        materialize to Parquet.
 
         The reader resolves encoding, header presence, and final (disambiguated
         or synthesized) column names; we rewrite a clean UTF-8 CSV with those
@@ -51,9 +66,9 @@ class DatasetStore:
         NOTE: the normalize step reads the whole file in Python; streaming
         transcode is a Slice F (perf/scale) concern.
         """
-        plan = self._reader.plan(csv_path)
-        text = Path(csv_path).read_bytes().decode(plan.encoding, errors="replace")
-        rows = list(csv.reader(io.StringIO(text)))
+        plan = self._reader.plan(source_path, delimiter=delimiter)
+        text = Path(source_path).read_bytes().decode(plan.encoding, errors="replace")
+        rows = list(csv.reader(io.StringIO(text), delimiter=delimiter))
         data_rows = rows[1:] if plan.has_header else rows
 
         norm_path = self.base_dir / f"{dataset}.norm.csv"
@@ -62,16 +77,45 @@ class DatasetStore:
             writer.writerow(plan.column_names)
             writer.writerows(data_rows)
 
+        self._register_parquet(
+            dataset,
+            f"SELECT * FROM read_csv_auto({_sql_str(str(norm_path))}, header=true)",
+        )
+        return plan
+
+    def materialize_json(
+        self, dataset: str, json_path: str | os.PathLike[str]
+    ) -> tuple[str, ...]:
+        """Materialize a JSON file (array of records) to Parquet.
+
+        Nested values (objects/arrays) are preserved as JSON text rather than
+        dropped; their column names are returned so the caller can record them.
+        """
+        src = _sql_str(str(json_path))
+        schema = self._con.execute(
+            f"DESCRIBE SELECT * FROM read_json_auto({src})"
+        ).fetchall()
+        nested = tuple(row[0] for row in schema if _is_nested_type(row[1]))
+        select = ", ".join(
+            (
+                f"to_json({_quote_ident(name)}) AS {_quote_ident(name)}"
+                if _is_nested_type(dtype)
+                else _quote_ident(name)
+            )
+            for name, dtype, *_ in schema
+        )
+        self._register_parquet(dataset, f"SELECT {select} FROM read_json_auto({src})")
+        return nested
+
+    def _register_parquet(self, dataset: str, select_sql: str) -> None:
         parquet_path = self.base_dir / f"{dataset}.parquet"
         self._con.execute(
-            f"COPY (SELECT * FROM read_csv_auto({_sql_str(str(norm_path))}, header=true)) "
-            f"TO {_sql_str(str(parquet_path))} (FORMAT PARQUET)"
+            f"COPY ({select_sql}) TO {_sql_str(str(parquet_path))} (FORMAT PARQUET)"
         )
         self._con.execute(
             f"CREATE OR REPLACE VIEW {_quote_ident(dataset)} AS "
             f"SELECT * FROM read_parquet({_sql_str(str(parquet_path))})"
         )
-        return plan
 
     def profile(self, dataset: str, sample_cap: int | None = None) -> DatasetProfile:
         if sample_cap is None:
