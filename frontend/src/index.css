@@ -1,0 +1,15 @@
+@import './styles/swiss-tokens.css';
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { font-family: var(--font-primary); font-size: 16px; line-height: var(--line-height-normal); color: var(--color-text-primary); background-color: var(--color-bg); -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+body { min-height: 100vh; }
+#root { min-height: 100vh; display: flex; flex-direction: column; }
+a { color: var(--color-accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+button { font-family: inherit; cursor: pointer; border: none; background: none; }
+input, textarea { font-family: inherit; font-size: inherit; }
+code, pre { font-family: var(--font-mono); }
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--color-border-strong); border-radius: var(--border-radius-full); }
+::-webkit-scrollbar-thumb:hover { background: var(--color-text-tertiary); }

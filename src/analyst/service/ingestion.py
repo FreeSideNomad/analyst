@@ -4,6 +4,7 @@ Slice A: orchestrate CSV read → materialize → deterministic profile.
 """
 from __future__ import annotations
 
+import dataclasses
 import os
 import re
 from pathlib import Path
@@ -28,6 +29,12 @@ class IngestionService:
     def ingest(self, source: str | os.PathLike[str]) -> IngestionResult:
         path = Path(source)
         dataset = _dataset_name_from_path(path)
-        self.store.materialize_csv(dataset, path)
+        plan = self.store.materialize_csv(dataset, path)
         profile = self.store.profile(dataset)
+        profile = dataclasses.replace(
+            profile,
+            encoding=plan.encoding,
+            synthesized_headers=plan.synthesized_headers,
+            had_duplicate_columns=plan.had_duplicate_columns,
+        )
         return IngestionResult(dataset_name=dataset, profile=profile)

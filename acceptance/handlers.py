@@ -59,6 +59,7 @@ class ScenarioContext:
     # When-phase system objects
     service: IngestionService | None = None
     result: object | None = None
+    error: BaseException | None = None
 
 
 # --------------------------------------------------------------------------- #
@@ -166,10 +167,19 @@ def given_user_has_ingested_clean_csv(ctx: ScenarioContext, name: str) -> None:
 
 @step(r"the user ingests the file")
 def when_user_ingests_the_file(ctx: ScenarioContext) -> None:
-    """Drive the real facade: build a store in the tmp dir and ingest."""
+    """Drive the real facade: build a store in the tmp dir and ingest.
+
+    Captures either the result or the raised error, so both success and
+    rejection scenarios share this When step.
+    """
     assert ctx.file_path is not None, "no file was prepared by a Given step"
     ctx.service = IngestionService(DatasetStore(base_dir=ctx.tmp_path / "store"))
-    ctx.result = ctx.service.ingest(ctx.file_path)
+    try:
+        ctx.result = ctx.service.ingest(ctx.file_path)
+        ctx.error = None
+    except Exception as exc:  # noqa: BLE001 - scenarios assert on ctx.error
+        ctx.result = None
+        ctx.error = exc
 
 
 @step(r"the system restarts")
@@ -260,3 +270,93 @@ def then_numeric_distribution_statistics(ctx: ScenarioContext, column: str) -> N
     assert all(q is not None for q in col.quantiles), (
         f"column {column!r} has empty quantile values"
     )
+
+
+# --------------------------------------------------------------------------- #
+# Slice B — edge cases: headers, empty, duplicates
+# --------------------------------------------------------------------------- #
+@step(r"a CSV file whose first row is data rather than column names")
+def given_headerless_csv(ctx: ScenarioContext) -> None:
+    rows = [[1, "alice", 10.5], [2, "bob", 20.0]]
+    path = ctx.tmp_path / "headerless.csv"
+    with path.open("w", newline="", encoding="utf-8") as handle:
+        csv.writer(handle).writerows(rows)
+    ctx.file_path = path
+    ctx.rows = rows
+
+
+@step(r'the dataset columns are named "(?P<first>[^"]+)", "(?P<second>[^"]+)", and so on')
+def then_columns_named(ctx: ScenarioContext, first: str, second: str) -> None:
+    names = [c.name for c in ctx.result.profile.columns]
+    assert names[0] == first, f"expected first column {first!r}, got {names[0]!r}"
+    assert names[1] == second, f"expected second column {second!r}, got {names[1]!r}"
+
+
+@step(r"no data row was consumed as a header")
+def then_no_data_row_consumed(ctx: ScenarioContext) -> None:
+    assert ctx.result.profile.row_count == len(ctx.rows), (
+        f"expected {len(ctx.rows)} data rows, got {ctx.result.profile.row_count}"
+    )
+
+
+@step(r"the profile records that column names were synthesized")
+def then_records_synthesized(ctx: ScenarioContext) -> None:
+    assert ctx.result.profile.synthesized_headers is True
+
+
+@step(r"a CSV file with a header row but no data rows")
+def given_header_only_csv(ctx: ScenarioContext) -> None:
+    path = ctx.tmp_path / "schema_only.csv"
+    path.write_text("id,name,amount\n", encoding="utf-8")
+    ctx.file_path = path
+    ctx.header = ["id", "name", "amount"]
+
+
+@step(r"a dataset with (?P<n>\d+) rows is available")
+def then_dataset_with_n_rows(ctx: ScenarioContext, n: str) -> None:
+    assert ctx.result is not None, "ingestion did not run"
+    assert ctx.result.profile.row_count == int(n)
+    assert ctx.service.store.fetch_all(ctx.result.dataset_name) == []
+
+
+@step(r"the dataset's schema is fully profiled")
+def then_schema_fully_profiled(ctx: ScenarioContext) -> None:
+    cols = ctx.result.profile.columns
+    assert cols, "no columns profiled"
+    assert all(c.inferred_type is not None for c in cols)
+
+
+@step(r"a file with no content")
+def given_empty_file(ctx: ScenarioContext) -> None:
+    path = ctx.tmp_path / "empty.csv"
+    path.write_text("", encoding="utf-8")
+    ctx.file_path = path
+
+
+@step(r"ingestion is rejected with a clear, friendly message")
+def then_rejected_with_message(ctx: ScenarioContext) -> None:
+    assert ctx.error is not None, "expected ingestion to be rejected"
+    assert str(ctx.error).strip(), "rejection message was empty"
+
+
+@step(r"no dataset is created")
+def then_no_dataset_created(ctx: ScenarioContext) -> None:
+    assert ctx.result is None, "a dataset was created despite rejection"
+
+
+@step(r'a CSV file with two columns both named "(?P<name>[^"]+)"')
+def given_duplicate_columns_csv(ctx: ScenarioContext, name: str) -> None:
+    path = ctx.tmp_path / "dup.csv"
+    path.write_text(f"{name},{name}\n1,2\n", encoding="utf-8")
+    ctx.file_path = path
+
+
+@step(r'the dataset has distinct column names "(?P<a>[^"]+)" and "(?P<b>[^"]+)"')
+def then_distinct_column_names(ctx: ScenarioContext, a: str, b: str) -> None:
+    names = [c.name for c in ctx.result.profile.columns]
+    assert names == [a, b], f"expected {[a, b]}, got {names}"
+
+
+@step(r"the profile records that the source had duplicate column names")
+def then_records_duplicates(ctx: ScenarioContext) -> None:
+    assert ctx.result.profile.had_duplicate_columns is True

@@ -27,6 +27,10 @@ class DatasetProfile:
 
     row_count: int
     columns: tuple[ColumnProfile, ...] = field(default_factory=tuple)
+    # Ingestion facts recorded for transparency / later curation.
+    encoding: str | None = None
+    synthesized_headers: bool = False
+    had_duplicate_columns: bool = False
 
     def null_rate(self, column_name: str) -> float:
         """Null fraction for a column (0.0 when there are no rows)."""
