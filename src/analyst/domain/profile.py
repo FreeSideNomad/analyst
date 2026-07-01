@@ -18,12 +18,7 @@ class ColumnProfile:
     minimum: object | None = None
     maximum: object | None = None
     quantiles: tuple[object, ...] = ()
-
-    @property
-    def null_rate(self) -> float:
-        """Fraction of values that are null, given the dataset row count."""
-        # null_rate needs the row count; exposed via DatasetProfile.null_rate.
-        raise NotImplementedError  # pragma: no cover
+    # Null rate is dataset-relative (needs the row count); see DatasetProfile.null_rate.
 
 
 @dataclass(frozen=True)

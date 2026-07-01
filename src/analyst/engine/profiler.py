@@ -28,35 +28,40 @@ def profile_relation(
     rel = _quote_ident(relation)
     row_count = con.execute(f"SELECT COUNT(*) FROM {rel}").fetchone()[0]
 
+    quantile_list = "[" + ", ".join(str(q) for q in NUMERIC_QUANTILES) + "]"
     schema = con.execute(f"DESCRIBE {rel}").fetchall()
     columns: list[ColumnProfile] = []
     for row in schema:
         col_name, col_type = row[0], row[1]
         col = _quote_ident(col_name)
         inferred_type = from_duckdb_type(col_type)
-        null_count = con.execute(
-            f"SELECT COUNT(*) - COUNT({col}) FROM {rel}"
-        ).fetchone()[0]
-        distinct_count = con.execute(
-            f"SELECT COUNT(DISTINCT {col}) FROM {rel}"
-        ).fetchone()[0]
+        is_numeric = inferred_type in {ColumnType.INTEGER, ColumnType.DECIMAL}
+
+        # One set-based aggregate query per column (plan D1 performance budget).
+        select = [
+            f"COUNT(*) - COUNT({col})",  # null_count
+            f"COUNT(DISTINCT {col})",  # distinct_count
+        ]
+        if is_numeric:
+            select += [
+                f"MIN({col})",
+                f"MAX({col})",
+                f"quantile_cont({col}, {quantile_list})",
+            ]
+        agg = con.execute(f"SELECT {', '.join(select)} FROM {rel}").fetchone()
+        null_count, distinct_count = agg[0], agg[1]
+
+        minimum = maximum = None
+        quantiles: tuple[object, ...] = ()
+        if is_numeric:
+            minimum, maximum = agg[2], agg[3]
+            quantiles = tuple(agg[4]) if agg[4] is not None else ()
+
         samples = con.execute(
             f"SELECT DISTINCT {col} FROM {rel} "
             f"WHERE {col} IS NOT NULL LIMIT {int(sample_cap)}"
         ).fetchall()
-        minimum = None
-        maximum = None
-        quantiles: tuple[object, ...] = ()
-        if inferred_type in {ColumnType.INTEGER, ColumnType.DECIMAL}:
-            minimum, maximum = con.execute(
-                f"SELECT MIN({col}), MAX({col}) FROM {rel}"
-            ).fetchone()
-            quantiles = tuple(
-                con.execute(
-                    f"SELECT quantile_cont({col}, {quantile}) FROM {rel}"
-                ).fetchone()[0]
-                for quantile in NUMERIC_QUANTILES
-            )
+
         columns.append(
             ColumnProfile(
                 name=col_name,
