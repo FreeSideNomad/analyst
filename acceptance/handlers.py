@@ -65,6 +65,9 @@ class ScenarioContext:
     egress_log: object | None = None  # Slice D: governance audit surface
     refresh_file: Path | None = None  # Slice E: refresh source
     refresh_result: object | None = None  # Slice E: refresh outcome
+    max_bytes: int = 1_000_000_000  # Slice F: size envelope (AC-21)
+    status_recorder: list = field(default_factory=list)  # Slice F: AC-23
+    golden_dataset: str | None = None  # Slice F: AC-24 golden-corpus dataset
 
 
 # --------------------------------------------------------------------------- #
@@ -179,7 +182,9 @@ def when_user_ingests_the_file(ctx: ScenarioContext) -> None:
     """
     assert ctx.file_path is not None, "no file was prepared by a Given step"
     ctx.service = IngestionService(
-        DatasetStore(base_dir=ctx.tmp_path / "store"), cataloguer=ctx.cataloguer
+        DatasetStore(base_dir=ctx.tmp_path / "store"),
+        cataloguer=ctx.cataloguer,
+        max_bytes=ctx.max_bytes,
     )
     try:
         ctx.result = ctx.service.ingest(ctx.file_path)
@@ -888,3 +893,119 @@ def then_prior_version_retained(ctx: ScenarioContext) -> None:
 @step(r"the catalog links the versions")
 def then_catalog_links_versions(ctx: ScenarioContext) -> None:
     assert ctx.service.store.versions(ctx.result.dataset_name) == [1, 2]
+
+
+# --------------------------------------------------------------------------- #
+# Slice F — performance envelope (AC-21) + observable status (AC-23).
+# --------------------------------------------------------------------------- #
+from analyst.domain.status import IngestionStatus  # noqa: E402
+
+_STATE_MAP = {
+    "in progress": IngestionStatus.IN_PROGRESS,
+    "complete": IngestionStatus.COMPLETE,
+    "failed": IngestionStatus.FAILED,
+}
+
+
+@step(r"a CSV file of roughly 1 gigabyte with a few million rows")
+def given_large_within_envelope(ctx: ScenarioContext) -> None:
+    # Representative but CI-sized: well within the default ~1 GB envelope.
+    path = ctx.tmp_path / "large.csv"
+    with path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.writer(handle)
+        writer.writerow(["id", "value", "label"])
+        writer.writerows([[i, i * 1.5, f"row{i}"] for i in range(100_000)])
+    ctx.file_path = path
+
+
+@step(r"the dataset is profiled and catalogued successfully")
+def then_profiled_successfully(ctx: ScenarioContext) -> None:
+    assert ctx.error is None, f"ingestion failed: {ctx.error}"
+    assert ctx.result.profile.columns
+    assert ctx.result.profile.row_count == 100_000
+
+
+@step(r"a file larger than the supported size")
+def given_oversize_file(ctx: ScenarioContext) -> None:
+    path = ctx.tmp_path / "oversize.csv"
+    path.write_text("id,v\n1,2\n3,4\n", encoding="utf-8")
+    ctx.file_path = path
+    ctx.max_bytes = 10  # tiny envelope so this file is "beyond"
+
+
+@step(r'ingestion is rejected with a clear "too large for this version" message')
+def then_rejected_too_large(ctx: ScenarioContext) -> None:
+    assert ctx.error is not None, "oversize file was not rejected"
+    assert "too large for this version" in str(ctx.error).lower()
+
+
+@step(r"a file being ingested")
+def given_file_being_ingested(ctx: ScenarioContext) -> None:
+    path = ctx.tmp_path / "status.csv"
+    path.write_text("id,name\n1,alice\n2,bob\n", encoding="utf-8")
+    ctx.file_path = path
+
+
+@step(r'ingestion reaches the "(?P<state>[^"]+)" state')
+def when_ingestion_reaches_state(ctx: ScenarioContext, state: str) -> None:
+    recorder = ctx.status_recorder
+    service = IngestionService(
+        DatasetStore(base_dir=ctx.tmp_path / "store"),
+        status_sink=lambda dataset, status: recorder.append(status),
+    )
+    source = ctx.file_path
+    if _STATE_MAP[state] is IngestionStatus.FAILED:
+        bad = ctx.tmp_path / "bad.pdf"
+        bad.write_bytes(b"not a supported file")
+        source = bad
+    try:
+        service.ingest(source)
+    except Exception:  # noqa: BLE001 - failure path is under test
+        pass
+
+
+@step('the dataset\'s status observably reflects "(?P<state>[^"]+)"')
+def then_status_reflects(ctx: ScenarioContext, state: str) -> None:
+    assert _STATE_MAP[state] in ctx.status_recorder
+
+
+# --------------------------------------------------------------------------- #
+# Slice F — AC-24: profiling matches ground truth on real golden-corpus data.
+# --------------------------------------------------------------------------- #
+from acceptance.golden import (  # noqa: E402
+    download as _golden_download,
+    load_ground_truth as _load_ground_truth,
+    profile_facts as _profile_facts,
+)
+
+
+@step(r'the golden-corpus dataset "(?P<dataset>[^"]+)" with documented ground truth')
+def given_golden_dataset(ctx: ScenarioContext, dataset: str) -> None:
+    ctx.golden_dataset = dataset
+    ctx.file_path = _golden_download(dataset)
+
+
+@step(r"the user ingests it")
+def when_user_ingests_it(ctx: ScenarioContext) -> None:
+    service = IngestionService(DatasetStore(base_dir=ctx.tmp_path / "store"))
+    ctx.result = service.ingest(ctx.file_path)
+
+
+@step(
+    r"the reported types, null rates, and cardinalities match the documented "
+    r"ground truth within tolerance"
+)
+def then_matches_ground_truth(ctx: ScenarioContext) -> None:
+    main = max(ctx.result.datasets, key=lambda d: d.profile.row_count)
+    facts = _profile_facts(main.profile)
+    truth = _load_ground_truth()[ctx.golden_dataset]
+
+    assert facts["row_count"] == truth["row_count"], "row count differs"
+    assert set(facts["columns"]) == set(truth["columns"]), "columns differ"
+    for name, expected in truth["columns"].items():
+        got = facts["columns"][name]
+        assert got["type"] == expected["type"], f"{name}: type {got['type']}"
+        assert abs(got["null_rate"] - expected["null_rate"]) <= 0.02, (
+            f"{name}: null_rate {got['null_rate']} vs {expected['null_rate']}"
+        )
+        assert got["distinct"] == expected["distinct"], f"{name}: cardinality"

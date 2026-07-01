@@ -12,6 +12,7 @@ dependencies = [
     "claude-agent-sdk>=0.2.110",
     "duckdb>=1.5.4",
     "openpyxl>=3.1.5",
+    "xlrd>=2.0.2",
 ]
 
 [build-system]
@@ -36,7 +37,7 @@ warn_redundant_casts = true
 warn_unused_ignores = true
 
 [[tool.mypy.overrides]]
-module = ["openpyxl.*", "claude_agent_sdk.*"]
+module = ["openpyxl.*", "claude_agent_sdk.*", "xlrd.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

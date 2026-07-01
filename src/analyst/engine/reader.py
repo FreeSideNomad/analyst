@@ -26,6 +26,10 @@ class MalformedFileError(ValueError):
     """Raised when a file cannot be parsed (AC-15)."""
 
 
+class FileTooLargeError(ValueError):
+    """Raised when a file exceeds the supported size envelope (AC-21)."""
+
+
 def _detect_encoding(raw: bytes) -> str:
     """Deterministic encoding detection (AC-13).
 

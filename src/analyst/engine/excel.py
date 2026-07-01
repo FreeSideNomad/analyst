@@ -1,8 +1,8 @@
 """Excel reader — expands a workbook into one normalized CSV per non-empty sheet.
 
-Each sheet becomes its own dataset (AC-6). By converting sheets to CSV we reuse
-the delimited-file materialization path (encoding is moot; openpyxl gives us
-unicode rows directly).
+Each sheet becomes its own dataset (AC-6). Supports both modern .xlsx (openpyxl)
+and legacy .xls (xlrd). By converting sheets to CSV we reuse the delimited-file
+materialization path.
 """
 
 from __future__ import annotations
@@ -22,6 +22,32 @@ def _sheet_has_content(rows: list[list[object]]) -> bool:
     )
 
 
+def _xlsx_sheets(path: str) -> list[tuple[str, list[list[object]]]]:
+    workbook = load_workbook(filename=path, read_only=True, data_only=True)
+    out = [
+        (sheet.title, [list(r) for r in sheet.iter_rows(values_only=True)])
+        for sheet in workbook.worksheets
+    ]
+    workbook.close()
+    return out
+
+
+def _xls_sheets(path: str) -> list[tuple[str, list[list[object]]]]:
+    import xlrd
+
+    book = xlrd.open_workbook(path)
+    return [
+        (
+            sheet.name,
+            [
+                [sheet.cell_value(r, c) for c in range(sheet.ncols)]
+                for r in range(sheet.nrows)
+            ],
+        )
+        for sheet in book.sheets()
+    ]
+
+
 class ExcelReader:
     """Reads an .xlsx/.xls workbook into per-sheet CSV files."""
 
@@ -32,23 +58,22 @@ class ExcelReader:
 
         Raises MalformedFileError if the workbook cannot be parsed.
         """
+        reader = _xls_sheets if str(path).lower().endswith(".xls") else _xlsx_sheets
         try:
-            workbook = load_workbook(filename=str(path), read_only=True, data_only=True)
-        except Exception as exc:  # openpyxl raises several types on bad files
+            sheets = reader(str(path))
+        except Exception as exc:  # openpyxl / xlrd raise several types on bad files
             raise MalformedFileError(
                 f"The Excel file could not be read: {exc}"
             ) from exc
 
         out: list[tuple[str, Path]] = []
-        for sheet in workbook.worksheets:
-            rows = [list(r) for r in sheet.iter_rows(values_only=True)]
+        for name, rows in sheets:
             if not _sheet_has_content(rows):
                 continue
-            csv_path = out_dir / f"sheet_{sheet.title}.csv"
+            csv_path = out_dir / f"sheet_{name}.csv"
             with csv_path.open("w", newline="", encoding="utf-8") as handle:
                 writer = csv.writer(handle)
                 for row in rows:
                     writer.writerow(["" if c is None else c for c in row])
-            out.append((sheet.title, csv_path))
-        workbook.close()
+            out.append((name, csv_path))
         return out

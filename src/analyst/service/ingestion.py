@@ -10,19 +10,24 @@ from __future__ import annotations
 import dataclasses
 import os
 import re
+from collections.abc import Callable
 from pathlib import Path
 
 from analyst.agentic.cataloguer import Cataloguer
 from analyst.domain.catalog import CatalogEntry, Clarification, payload_from_profile
 from analyst.domain.dataset import DatasetSummary, IngestionResult, RefreshResult
 from analyst.domain.profile import DatasetProfile
+from analyst.domain.status import IngestionStatus
 from analyst.engine.excel import ExcelReader
-from analyst.engine.reader import UnsupportedFormatError
+from analyst.engine.reader import FileTooLargeError, UnsupportedFormatError
 from analyst.engine.store import DatasetStore
 
 _DELIMITED = {".csv": ",", ".tsv": "\t"}
 _EXCEL = {".xlsx", ".xls"}
 _SUPPORTED = "CSV, TSV, Excel, JSON"
+DEFAULT_MAX_BYTES = 1_000_000_000  # ~1 GB envelope (AC-21)
+
+StatusSink = Callable[[str, IngestionStatus], None]
 
 
 def _sanitize(name: str) -> str:
@@ -38,9 +43,21 @@ class IngestionService:
     partial dataset remains (AC-17).
     """
 
-    def __init__(self, store: DatasetStore, cataloguer: Cataloguer | None = None):
+    def __init__(
+        self,
+        store: DatasetStore,
+        cataloguer: Cataloguer | None = None,
+        max_bytes: int = DEFAULT_MAX_BYTES,
+        status_sink: StatusSink | None = None,
+    ):
         self.store = store
         self.cataloguer = cataloguer
+        self.max_bytes = max_bytes
+        self.status_sink = status_sink
+
+    def _report(self, dataset: str, status: IngestionStatus) -> None:
+        if self.status_sink is not None:
+            self.status_sink(dataset, status)
 
     def delete(self, dataset: str) -> None:
         """Remove a dataset's data and (a later feature) its catalog entry (AC-20)."""
@@ -105,8 +122,27 @@ class IngestionService:
 
     def ingest(self, source: str | os.PathLike[str]) -> IngestionResult:
         path = Path(source)
-        ext = path.suffix.lower()
+        name = _sanitize(path.stem)
+        self._report(name, IngestionStatus.IN_PROGRESS)
+        try:
+            self._check_size(path)
+            result = self._dispatch(path)
+        except Exception:
+            self._report(name, IngestionStatus.FAILED)
+            raise
+        self._report(name, IngestionStatus.COMPLETE)
+        return result
 
+    def _check_size(self, path: Path) -> None:
+        size = path.stat().st_size if path.exists() else 0
+        if size > self.max_bytes:
+            raise FileTooLargeError(
+                f"The file is {size} bytes — too large for this version "
+                f"(limit {self.max_bytes} bytes)."
+            )
+
+    def _dispatch(self, path: Path) -> IngestionResult:
+        ext = path.suffix.lower()
         if ext in _DELIMITED:
             summary = self._ingest_delimited(
                 _sanitize(path.stem), path, _DELIMITED[ext]

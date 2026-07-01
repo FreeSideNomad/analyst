@@ -1,0 +1,297 @@
+{
+  "titanic": {
+    "row_count": 891,
+    "columns": {
+      "PassengerId": {
+        "type": "integer",
+        "null_rate": 0.0,
+        "distinct": 891
+      },
+      "Survived": {
+        "type": "integer",
+        "null_rate": 0.0,
+        "distinct": 2
+      },
+      "Pclass": {
+        "type": "integer",
+        "null_rate": 0.0,
+        "distinct": 3
+      },
+      "Name": {
+        "type": "text",
+        "null_rate": 0.0,
+        "distinct": 891
+      },
+      "Sex": {
+        "type": "text",
+        "null_rate": 0.0,
+        "distinct": 2
+      },
+      "Age": {
+        "type": "decimal",
+        "null_rate": 0.2,
+        "distinct": 88
+      },
+      "SibSp": {
+        "type": "integer",
+        "null_rate": 0.0,
+        "distinct": 7
+      },
+      "Parch": {
+        "type": "integer",
+        "null_rate": 0.0,
+        "distinct": 7
+      },
+      "Ticket": {
+        "type": "text",
+        "null_rate": 0.0,
+        "distinct": 681
+      },
+      "Fare": {
+        "type": "decimal",
+        "null_rate": 0.0,
+        "distinct": 248
+      },
+      "Cabin": {
+        "type": "text",
+        "null_rate": 0.77,
+        "distinct": 147
+      },
+      "Embarked": {
+        "type": "text",
+        "null_rate": 0.0,
+        "distinct": 3
+      }
+    }
+  },
+  "messy_imdb": {
+    "row_count": 101,
+    "columns": {
+      "IMBD title ID": {
+        "type": "text",
+        "null_rate": 0.01,
+        "distinct": 100
+      },
+      "Original titl\u00ca": {
+        "type": "text",
+        "null_rate": 0.01,
+        "distinct": 100
+      },
+      "Release year": {
+        "type": "text",
+        "null_rate": 0.01,
+        "distinct": 99
+      },
+      "Genr\u00eb\u00a8": {
+        "type": "text",
+        "null_rate": 0.01,
+        "distinct": 59
+      },
+      "Duration": {
+        "type": "text",
+        "null_rate": 0.01,
+        "distinct": 72
+      },
+      "Country": {
+        "type": "text",
+        "null_rate": 0.01,
+        "distinct": 18
+      },
+      "Content Rating": {
+        "type": "text",
+        "null_rate": 0.01,
+        "distinct": 8
+      },
+      "Director": {
+        "type": "text",
+        "null_rate": 0.01,
+        "distinct": 64
+      },
+      "column08": {
+        "type": "text",
+        "null_rate": 1.0,
+        "distinct": 0
+      },
+      "Income": {
+        "type": "text",
+        "null_rate": 0.01,
+        "distinct": 100
+      },
+      "Votes": {
+        "type": "text",
+        "null_rate": 0.01,
+        "distinct": 100
+      },
+      "Score": {
+        "type": "text",
+        "null_rate": 0.01,
+        "distinct": 28
+      }
+    }
+  },
+  "messy_hr": {
+    "row_count": 1000,
+    "columns": {
+      "Name": {
+        "type": "text",
+        "null_rate": 0.0,
+        "distinct": 10
+      },
+      "Age": {
+        "type": "text",
+        "null_rate": 0.0,
+        "distinct": 6
+      },
+      "Salary": {
+        "type": "text",
+        "null_rate": 0.0,
+        "distinct": 6
+      },
+      "Gender": {
+        "type": "text",
+        "null_rate": 0.0,
+        "distinct": 3
+      },
+      "Department": {
+        "type": "text",
+        "null_rate": 0.0,
+        "distinct": 5
+      },
+      "Position": {
+        "type": "text",
+        "null_rate": 0.0,
+        "distinct": 5
+      },
+      "Joining Date": {
+        "type": "text",
+        "null_rate": 0.0,
+        "distinct": 5
+      },
+      "Performance Score": {
+        "type": "text",
+        "null_rate": 0.0,
+        "distinct": 5
+      },
+      "Email": {
+        "type": "text",
+        "null_rate": 0.19,
+        "distinct": 4
+      },
+      "Phone Number": {
+        "type": "text",
+        "null_rate": 0.0,
+        "distinct": 5
+      }
+    }
+  },
+  "superstore": {
+    "row_count": 8399,
+    "columns": {
+      "Row ID": {
+        "type": "decimal",
+        "null_rate": 0.0,
+        "distinct": 8399
+      },
+      "Order ID": {
+        "type": "decimal",
+        "null_rate": 0.0,
+        "distinct": 5496
+      },
+      "Order Date": {
+        "type": "decimal",
+        "null_rate": 0.0,
+        "distinct": 1418
+      },
+      "Order Priority": {
+        "type": "text",
+        "null_rate": 0.0,
+        "distinct": 5
+      },
+      "Order Quantity": {
+        "type": "decimal",
+        "null_rate": 0.0,
+        "distinct": 50
+      },
+      "Sales": {
+        "type": "decimal",
+        "null_rate": 0.0,
+        "distinct": 8153
+      },
+      "Discount": {
+        "type": "decimal",
+        "null_rate": 0.0,
+        "distinct": 16
+      },
+      "Ship Mode": {
+        "type": "text",
+        "null_rate": 0.0,
+        "distinct": 3
+      },
+      "Profit": {
+        "type": "decimal",
+        "null_rate": 0.0,
+        "distinct": 7986
+      },
+      "Unit Price": {
+        "type": "decimal",
+        "null_rate": 0.0,
+        "distinct": 751
+      },
+      "Shipping Cost": {
+        "type": "decimal",
+        "null_rate": 0.0,
+        "distinct": 652
+      },
+      "Customer Name": {
+        "type": "text",
+        "null_rate": 0.0,
+        "distinct": 795
+      },
+      "Province": {
+        "type": "text",
+        "null_rate": 0.0,
+        "distinct": 13
+      },
+      "Region": {
+        "type": "text",
+        "null_rate": 0.0,
+        "distinct": 8
+      },
+      "Customer Segment": {
+        "type": "text",
+        "null_rate": 0.0,
+        "distinct": 4
+      },
+      "Product Category": {
+        "type": "text",
+        "null_rate": 0.0,
+        "distinct": 3
+      },
+      "Product Sub-Category": {
+        "type": "text",
+        "null_rate": 0.0,
+        "distinct": 17
+      },
+      "Product Name": {
+        "type": "text",
+        "null_rate": 0.0,
+        "distinct": 1263
+      },
+      "Product Container": {
+        "type": "text",
+        "null_rate": 0.0,
+        "distinct": 7
+      },
+      "Product Base Margin": {
+        "type": "decimal",
+        "null_rate": 0.01,
+        "distinct": 51
+      },
+      "Ship Date": {
+        "type": "decimal",
+        "null_rate": 0.0,
+        "distinct": 1450
+      }
+    }
+  }
+}

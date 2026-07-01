@@ -29,3 +29,6 @@ data/*.parquet
 
 # Secrets
 .env
+
+# Golden-corpus cache (fetched at test time, not committed)
+tests/.golden_cache/
