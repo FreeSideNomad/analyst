@@ -89,10 +89,10 @@ def _emit_test_function(
 ) -> str:
     lines = [
         f"def {name}(tmp_path):",
-        f"    ctx = ScenarioContext(tmp_path=tmp_path)",
+        "    ctx = ScenarioContext(tmp_path=tmp_path)",
         f"    ctx.scenario = {scenario_name!r}",
-        f"    ctx.spec = SPEC_MD",
-        f"    steps = [",
+        "    ctx.spec = SPEC_MD",
+        "    steps = [",
     ]
     for s in steps:
         lines.append(f"        ({s['keyword']!r}, {s['text']!r}),")
