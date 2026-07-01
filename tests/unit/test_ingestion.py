@@ -99,3 +99,23 @@ def test_header_only_file_becomes_zero_row_dataset(tmp_path):
     result = _service(tmp_path).ingest(header_only)
     assert result.profile.row_count == 0
     assert [c.name for c in result.profile.columns] == ["id", "name", "amount"]
+
+
+def test_infers_rich_scalar_types_end_to_end(tmp_path):
+    from analyst.domain.types import ColumnType
+
+    typed = tmp_path / "typed.csv"
+    typed.write_text(
+        "note,quantity,price,active,order_date,created_at\n"
+        "hello,3,10.5,true,2024-01-15,2024-01-15 09:30:00\n"
+        "world,5,20.0,false,2024-02-20,2024-02-20 14:00:00\n",
+        encoding="utf-8",
+    )
+    result = _service(tmp_path).ingest(typed)
+    t = {c.name: c.inferred_type for c in result.profile.columns}
+    assert t["note"] == ColumnType.TEXT
+    assert t["quantity"] == ColumnType.INTEGER
+    assert t["price"] == ColumnType.DECIMAL
+    assert t["active"] == ColumnType.BOOLEAN
+    assert t["order_date"] == ColumnType.DATE
+    assert t["created_at"] == ColumnType.DATETIME

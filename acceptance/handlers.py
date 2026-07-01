@@ -360,3 +360,61 @@ def then_distinct_column_names(ctx: ScenarioContext, a: str, b: str) -> None:
 @step(r"the profile records that the source had duplicate column names")
 def then_records_duplicates(ctx: ScenarioContext) -> None:
     assert ctx.result.profile.had_duplicate_columns is True
+
+
+# --------------------------------------------------------------------------- #
+# Slice B — rich scalar types (AC-5) and autopilot (AC-8)
+# --------------------------------------------------------------------------- #
+_TYPE_SAMPLE_VALUES = {
+    "free-form text": ["hello", "world", "example"],
+    "whole numbers": ["3", "7", "11"],
+    "numbers with decimals": ["1.5", "2.25", "3.75"],
+    "true/false values": ["true", "false", "true"],
+    "calendar dates": ["2024-01-15", "2024-02-20", "2024-03-05"],
+    "dates with a time of day": [
+        "2024-01-15 09:30:00",
+        "2024-02-20 14:00:00",
+        "2024-03-05 22:15:00",
+    ],
+}
+
+
+@step(
+    r'a CSV column "(?P<column>[^"]+)" whose values are '
+    r"(?P<description>free-form text|whole numbers|numbers with decimals|"
+    r"true/false values|calendar dates|dates with a time of day)"
+)
+def given_column_of_type(ctx: ScenarioContext, column: str, description: str) -> None:
+    values = _TYPE_SAMPLE_VALUES[description]
+    path = ctx.tmp_path / "typed.csv"
+    with path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.writer(handle)
+        writer.writerow([column])
+        writer.writerows([[v] for v in values])
+    ctx.file_path = path
+
+
+@step(r'the inferred type of "(?P<column>[^"]+)" is "(?P<type>[^"]+)"')
+def then_inferred_type(ctx: ScenarioContext, column: str, type: str) -> None:  # noqa: A002
+    col = next(c for c in ctx.result.profile.columns if c.name == column)
+    assert col.inferred_type.value == type, (
+        f"expected {column!r} type {type!r}, got {col.inferred_type.value!r}"
+    )
+
+
+@step(r"a clean, unambiguous CSV file")
+def given_clean_unambiguous_csv(ctx: ScenarioContext) -> None:
+    given_clean_csv_with_rows(ctx, name="clean.csv", n="5")
+
+
+@step(r"ingestion completes successfully")
+def then_ingestion_succeeds(ctx: ScenarioContext) -> None:
+    assert ctx.error is None, f"ingestion failed: {ctx.error!r}"
+    assert ctx.result is not None, "no result produced"
+
+
+@step(r"the user was not asked any questions")
+def then_no_questions_asked(ctx: ScenarioContext) -> None:
+    # Slice A/B ingestion never emits a clarification; the AskQuestion path
+    # arrives in Slice D. A successful autopilot result implies no questions.
+    assert ctx.result is not None and ctx.error is None
