@@ -1,4 +1,5 @@
 """Integration tests for the IngestionService facade (Slice A walking skeleton)."""
+
 import pytest
 
 from analyst.service.ingestion import IngestionService

@@ -17,6 +17,7 @@ or fails explicitly on an unimplemented step.
 Usage:
     generator.py <spec.json> <output_dir> [<spec.md>]
 """
+
 from __future__ import annotations
 
 import json
@@ -84,9 +85,7 @@ sys.path.insert(0, str(_repo_root()))
 '''
 
 
-def _emit_test_function(
-    name: str, scenario_name: str, steps: list[dict]
-) -> str:
+def _emit_test_function(name: str, scenario_name: str, steps: list[dict]) -> str:
     lines = [
         f"def {name}(tmp_path):",
         "    ctx = ScenarioContext(tmp_path=tmp_path)",

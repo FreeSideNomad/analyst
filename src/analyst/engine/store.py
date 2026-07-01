@@ -2,6 +2,7 @@
 
 Slice A: CSV → Parquet → registered view. Bulk data stays local (governance).
 """
+
 from __future__ import annotations
 
 import csv
@@ -78,6 +79,4 @@ class DatasetStore:
         return profile_relation(self._con, dataset, sample_cap=sample_cap)
 
     def fetch_all(self, dataset: str) -> list[tuple]:
-        return self._con.execute(
-            f"SELECT * FROM {_quote_ident(dataset)}"
-        ).fetchall()
+        return self._con.execute(f"SELECT * FROM {_quote_ident(dataset)}").fetchall()

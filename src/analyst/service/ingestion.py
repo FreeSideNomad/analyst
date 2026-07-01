@@ -2,6 +2,7 @@
 
 Slice A: orchestrate CSV read → materialize → deterministic profile.
 """
+
 from __future__ import annotations
 
 import dataclasses

@@ -1,4 +1,5 @@
 """Column type system — rich scalar types (CHARTER §3, AC-5)."""
+
 from __future__ import annotations
 
 from enum import Enum

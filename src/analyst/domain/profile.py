@@ -1,4 +1,5 @@
 """Profiling value objects (AC-2)."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field

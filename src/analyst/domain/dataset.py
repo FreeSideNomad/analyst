@@ -1,4 +1,5 @@
 """Dataset-level domain objects."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass

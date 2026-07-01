@@ -1,4 +1,5 @@
 """Deterministic, set-based profiling computed in DuckDB (plan D1)."""
+
 from __future__ import annotations
 
 import duckdb
@@ -21,15 +22,21 @@ _MIXED_CANDIDATES = (
 MIXED_MAJORITY = 0.5
 
 
-def _detect_mixed(con, rel, col, non_null, sample_cap):
+def _detect_mixed(
+    con: duckdb.DuckDBPyConnection,
+    rel: str,
+    col: str,
+    non_null: int,
+    sample_cap: int,
+) -> tuple[ColumnType | None, tuple[object, ...]]:
     """If a text column is a majority-narrower-type with off-type stragglers,
     report (dominant_type, off_type_examples). Otherwise (None, ())."""
     if non_null <= 0:
         return None, ()
     for cand_type, cast_type in _MIXED_CANDIDATES:
-        match = con.execute(
-            f"SELECT COUNT(TRY_CAST({col} AS {cast_type})) FROM {rel}"
-        ).fetchone()[0]
+        match = _fetch_row(
+            con, f"SELECT COUNT(TRY_CAST({col} AS {cast_type})) FROM {rel}"
+        )[0]
         if 0 < match < non_null and match >= MIXED_MAJORITY * non_null:
             off = con.execute(
                 f"SELECT DISTINCT {col} FROM {rel} "
@@ -44,6 +51,13 @@ def _quote_ident(name: str) -> str:
     return '"' + name.replace('"', '""') + '"'
 
 
+def _fetch_row(con: duckdb.DuckDBPyConnection, sql: str) -> tuple:
+    """Run a query expected to return exactly one row; never None."""
+    row = con.execute(sql).fetchone()
+    assert row is not None, "aggregate query returned no row"
+    return row
+
+
 def profile_relation(
     con: duckdb.DuckDBPyConnection,
     relation: str,
@@ -55,7 +69,7 @@ def profile_relation(
     capped set of sample values. Nothing here calls an LLM.
     """
     rel = _quote_ident(relation)
-    row_count = con.execute(f"SELECT COUNT(*) FROM {rel}").fetchone()[0]
+    row_count = _fetch_row(con, f"SELECT COUNT(*) FROM {rel}")[0]
 
     quantile_list = "[" + ", ".join(str(q) for q in NUMERIC_QUANTILES) + "]"
     schema = con.execute(f"DESCRIBE {rel}").fetchall()
@@ -77,7 +91,7 @@ def profile_relation(
                 f"MAX({col})",
                 f"quantile_cont({col}, {quantile_list})",
             ]
-        agg = con.execute(f"SELECT {', '.join(select)} FROM {rel}").fetchone()
+        agg = _fetch_row(con, f"SELECT {', '.join(select)} FROM {rel}")
         null_count, distinct_count = agg[0], agg[1]
 
         minimum = maximum = None

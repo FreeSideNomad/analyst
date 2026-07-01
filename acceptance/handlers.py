@@ -21,6 +21,7 @@ The step registry uses regular-expression matching (an optional extension
 over exact-text matching); named groups become keyword arguments to the
 handler, letting one handler serve parameterised (Scenario Outline) rows.
 """
+
 from __future__ import annotations
 
 import csv
@@ -257,7 +258,9 @@ def then_each_column_profiled(ctx: ScenarioContext) -> None:
         )
 
 
-@step(r'the profile for "(?P<column>[^"]+)" reports its minimum, maximum, and quantiles')
+@step(
+    r'the profile for "(?P<column>[^"]+)" reports its minimum, maximum, and quantiles'
+)
 def then_numeric_distribution_statistics(ctx: ScenarioContext, column: str) -> None:
     profile = ctx.result.profile
     col = next(c for c in profile.columns if c.name == column)
@@ -285,7 +288,9 @@ def given_headerless_csv(ctx: ScenarioContext) -> None:
     ctx.rows = rows
 
 
-@step(r'the dataset columns are named "(?P<first>[^"]+)", "(?P<second>[^"]+)", and so on')
+@step(
+    r'the dataset columns are named "(?P<first>[^"]+)", "(?P<second>[^"]+)", and so on'
+)
 def then_columns_named(ctx: ScenarioContext, first: str, second: str) -> None:
     names = [c.name for c in ctx.result.profile.columns]
     assert names[0] == first, f"expected first column {first!r}, got {names[0]!r}"

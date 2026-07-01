@@ -15,7 +15,8 @@ Background research for `analyst`, which is built under **DAE (Disciplined Agent
 3. [`03-developments-apr-jul-2026.md`](03-developments-apr-jul-2026.md) — the 15 verified developments, annotated with dates, sources, and verification status.
 4. [`04-keeping-agents-honest-landscape.md`](04-keeping-agents-honest-landscape.md) — the eight schools of thought on keeping agents honest, and which failure mode each addresses.
 5. [`05-controls-decision.md`](05-controls-decision.md) — ADR: we considered adding enforcement controls to this repo and decided **not** to; the reasoning, and the one idea worth keeping.
-6. [`references.md`](references.md) — master source list `[1]`–`[23]`.
+6. [`06-intent-vs-spec.md`](06-intent-vs-spec.md) — is *intent-based* development the same as *spec-based*? A verified deep-research comparison with a clear verdict.
+7. [`references.md`](references.md) — master source list `[1]`–`[23]` for documents 01–05 (document 06 carries its own verified sources inline).
 
 ## Standing caveat
 

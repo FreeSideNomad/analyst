@@ -1,4 +1,5 @@
 """Unit tests for the deterministic profiler (Slice A)."""
+
 import duckdb
 
 from analyst.domain.types import ColumnType

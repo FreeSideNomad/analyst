@@ -4,10 +4,12 @@ Handles the messiness the profiler cannot see once data is in DuckDB:
 encoding detection, header detection / synthesis, and duplicate-column
 disambiguation (AC-10, AC-11, AC-12, AC-13). Bulk data stays local.
 """
+
 from __future__ import annotations
 
 import csv
 import io
+import os
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -76,12 +78,10 @@ def _disambiguate(names: list[str]) -> tuple[list[str], bool]:
 class CsvReader:
     """Inspects a delimited file to plan its ingestion."""
 
-    def plan(self, path: str | Path) -> ReadPlan:
+    def plan(self, path: str | os.PathLike[str]) -> ReadPlan:
         raw = Path(path).read_bytes()
         if not raw.strip():
-            raise EmptyFileError(
-                "The file is empty — there is no data to ingest."
-            )
+            raise EmptyFileError("The file is empty — there is no data to ingest.")
 
         encoding = _detect_encoding(raw)
         text = raw.decode(encoding, errors="replace")

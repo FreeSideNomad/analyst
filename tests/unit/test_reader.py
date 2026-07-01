@@ -1,4 +1,5 @@
 """Unit tests for the CSV reader's inspection plan (Slice B)."""
+
 import pytest
 
 from analyst.engine.reader import CsvReader, EmptyFileError
