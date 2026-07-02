@@ -163,11 +163,15 @@ class StoreRepository:
         self._records.pop(name, None)
 
     def ingest(self, file_name: str, content: bytes) -> list[DatasetRecord]:
-        suffix = "." + file_name.rsplit(".", 1)[-1] if "." in file_name else ""
-        with self._tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
-            tmp.write(content)
-            tmp_path = tmp.name
-        result = self.service.ingest(tmp_path)
+        # Write under the REAL file name (in a temp dir) — the service derives
+        # the dataset name from the file's stem, so a NamedTemporaryFile would
+        # produce garbage dataset names like "tmps9jbs9y1".
+        with self._tempfile.TemporaryDirectory() as tmp_dir:
+            from pathlib import Path
+
+            tmp_path = Path(tmp_dir) / (file_name or "upload.csv")
+            tmp_path.write_bytes(content)
+            result = self.service.ingest(tmp_path)
         out: list[DatasetRecord] = []
         for summary in result.datasets:
             rec = DatasetRecord(
