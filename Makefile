@@ -29,6 +29,16 @@ api-mock: ## Backend serving the in-memory Python fixtures (demos / e2e)
 web: ## Frontend dev server on :5173 (proxies /api → :8000)
 	cd frontend && $(BUN) run dev
 
+## ── exploratory testing ────────────────────────────────────────────
+explore: ## Boot app on mocked data, tail logs live, defect summary on Ctrl-C
+	MODE=mock sh scripts/explore.sh
+
+explore-real: ## Same, against the real DuckDB store
+	MODE=real sh scripts/explore.sh
+
+explore-report: ## Re-summarize the last exploratory session's logs
+	$(UV) run python scripts/summarize_defects.py .explore
+
 ## ── build / check ──────────────────────────────────────────────────
 build: ## Production build of the frontend → frontend/dist
 	cd frontend && $(BUN) run build
