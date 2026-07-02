@@ -70,16 +70,21 @@ def create_app(repo: DatasetRepository | None = None) -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
-    repository: DatasetRepository = repo or _build_repository()
+    # The repository lives in a holder so the test-only reset endpoint can swap
+    # in a fresh fixture workspace between e2e scenarios.
+    _state: dict[str, DatasetRepository] = {"repo": repo or _build_repository()}
+
+    def repository() -> DatasetRepository:
+        return _state["repo"]
 
     # ---- feature 001: datasets / profiling / catalog --------------------- #
     @app.get("/api/datasets")
     def list_datasets() -> list[dict]:
-        return [_to_dataset_schema(r).dump() for r in repository.list_datasets()]
+        return [_to_dataset_schema(r).dump() for r in repository().list_datasets()]
 
     @app.get("/api/datasets/{name}")
     def get_dataset(name: str) -> dict:
-        rec = repository.get_dataset(name)
+        rec = repository().get_dataset(name)
         if rec is None:
             raise HTTPException(404, f"Dataset '{name}' not found")
         return _to_dataset_schema(rec).dump()
@@ -87,30 +92,30 @@ def create_app(repo: DatasetRepository | None = None) -> FastAPI:
     @app.post("/api/datasets/ingest")
     async def ingest(file: UploadFile) -> dict:
         content = await file.read()
-        records = repository.ingest(file.filename or "upload.csv", content)
+        records = repository().ingest(file.filename or "upload.csv", content)
         return IngestionResultSchema(
             datasets=[_to_dataset_schema(r) for r in records]
         ).dump()
 
     @app.get("/api/ingestion/{name}/status")
     def ingestion_status(name: str) -> dict:
-        status, phase, progress = repository.status(name)
+        status, phase, progress = repository().status(name)
         return IngestionStatusSchema(
             dataset=name, status=status.value, phase=phase, progress=progress
         ).dump()
 
     @app.delete("/api/datasets/{name}", status_code=204)
     def delete_dataset(name: str) -> None:
-        if repository.get_dataset(name) is None:
+        if repository().get_dataset(name) is None:
             raise HTTPException(404, f"Dataset '{name}' not found")
-        repository.delete(name)
+        repository().delete(name)
 
     @app.post("/api/datasets/{name}/refresh")
     async def refresh_dataset(name: str, file: UploadFile) -> dict:
-        if repository.get_dataset(name) is None:
+        if repository().get_dataset(name) is None:
             raise HTTPException(404, f"Dataset '{name}' not found")
         content = await file.read()
-        result = repository.refresh(name, file.filename or f"{name}.csv", content)
+        result = repository().refresh(name, file.filename or f"{name}.csv", content)
         return RefreshResultSchema(
             dataset_name=result.dataset_name,
             replaced=result.replaced,
@@ -131,8 +136,15 @@ def create_app(repo: DatasetRepository | None = None) -> FastAPI:
     def get_catalog() -> dict:
         return {
             name: CatalogEntrySchema.from_domain(entry).dump()  # type: ignore[arg-type]
-            for name, entry in repository.catalog().items()
+            for name, entry in repository().catalog().items()
         }
+
+    @app.post("/api/_reset", status_code=204, include_in_schema=False)
+    def reset_fixtures() -> None:
+        """Test-only: restore the seeded fixture workspace between e2e scenarios."""
+        if not isinstance(repository(), FixtureRepository):
+            raise HTTPException(404, "reset is only available in fixtures mode")
+        _state["repo"] = FixtureRepository()
 
     # ---- feature 002: Q&A (provisional) ---------------------------------- #
     @app.post("/api/query")

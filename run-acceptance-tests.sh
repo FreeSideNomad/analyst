@@ -1,8 +1,18 @@
 #!/bin/sh
-# DAE acceptance pipeline (feature 001): parse -> generate -> run.
+# DAE acceptance pipeline: parse -> generate -> run, per feature.
 #
 #   spec.md --(dae_gherkin.py)--> .build/spec.json --(generator.py)-->
 #   .build/generated/  --(uv run pytest)--> pass/fail board
+#
+# Feature 001 binds steps in-process (acceptance/handlers.py).
+# Feature 002 binds steps to HTTP + Playwright (acceptance/e2e_handlers.py) —
+#   it boots the fixtures API + the built frontend and drives Chromium
+#   (needs: bun, `uv run playwright install chromium`).
+#
+# Usage:
+#   ./run-acceptance-tests.sh            # both features
+#   E2E=0 ./run-acceptance-tests.sh      # feature 001 only (skip browser e2e)
+#   ./run-acceptance-tests.sh -k delete  # extra args forwarded to pytest
 #
 # The parser + IR are portable (shipped). The generator + step handlers under
 # acceptance/ are this project's committed source. Never hand-edit the files
@@ -10,21 +20,25 @@
 set -eu
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
-FEATURE="$ROOT/features/001-file-ingestion-and-profiling"
-BUILD="$FEATURE/.build"
-GENERATED="$BUILD/generated"
 
 # Portable parser location (override with DAE=... if the version moves).
 DAE="${DAE:-/Users/igormusic/.claude/plugins/cache/disciplined-agentic-engineering/engineer/0.19.0/scripts}"
 
-mkdir -p "$BUILD"
+run_feature() {
+    FEATURE="$ROOT/features/$1"
+    HANDLERS="$2"
+    shift 2
+    BUILD="$FEATURE/.build"
+    GENERATED="$BUILD/generated"
+    mkdir -p "$BUILD"
+    uv run python "$DAE/dae_gherkin.py" "$FEATURE/spec.md" "$BUILD/spec.json"
+    uv run python "$ROOT/acceptance/generator.py" \
+        "$BUILD/spec.json" "$GENERATED" "$FEATURE/spec.md" "$HANDLERS"
+    uv run pytest "$GENERATED" "$@"
+}
 
-# 1. Parse standard Gherkin (spec.md) into the fixed JSON IR.
-uv run python "$DAE/dae_gherkin.py" "$FEATURE/spec.md" "$BUILD/spec.json"
+run_feature 001-file-ingestion-and-profiling acceptance.handlers "$@"
 
-# 2. Generate runnable pytest files from the IR (reads spec.json only).
-uv run python "$ROOT/acceptance/generator.py" \
-    "$BUILD/spec.json" "$GENERATED" "$FEATURE/spec.md"
-
-# 3. Run the generated acceptance tests.
-uv run pytest "$GENERATED" "$@"
+if [ "${E2E:-1}" != "0" ]; then
+    run_feature 002-api-and-frontend acceptance.e2e_handlers "$@"
+fi
