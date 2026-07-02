@@ -82,6 +82,12 @@ class FixtureRepository:
         self._records.pop(name, None)
 
     def ingest(self, file_name: str, content: bytes) -> list[DatasetRecord]:
+        # Mirror the real engine's validation so the mock can't hide the
+        # rejected-upload path (defect regression, exploratory 2026-07-02).
+        if not content.strip():
+            from analyst.engine.reader import EmptyFileError
+
+            raise EmptyFileError("The file is empty — there is no data to ingest.")
         summary = fixtures.uploaded_transactions()
         record = DatasetRecord(
             summary=summary,

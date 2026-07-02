@@ -1,6 +1,6 @@
 ---
-ac_count: 11
-high_priority_count: 6
+ac_count: 13
+high_priority_count: 8
 discovered: 2026-07-02
 ---
 
@@ -76,3 +76,19 @@ Priority: Medium · Type: UX
 The workspace offers a delete affordance per dataset; deleting removes the
 dataset from the visible list (and from the backend). (Added beyond the
 prototype, which had no delete UI — human-requested 2026-07-02.)
+
+### AC-12: Invalid files are rejected cleanly over the API
+Priority: High · Type: Error
+Ingesting an invalid file — empty, unsupported format, malformed, or beyond
+the size envelope — is rejected with the domain's clear, friendly message and
+an appropriate client-error status. It never surfaces as a server error or a
+stack trace. Both modes (real store and mock) behave identically.
+(Discovered in exploratory testing 2026-07-02: empty uploads returned 500s.)
+
+### AC-13: A failed upload is visible in the UI with its reason
+Priority: High · Type: UX
+When an upload is rejected, the ingestion view shows the upload as failed and
+displays the reason — the user is never left staring at a silent no-op. The
+real file the user dropped or picked is what gets uploaded.
+(Discovered in exploratory testing 2026-07-02: rejected uploads showed
+nothing, and the drop zone ignored the actual file.)

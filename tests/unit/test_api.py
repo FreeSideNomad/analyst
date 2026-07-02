@@ -175,3 +175,39 @@ def test_store_mode_refresh_versions_and_delete(store_client):
     assert store_client.get("/api/datasets/numbers").json()["rowCount"] == 2
     assert store_client.delete("/api/datasets/numbers").status_code == 204
     assert store_client.get("/api/datasets/numbers").status_code == 404
+
+
+# --------------------------------------------------------------------------- #
+# Defect regression (exploratory 2026-07-02): domain validation errors must
+# surface as clean 4xx with the domain's friendly message — never 500s.
+# --------------------------------------------------------------------------- #
+def test_empty_file_is_rejected_with_400(store_client):
+    response = store_client.post(
+        "/api/datasets/ingest", files={"file": ("empty.csv", b"")}
+    )
+    assert response.status_code == 400
+    assert "empty" in response.json()["detail"].lower()
+
+
+def test_unsupported_format_is_rejected_with_400(store_client):
+    response = store_client.post(
+        "/api/datasets/ingest", files={"file": ("report.pdf", b"%PDF-1.4 nope")}
+    )
+    assert response.status_code == 400
+    assert "CSV" in response.json()["detail"]
+
+
+def test_oversize_file_is_rejected_with_413(tmp_path):
+    repo = StoreRepository(str(tmp_path / "data"))
+    repo.service.max_bytes = 10
+    response = TestClient(create_app(repo)).post(
+        "/api/datasets/ingest", files={"file": ("big.csv", CSV.encode())}
+    )
+    assert response.status_code == 413
+    assert "too large" in response.json()["detail"].lower()
+
+
+def test_fixture_mode_also_rejects_empty_files(client):
+    response = client.post("/api/datasets/ingest", files={"file": ("empty.csv", b"")})
+    assert response.status_code == 400
+    assert "empty" in response.json()["detail"].lower()

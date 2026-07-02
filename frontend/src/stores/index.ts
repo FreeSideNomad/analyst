@@ -82,18 +82,24 @@ export const useCatalog = create<CatalogState>((set) => ({
 }));
 
 // ── ingestion-store ──────────────────────────────────────────────────
-interface UploadJob { name: string; fileName: string; status: IngestionStatusValue; phase: string | null; progress: number; }
+interface UploadJob { name: string; fileName: string; status: IngestionStatusValue; phase: string | null; progress: number; error?: string | null; }
 interface IngestionState {
   uploads: UploadJob[];
-  startIngestion: (file?: File) => Promise<void>;
+  startIngestion: (file: File) => Promise<void>;
 }
 export const useIngestion = create<IngestionState>((set) => ({
   uploads: [],
   startIngestion: async (file) => {
-    // The demo drop zone has no real file; synthesize one. A real <input type=file>
-    // passes its File straight through.
-    const f = file ?? new File([''], 'transactions_q4.csv', { type: 'text/csv' });
-    const res = await api.ingest(f);
+    // The REAL picked/dropped file is uploaded. Rejections surface as a failed
+    // upload card carrying the API's message (AC-12/AC-13).
+    let res;
+    try {
+      res = await api.ingest(file);
+    } catch (e) {
+      const error = e instanceof Error ? e.message : String(e);
+      set((s) => ({ uploads: [...s.uploads, { name: file.name, fileName: file.name, status: 'failed', phase: null, progress: 0, error }] }));
+      return;
+    }
     const ds = res.datasets[0];
     if (!ds) return;
     set((s) => ({ uploads: [...s.uploads, { name: ds.name, fileName: ds.fileName, status: ds.status, phase: null, progress: 0 }] }));

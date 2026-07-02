@@ -8,7 +8,12 @@ const BASE = import.meta.env.VITE_API_BASE ?? '';
 
 async function j<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(BASE + path, init);
-  if (!res.ok) throw new Error(`${res.status} ${res.statusText} — ${path}`);
+  if (!res.ok) {
+    // Surface the API's friendly `detail` message (domain rejections) so the
+    // UI can show WHY something failed, not just that it did (AC-13).
+    const detail = await res.json().then((b) => b?.detail).catch(() => null);
+    throw new Error(detail || `${res.status} ${res.statusText} — ${path}`);
+  }
   return res.status === 204 ? (undefined as T) : (res.json() as Promise<T>);
 }
 

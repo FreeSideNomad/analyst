@@ -45,6 +45,13 @@ Feature: FastAPI layer & aligned frontend
     When a client asks "What is the average order value?"
     Then an answer is returned with a summary and a trust trail
 
+  # AC-12 — defect regression (exploratory 2026-07-02: empty uploads 500'd)
+  Scenario: An invalid file is rejected cleanly over the API
+    Given the analyst service is running with mocked data
+    When a client ingests an empty file
+    Then the ingestion is rejected as a client error with a clear message
+    And no server error occurs
+
 ## Frontend flows (browser)
 
   # AC-6
@@ -88,3 +95,10 @@ Feature: FastAPI layer & aligned frontend
     Given the analyst app is open in a browser
     When the user deletes the dataset "sales"
     Then "sales.csv" no longer appears in the semantic catalog
+
+  # AC-13 — defect regression (exploratory 2026-07-02: silent failed uploads)
+  Scenario: A rejected upload is shown as failed with its reason
+    Given the analyst app is open on the ingestion view
+    When the user uploads an empty file
+    Then the upload is marked failed
+    And the failure reason mentions the file is empty

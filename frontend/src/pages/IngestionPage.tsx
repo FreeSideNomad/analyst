@@ -1,5 +1,5 @@
 // ── pages/IngestionPage.tsx ───────────────────────────────────────────
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { UploadCloud, FileText, Check, CircleCheck, Table2, TriangleAlert } from 'lucide-react';
 import { useCatalog, useIngestion } from '../stores';
 import { columnVM, type ColumnVM } from '../lib/adapt';
@@ -10,15 +10,21 @@ import { Icon, Card, Badge, StatusPill, ProgressBar, Sparkline, EYEBROW } from '
 const STEPS = ['Materializing to Parquet', 'Profiling columns', 'Generating catalog'];
 const PHASE_IDX: Record<string, number> = { materializing: 0, profiling: 1, cataloguing: 2 };
 
-function FileDropZone({ onUpload }: { onUpload: () => void }) {
+function FileDropZone({ onUpload }: { onUpload: (file: File) => void }) {
   const [over, setOver] = useState(false);
+  const input = useRef<HTMLInputElement>(null);
+  const pick = (files: FileList | null) => { const f = files?.[0]; if (f) onUpload(f); };
   return (
-    <div onClick={onUpload}
+    <div onClick={() => input.current?.click()}
       onDragOver={(e) => { e.preventDefault(); setOver(true); }} onDragLeave={() => setOver(false)}
-      onDrop={(e) => { e.preventDefault(); setOver(false); onUpload(); }}
+      onDrop={(e) => { e.preventDefault(); setOver(false); pick(e.dataTransfer.files); }}
       style={{ border: `1.5px dashed ${over ? 'var(--brand)' : 'var(--border-strong)'}`, borderRadius: 'var(--radius-lg)',
         background: over ? 'var(--brand-subtle)' : 'var(--surface-card)', padding: '34px 24px', textAlign: 'center',
         cursor: 'pointer', transition: 'all var(--dur-fast)' }}>
+      {/* the REAL file (picked or dropped) is what gets uploaded (AC-13) */}
+      <input ref={input} type="file" accept=".csv,.tsv,.xlsx,.xls,.json" style={{ display: 'none' }}
+        aria-label="Choose a file to upload"
+        onChange={(e) => { pick(e.target.files); e.target.value = ''; }} />
       <Icon as={UploadCloud} size={26} color="var(--text-muted)" style={{ margin: '0 auto 10px' }} />
       <div style={{ font: '700 16px/1.2 var(--font-sans)', color: 'var(--text-strong)' }}>Drop a file, or click to upload</div>
       <div style={{ font: '400 13px/1.4 var(--font-sans)', color: 'var(--text-muted)', marginTop: 5 }}>CSV · TSV · XLSX · JSON — profiling starts automatically</div>
@@ -26,9 +32,23 @@ function FileDropZone({ onUpload }: { onUpload: () => void }) {
   );
 }
 
-function UploadCard({ up }: { up: { fileName: string; status: string; phase: string | null; progress: number } }) {
+function UploadCard({ up }: { up: { fileName: string; status: string; phase: string | null; progress: number; error?: string | null } }) {
   const done = up.status === 'complete';
   const ci = done ? STEPS.length : (up.phase ? PHASE_IDX[up.phase] ?? 0 : 0);
+  if (up.status === 'failed') {
+    return (
+      <Card style={{ padding: 18, borderColor: 'var(--amber-100)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+          <Icon as={TriangleAlert} size={18} color="var(--amber-600)" />
+          <span className="mono" style={{ font: '600 14px/1 var(--font-mono)', color: 'var(--text-strong)', flex: 1 }}>{up.fileName}</span>
+          <span style={{ font: '600 12px/1 var(--font-sans)', color: 'var(--amber-600)' }}>Failed</span>
+        </div>
+        <p style={{ margin: 0, font: '400 13px/1.5 var(--font-sans)', color: 'var(--text-body)' }}>
+          {up.error || 'The file could not be ingested.'}
+        </p>
+      </Card>
+    );
+  }
   return (
     <Card style={{ padding: 18 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
@@ -137,7 +157,7 @@ export function IngestionPage() {
       <section style={{ overflow: 'auto', padding: '26px 30px', borderRight: '1px solid var(--border-subtle)' }}>
         <div style={EYEBROW}>Data ingestion</div>
         <h2 style={{ margin: '6px 0 18px', font: '800 22px/1.05 var(--font-sans)', letterSpacing: '-.02em' }}>New uploads</h2>
-        <FileDropZone onUpload={() => startIngestion()} />
+        <FileDropZone onUpload={(file) => startIngestion(file)} />
         {uploads.length > 0 && (
           <div style={{ marginTop: 16, display: 'flex', flexDirection: 'column', gap: 12 }} className="ana-in">
             {uploads.map((u) => <UploadCard key={u.name} up={u} />)}

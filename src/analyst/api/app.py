@@ -9,8 +9,9 @@ from __future__ import annotations
 
 import os
 
-from fastapi import FastAPI, HTTPException, UploadFile
+from fastapi import FastAPI, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from analyst.api import qa
 from analyst.api.repository import (
@@ -70,6 +71,26 @@ def create_app(repo: DatasetRepository | None = None) -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    # Domain validation errors carry user-facing messages (AC-11/14/15/21 of
+    # feature 001) — surface them as clean 4xx, never as 500s + tracebacks.
+    # (Defect found in exploratory testing 2026-07-02: empty uploads 500'd.)
+    from analyst.engine.reader import (
+        EmptyFileError,
+        FileTooLargeError,
+        MalformedFileError,
+        UnsupportedFormatError,
+    )
+
+    def _rejection(status_code: int):
+        def handler(_request: Request, exc: Exception) -> JSONResponse:
+            return JSONResponse(status_code=status_code, content={"detail": str(exc)})
+
+        return handler
+
+    for error_type in (EmptyFileError, UnsupportedFormatError, MalformedFileError):
+        app.add_exception_handler(error_type, _rejection(400))
+    app.add_exception_handler(FileTooLargeError, _rejection(413))
     # The repository lives in a holder so the test-only reset endpoint can swap
     # in a fresh fixture workspace between e2e scenarios.
     _state: dict[str, DatasetRepository] = {"repo": repo or _build_repository()}

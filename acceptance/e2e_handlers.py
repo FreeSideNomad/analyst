@@ -375,7 +375,16 @@ def then_trust_trail(ctx: ScenarioContext) -> None:
 
 @step(r"the user drops a file on the upload zone")
 def when_drop_file(ctx: ScenarioContext) -> None:
-    ctx.page.get_by_text("Drop a file, or click to upload").click()
+    # Bind "drop" to the file input — the REAL file is what gets uploaded.
+    ctx.page.get_by_label("Choose a file to upload").set_input_files(
+        files=[
+            {
+                "name": "transactions_q4.csv",
+                "mimeType": "text/csv",
+                "buffer": CSV.encode(),
+            }
+        ]
+    )
 
 
 @step(r"the upload progresses to completion")
@@ -431,3 +440,46 @@ __all__ = [
     "_e2e_stack",
     "_e2e_fresh",
 ]
+
+
+# --------------------------------------------------------------------------- #
+# Defect regressions (exploratory 2026-07-02) — AC-12 (API) + AC-13 (UI)
+# --------------------------------------------------------------------------- #
+@step(r"a client ingests an empty file")
+def when_ingest_empty_file(ctx: ScenarioContext) -> None:
+    ctx.response = httpx.post(
+        f"{ctx.api}/api/datasets/ingest", files={"file": ("empty.csv", b"")}
+    )
+
+
+@step(r"the ingestion is rejected as a client error with a clear message")
+def then_rejected_client_error(ctx: ScenarioContext) -> None:
+    assert ctx.response is not None
+    assert 400 <= ctx.response.status_code < 500, (
+        f"expected a 4xx rejection, got {ctx.response.status_code}"
+    )
+    assert "empty" in ctx.response.json()["detail"].lower()
+
+
+@step(r"no server error occurs")
+def then_no_server_error(ctx: ScenarioContext) -> None:
+    assert ctx.response is not None and ctx.response.status_code < 500
+
+
+@step(r"the user uploads an empty file")
+def when_upload_empty_file(ctx: ScenarioContext) -> None:
+    ctx.page.get_by_label("Choose a file to upload").set_input_files(
+        files=[{"name": "empty.csv", "mimeType": "text/csv", "buffer": b""}]
+    )
+
+
+@step(r"the upload is marked failed")
+def then_upload_marked_failed(ctx: ScenarioContext) -> None:
+    _expect()(ctx.page.get_by_text("Failed", exact=True).first).to_be_visible()
+
+
+@step(r"the failure reason mentions the file is empty")
+def then_failure_reason_shown(ctx: ScenarioContext) -> None:
+    _expect()(
+        ctx.page.get_by_text("The file is empty", exact=False).first
+    ).to_be_visible()
