@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend — lint · format · types · tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Install dependencies (uv provisions Python 3.14)
+        run: uv sync
+
+      - name: Lint (ruff)
+        run: uv run ruff check src tests acceptance
+
+      - name: Format check (ruff)
+        run: uv run ruff format --check src tests acceptance
+
+      - name: Static type check (mypy)
+        run: uv run mypy src/analyst
+
+      - name: Unit tests (pytest)
+        run: uv run pytest tests/unit -q
+
+  # The ATDD acceptance board (./run-acceptance-tests.sh) is intentionally a
+  # local dev tool: it depends on the DAE plugin's portable parser, and its
+  # board is deliberately partly-red (unimplemented scenarios drive future
+  # slices). It is not a CI gate until feature 001 is complete.
+
+  frontend:
+    name: Frontend — lint · build (informational)
+    runs-on: ubuntu-latest
+    continue-on-error: true # WIP; owned by the frontend agent until it stabilizes
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Lint (oxlint)
+        run: bun run lint
+
+      - name: Type-check & build
+        run: bun run build

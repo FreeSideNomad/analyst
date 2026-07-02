@@ -26,3 +26,9 @@ data/*.parquet
 # Claude Code local state
 .claude/scheduled_tasks.lock
 .claude/settings.local.json
+
+# Secrets
+.env
+
+# Golden-corpus cache (fetched at test time, not committed)
+tests/.golden_cache/
