@@ -4,7 +4,7 @@
 > DAE-managed strategic feature list. Edit items freely; DAE reads and writes this block.
 
 ## now
-- [ ] **File ingestion & agentic data profiling** `id:file-ingestion-agentic-data-profiling` priority:1 status:in-progress area:ingestion → feature:file-ingestion-and-profiling
+- [x] **File ingestion & agentic data profiling** `id:file-ingestion-agentic-data-profiling` priority:1 status:shipped area:ingestion → feature:file-ingestion-and-profiling
       CSV/Excel -> profiling (nullability, cardinality, distributions) -> Parquet/DuckDB catalog. Claude Agent SDK drives cataloguing.
 - [ ] **Natural-language Q&A over a dataset** `id:natural-language-q-a-over-a-dataset` priority:2 status:planned area:query → feature:—
       Confidence-gated NL->query with expandable assumptions/lineage/SQL trail. Ambiguity resolved via the structured AskQuestion primitive (native React multiple-choice), which is then reused product-wide.

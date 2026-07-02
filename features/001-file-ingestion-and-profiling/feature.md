@@ -2,7 +2,8 @@
 slug: file-ingestion-and-profiling
 title: File ingestion & agentic data profiling
 outcome: A single Excel/CSV file added to a workspace is auto-profiled, materialized to Parquet/DuckDB, and turned into a revealable, editable semantic catalog entry — fully automatic.
-status: ready
+status: done
+merged_at: 2026-07-02
 autonomy_level: high
 assignee: local
 owner: igormusic
