@@ -21,8 +21,9 @@ set -eu
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 
-# Portable parser location (override with DAE=... if the version moves).
-DAE="${DAE:-/Users/igormusic/.claude/plugins/cache/disciplined-agentic-engineering/engineer/0.19.0/scripts}"
+# Gherkin parser: the MIT-licensed DAE parser, vendored for reproducibility
+# (CI has no plugin cache). Override with DAE=<dir> to use a plugin copy.
+DAE="${DAE:-$ROOT/acceptance/vendor}"
 
 run_feature() {
     FEATURE="$ROOT/features/$1"
