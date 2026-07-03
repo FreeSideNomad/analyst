@@ -32,3 +32,6 @@ data/*.parquet
 
 # Golden-corpus cache (fetched at test time, not committed)
 tests/.golden_cache/
+
+# Exploratory-session logs
+.explore/

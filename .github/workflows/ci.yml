@@ -36,15 +36,9 @@ jobs:
       - name: Unit tests (pytest)
         run: uv run pytest tests/unit -q
 
-  # The ATDD acceptance board (./run-acceptance-tests.sh) is intentionally a
-  # local dev tool: it depends on the DAE plugin's portable parser, and its
-  # board is deliberately partly-red (unimplemented scenarios drive future
-  # slices). It is not a CI gate until feature 001 is complete.
-
   frontend:
-    name: Frontend — lint · build (informational)
+    name: Frontend — lint · typecheck · build
     runs-on: ubuntu-latest
-    continue-on-error: true # WIP; owned by the frontend agent until it stabilizes
     defaults:
       run:
         working-directory: frontend
@@ -62,3 +56,28 @@ jobs:
 
       - name: Type-check & build
         run: bun run build
+
+  acceptance:
+    name: Acceptance — GWT boards (in-process + Playwright e2e)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install dependencies
+        run: |
+          uv sync
+          cd frontend && bun install --frozen-lockfile
+
+      - name: Install Playwright Chromium
+        run: uv run playwright install --with-deps chromium
+
+      - name: Run acceptance boards (feature 001 in-process, feature 002 e2e)
+        run: ./run-acceptance-tests.sh

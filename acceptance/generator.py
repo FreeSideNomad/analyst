@@ -10,12 +10,15 @@ Emitted, per feature, into ``<output_dir>``:
   are expanded to one parameterised test function per Examples row.
   Background steps (if any) are prepended to every scenario.
 
-Each generated test replays its steps through
-``acceptance.handlers.run_step``, which binds step text to the real system
-or fails explicitly on an unimplemented step.
+Each generated test replays its steps through the handlers module's
+``run_step`` (default ``acceptance.handlers``), which binds step text to the
+real system or fails explicitly on an unimplemented step. A feature may use a
+different binding layer — e.g. feature 002 binds to HTTP + Playwright via
+``acceptance.e2e_handlers`` — whose pytest fixtures are pulled in through the
+generated conftest's star-import.
 
 Usage:
-    generator.py <spec.json> <output_dir> [<spec.md>]
+    generator.py <spec.json> <output_dir> [<spec.md>] [<handlers_module>]
 """
 
 from __future__ import annotations
@@ -82,6 +85,10 @@ def _repo_root() -> Path:
 
 
 sys.path.insert(0, str(_repo_root()))
+
+# Expose the handlers module's pytest fixtures (if it defines any) to the
+# generated tests. Modules without fixtures export nothing that matters here.
+from {handlers_module} import *  # noqa: F401,F403,E402
 '''
 
 
@@ -105,7 +112,12 @@ def _emit_test_function(name: str, scenario_name: str, steps: list[dict]) -> str
     return "\n".join(lines)
 
 
-def generate(spec_json: Path, output_dir: Path, spec_md: Path) -> int:
+def generate(
+    spec_json: Path,
+    output_dir: Path,
+    spec_md: Path,
+    handlers_module: str = "acceptance.handlers",
+) -> int:
     ir = json.loads(spec_json.read_text(encoding="utf-8"))
     background = ir.get("background") or []
 
@@ -114,7 +126,9 @@ def generate(spec_json: Path, output_dir: Path, spec_md: Path) -> int:
         shutil.rmtree(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    (output_dir / "conftest.py").write_text(_CONFTEST, encoding="utf-8")
+    (output_dir / "conftest.py").write_text(
+        _CONFTEST.format(handlers_module=handlers_module), encoding="utf-8"
+    )
 
     blocks: list[str] = [
         '"""Generated acceptance tests — DO NOT EDIT.',
@@ -123,7 +137,7 @@ def generate(spec_json: Path, output_dir: Path, spec_md: Path) -> int:
         f"Source:  {spec_md}",
         "Regenerate via acceptance/generator.py (reads .build/spec.json only).",
         '"""',
-        "from acceptance.handlers import ScenarioContext, run_step",
+        f"from {handlers_module} import ScenarioContext, run_step",
         "",
         f"SPEC_MD = {str(spec_md)!r}",
         "",
@@ -167,7 +181,8 @@ def generate(spec_json: Path, output_dir: Path, spec_md: Path) -> int:
 def main(argv: list[str]) -> int:
     if len(argv) < 3:
         print(
-            "usage: generator.py <spec.json> <output_dir> [<spec.md>]",
+            "usage: generator.py <spec.json> <output_dir> "
+            "[<spec.md>] [<handlers_module>]",
             file=sys.stderr,
         )
         return 3
@@ -178,7 +193,8 @@ def main(argv: list[str]) -> int:
     else:
         # Default: spec.md is the feature dir's source, two levels above .build.
         spec_md = spec_json.parent.parent / "spec.md"
-    return generate(spec_json, output_dir, spec_md)
+    handlers_module = argv[4] if len(argv) >= 5 else "acceptance.handlers"
+    return generate(spec_json, output_dir, spec_md, handlers_module)
 
 
 if __name__ == "__main__":
