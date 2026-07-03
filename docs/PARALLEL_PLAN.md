@@ -70,14 +70,26 @@ router includes, `pyproject.toml`/`uv.lock`, `frontend/package.json`/`bun.lock`.
   test with dev-login, document the console steps.
 
 ### 005 — DB federation (`features/005-db-federation/`)
-- DuckDB `ATTACH` for SQLite (deterministic tests + fixture), Postgres/MySQL via
-  DuckDB extensions (live-marked tests; document docker recipe in runbook).
-- Nothing copied: live profiling through the attachment (feature-001 profiler
-  works on any relation). Declared PK/FK read into the catalog where available.
+- Engines (human-specified 2026-07-03): **PostgreSQL, SQL Server, IBM DB2**,
+  plus SQLite as the deterministic/CI base. Architecture: DuckDB `ATTACH` where
+  a scanner exists (postgres, sqlite); a **driver bridge** (pyodbc/pymssql,
+  ibm_db) with query push-down + Arrow hand-off into DuckDB where it doesn't —
+  research current DuckDB core/community extensions first and prefer native
+  scanners. Nothing bulk-copied either way.
+- Testing (human-specified): **local Docker containers seeded with real-world
+  sample DBs** — Pagila (Postgres), AdventureWorks or Northwind (SQL Server),
+  the DB2 `SAMPLE` database. Ship `docker-compose.dbs.yml` + `make dbs-up` /
+  `dbs-down` with seeding; those tests are live-marked (not in default CI).
+  Deterministic CI path: SQLite ATTACH + Chinook golden DB.
+- Apple-silicon caveats go in the runbook: mssql needs linux/amd64 (Rosetta);
+  the DB2 community image is amd64-only and may be unusable under emulation —
+  document honestly rather than fake it.
+- Live profiling through the connection (feature-001 profiler works on any
+  relation). Declared PK/FK read into the catalog where available.
 - API: connect/list/detach endpoints (`routes/databases.py`); connection
   secrets never returned. UI: the CatalogTree "Connect a database — soon"
   placeholder becomes a real flow.
-- Golden data: Chinook SQLite from `docs/golden-corpus.md` (MIT, downloadable).
+- Golden data: Chinook SQLite + Pagila from `docs/golden-corpus.md`.
 
 ## Definition of done (every feature)
 1. DAE artifacts: acs.md (API + UI-flow sections), spec.md (all ACs → scenarios),
