@@ -44,6 +44,11 @@ class DatasetRepository(Protocol):
     def status(self, name: str) -> tuple[IngestionStatus, str | None, int | None]: ...
     def refresh(self, name: str, file_name: str, content: bytes) -> RefreshResult: ...
 
+    # Feature 005 hooks — connection-backed datasets (routes/databases.py owns
+    # the federation logic; these only add/remove the resulting records).
+    def add_records(self, records: list[DatasetRecord]) -> None: ...
+    def remove_records(self, names: list[str]) -> None: ...
+
 
 # --------------------------------------------------------------------------- #
 # Fixtures — the mock, in Python.
@@ -80,6 +85,14 @@ class FixtureRepository:
 
     def delete(self, name: str) -> None:
         self._records.pop(name, None)
+
+    def add_records(self, records: list[DatasetRecord]) -> None:
+        for record in records:
+            self._records[record.name] = record
+
+    def remove_records(self, names: list[str]) -> None:
+        for name in names:
+            self._records.pop(name, None)
 
     def ingest(self, file_name: str, content: bytes) -> list[DatasetRecord]:
         # Mirror the real engine's validation so the mock can't hide the
@@ -167,6 +180,14 @@ class StoreRepository:
     def delete(self, name: str) -> None:
         self.service.delete(name)
         self._records.pop(name, None)
+
+    def add_records(self, records: list[DatasetRecord]) -> None:
+        for record in records:
+            self._records[record.name] = record
+
+    def remove_records(self, names: list[str]) -> None:
+        for name in names:
+            self._records.pop(name, None)
 
     def ingest(self, file_name: str, content: bytes) -> list[DatasetRecord]:
         # Write under the REAL file name (in a temp dir) — the service derives
