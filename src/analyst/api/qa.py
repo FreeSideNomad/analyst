@@ -401,16 +401,21 @@ def _canned_abstain() -> AnswerResult:
 
 
 class CannedQAService:
-    """Keyword-routed canned answers — feature 002 behavior, unchanged."""
+    """Keyword-routed canned answers — feature 002 behavior.
+
+    One routing fix over 002: the top-customers check runs before the
+    region-clarify check, so the suggested "top 5 customers by revenue"
+    question reaches its intended canned answer.
+    """
 
     mode = "canned"
 
     def submit(self, question: str, repo: DatasetRepository) -> QueryResult:
         q = question.lower()
-        if "region" in q or ("revenue" in q and "by" in q):
-            return _REGION_CLARIFY
         if "customer" in q and ("top" in q or "5" in q or "five" in q):
             return _TOP_CUSTOMERS
+        if "region" in q or ("revenue" in q and "by" in q):
+            return _REGION_CLARIFY
         if "average" in q or "aov" in q or "order value" in q:
             return _AOV
         if "revenue" in q:
