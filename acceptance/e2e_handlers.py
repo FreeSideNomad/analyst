@@ -1,203 +1,34 @@
 """Step handlers for feature 002 — GWT bound to HTTP + a real browser.
 
-Same DAE acceptance pipeline as feature 001 (spec.md → IR → generated pytest),
-but the binding layer differs:
+Same DAE acceptance pipeline as feature 001 (spec.md -> IR -> generated pytest),
+but the binding layer differs: API-contract steps drive the running FastAPI
+service over HTTP (httpx); frontend-flow steps drive Chromium via Playwright
+against the PRODUCTION build (vite preview), proxied to the same service.
 
-- API-contract steps drive the running FastAPI service over HTTP (httpx).
-- Frontend-flow steps drive Chromium via Playwright against the PRODUCTION
-  build (`vite preview`), which proxies /api to the same service.
-
-Everything runs against the opt-in mocked-data mode (ANALYST_FIXTURES=1) —
-deterministic, LLM-free. Scenario isolation: the test-only /api/_reset endpoint
-restores the seeded workspace, and every scenario gets a fresh browser context.
-
-Session fixtures live here and are pulled into the generated conftest via
-``from acceptance.e2e_handlers import *``.
+Shared infrastructure (session stack, registry, isolation) lives in
+acceptance/e2e_base.py — new features create their own e2e_<slug>.py on the
+same base instead of editing this file.
 """
 
 from __future__ import annotations
 
-import os
-import socket
-import subprocess
-import sys
-import time
-from dataclasses import dataclass
-from pathlib import Path
-from typing import Any, Callable
-
 import httpx
-import pytest
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
-FRONTEND = REPO_ROOT / "frontend"
+from acceptance.e2e_base import (
+    _STACK,
+    ScenarioContext,
+    _e2e_fresh,
+    _e2e_stack,
+    expect_,
+    make_registry,
+)
+
 CSV = "id,amount\n1,10\n2,20\n"
 
-# --------------------------------------------------------------------------- #
-# Scenario context + step registry (mirrors acceptance/handlers.py's pattern)
-# --------------------------------------------------------------------------- #
-_STACK: dict[str, Any] = {}  # session: api/web URLs, browser; per-test: page
+step, run_step = make_registry()
+_expect = expect_
 
-
-@dataclass
-class ScenarioContext:
-    tmp_path: Path
-    scenario: str = ""
-    spec: str = ""
-    response: httpx.Response | None = None
-    data: Any = None
-
-    @property
-    def api(self) -> str:
-        return _STACK["api"]
-
-    @property
-    def page(self):  # noqa: ANN201 - playwright Page
-        return _STACK["page"]
-
-
-_REGISTRY: list[tuple[Any, Callable[..., None]]] = []
-
-
-def step(pattern: str) -> Callable[[Callable[..., None]], Callable[..., None]]:
-    import re
-
-    compiled = re.compile(pattern)
-
-    def register(func: Callable[..., None]) -> Callable[..., None]:
-        _REGISTRY.append((compiled, func))
-        return func
-
-    return register
-
-
-def run_step(ctx: ScenarioContext, keyword: str, text: str) -> None:
-    for pattern, func in _REGISTRY:
-        match = pattern.fullmatch(text)
-        if match is None:
-            continue
-        try:
-            func(ctx, **match.groupdict())
-        except AssertionError as exc:
-            pytest.fail(
-                f"{keyword} {text}\n  assertion: {exc}\n"
-                f"  scenario:  {ctx.scenario}\n  spec:      {ctx.spec}",
-                pytrace=False,
-            )
-        return
-    pytest.fail(
-        f"NOT YET IMPLEMENTED: {keyword} {text}\n"
-        f"  scenario: {ctx.scenario}\n  spec:     {ctx.spec}",
-        pytrace=False,
-    )
-
-
-# --------------------------------------------------------------------------- #
-# Session stack: fixtures API + built frontend + Chromium
-# --------------------------------------------------------------------------- #
-def _free_port() -> int:
-    with socket.socket() as sock:
-        sock.bind(("127.0.0.1", 0))
-        return sock.getsockname()[1]
-
-
-def _wait_http(url: str, timeout: float = 60.0) -> None:
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        try:
-            if httpx.get(url, timeout=2.0).status_code < 500:
-                return
-        except httpx.HTTPError:
-            time.sleep(0.2)
-    raise RuntimeError(f"server at {url} did not come up within {timeout}s")
-
-
-@pytest.fixture(scope="session", autouse=True)
-def _e2e_stack():
-    from playwright.sync_api import sync_playwright
-
-    api_port, web_port = _free_port(), _free_port()
-    api_url = f"http://127.0.0.1:{api_port}"
-    web_url = f"http://127.0.0.1:{web_port}"
-    procs: list[subprocess.Popen] = []
-    try:
-        procs.append(
-            subprocess.Popen(
-                [
-                    sys.executable,
-                    "-m",
-                    "uvicorn",
-                    "analyst.api.app:app",
-                    "--port",
-                    str(api_port),
-                    "--log-level",
-                    "warning",
-                ],
-                cwd=REPO_ROOT,
-                env={**os.environ, "ANALYST_FIXTURES": "1"},
-            )
-        )
-        # Test the real production build; preview inherits the /api proxy.
-        subprocess.run(
-            ["bun", "run", "build"],
-            cwd=FRONTEND,
-            check=True,
-            capture_output=True,
-            env={**os.environ, "ANALYST_API": api_url},
-        )
-        procs.append(
-            subprocess.Popen(
-                [
-                    "bun",
-                    "run",
-                    "preview",
-                    "--",
-                    "--port",
-                    str(web_port),
-                    "--strictPort",
-                    "--host",
-                    "127.0.0.1",
-                ],
-                cwd=FRONTEND,
-                env={**os.environ, "ANALYST_API": api_url},
-                stdout=subprocess.DEVNULL,
-            )
-        )
-        _wait_http(f"{api_url}/api/health")
-        _wait_http(web_url)
-
-        pw = sync_playwright().start()
-        browser = pw.chromium.launch()
-        _STACK.update(api=api_url, web=web_url, browser=browser, pw=pw)
-        yield
-    finally:
-        if "browser" in _STACK:
-            _STACK["browser"].close()
-        if "pw" in _STACK:
-            _STACK["pw"].stop()
-        for proc in procs:
-            proc.terminate()
-        for proc in procs:
-            proc.wait(timeout=10)
-        _STACK.clear()
-
-
-@pytest.fixture(autouse=True)
-def _e2e_fresh():
-    """Per-scenario isolation: seeded workspace + a fresh browser context."""
-    httpx.post(f"{_STACK['api']}/api/_reset", timeout=10.0)
-    context = _STACK["browser"].new_context()
-    _STACK["page"] = context.new_page()
-    yield
-    context.close()
-    _STACK.pop("page", None)
-
-
-def _expect():  # lazy import so collecting this module never needs playwright
-    from playwright.sync_api import expect
-
-    expect.set_options(timeout=10_000)
-    return expect
+__all__ = ["ScenarioContext", "run_step", "_e2e_stack", "_e2e_fresh"]
 
 
 # --------------------------------------------------------------------------- #
@@ -431,15 +262,6 @@ def when_delete_sales_ui(ctx: ScenarioContext) -> None:
 @step(r'"sales.csv" no longer appears in the semantic catalog')
 def then_sales_gone_from_catalog(ctx: ScenarioContext) -> None:
     _expect()(ctx.page.get_by_text("sales.csv")).to_have_count(0)
-
-
-# Names the generated conftest star-import should expose (fixtures included).
-__all__ = [
-    "ScenarioContext",
-    "run_step",
-    "_e2e_stack",
-    "_e2e_fresh",
-]
 
 
 # --------------------------------------------------------------------------- #

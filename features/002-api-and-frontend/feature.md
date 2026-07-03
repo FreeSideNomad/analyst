@@ -2,7 +2,8 @@
 slug: api-and-frontend
 title: FastAPI layer & aligned frontend (design-prototype integration)
 outcome: The analyst backend is reachable over HTTP (/api/*) with wire shapes sourced from the feature-001 domain, and a working React frontend (from the Claude Desktop Design prototype) renders profiling, catalog, ingestion, and provisional Q&A — against the real store by default, with a Python fixture mode retained for demos and deterministic e2e tests.
-status: in-progress
+status: done
+merged_at: 2026-07-03
 autonomy_level: high
 assignee: local
 owner: igormusic

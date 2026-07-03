@@ -86,6 +86,7 @@ Single-repo project; roles run as fresh agents per checkpoint to prevent role er
 ## 6. Quality stance
 
 - **Goal:** full ATDD coverage of every feature. New features are born covered by going through the pipeline.
+- **Features are vertical slices (API + UI together), and the definition of done includes UI e2e** (added 2026-07-03): every feature with a user-visible surface ships one GWT spec whose ACs cover both the API contract (HTTP-bound scenarios) and the frontend flows (Playwright-bound, against the fixtures API — deterministic, LLM-free). Each such feature must extend the fixture mode so its UI e2e can exist, and new UI must carry stable accessible names/labels for the bindings.
 - Unit-test coverage target: **≥ 80%** on changed code (backend); frontend components tested at the store/behavior level.
 - **Mutation testing** on core/data-engine logic; target mutation score to be set in the manifest (start pragmatic, tighten over time).
 - Acceptance tests must pass against real code before a feature is "done."
