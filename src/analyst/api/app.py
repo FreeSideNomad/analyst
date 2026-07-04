@@ -68,9 +68,13 @@ def _build_repository() -> DatasetRepository:
 
 def create_app(repo: DatasetRepository | None = None) -> FastAPI:
     app = FastAPI(title="analyst", version="0.1.0")
+    # Pin CORS to the deployment origin when known (ANALYST_PUBLIC_URL); the
+    # wildcard is a dev convenience only. Credentials are not enabled, so the
+    # cookie is never exposed cross-origin regardless.
+    public_url = os.environ.get("ANALYST_PUBLIC_URL")
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
+        allow_origins=[public_url] if public_url else ["*"],
         allow_methods=["*"],
         allow_headers=["*"],
     )
