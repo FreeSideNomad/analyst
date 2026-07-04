@@ -70,9 +70,20 @@ class EgressLog:
         return sum(len(c["samples"]) for e in self.entries for c in e["columns"])
 
 
+MAX_SAMPLE_VALUE_LEN = 200  # SECURITY H7/M11: cap value LENGTH, not just count
+
+
 def _cap_payload(payload: CatalogPayload, sample_cap: int) -> CatalogPayload:
+    def _cap_value(value: object) -> object:
+        text = str(value)
+        return (
+            text[:MAX_SAMPLE_VALUE_LEN] if len(text) > MAX_SAMPLE_VALUE_LEN else value
+        )
+
     capped = tuple(
-        dataclasses.replace(c, samples=tuple(c.samples[:sample_cap]))
+        dataclasses.replace(
+            c, samples=tuple(_cap_value(s) for s in c.samples[:sample_cap])
+        )
         for c in payload.columns
     )
     return dataclasses.replace(payload, columns=capped)

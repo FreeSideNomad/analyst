@@ -128,7 +128,9 @@ class DatasetStore:
         Each materialization is a new, retained version (AC-19); the view always
         resolves to the latest.
         """
-        version = len(self.versions(dataset)) + 1
+        # M8: derive from the max existing version, not the count — a gap in
+        # versions (e.g. [1, 3]) must never make a new write overwrite v3.
+        version = max(self.versions(dataset), default=0) + 1
         parquet_path = self.base_dir / f"{dataset}.v{version}.parquet"
         self._con.execute(
             f"COPY ({select_sql}) TO {_sql_str(str(parquet_path))} (FORMAT PARQUET)"

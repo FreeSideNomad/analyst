@@ -376,7 +376,8 @@ _DIALECTS: dict[DatabaseEngine, BridgeDialect] = {
         ),
         columns_sql=lambda t: (
             "SELECT COLUMN_NAME, DATA_TYPE FROM INFORMATION_SCHEMA.COLUMNS "
-            f"WHERE TABLE_NAME = '{t}' ORDER BY ORDINAL_POSITION"  # noqa: S608
+            f"WHERE TABLE_NAME = '{t.replace(chr(39), chr(39) * 2)}' "  # noqa: S608
+            "ORDER BY ORDINAL_POSITION"
         ),
         keys_sql=_MSSQL_KEYS_SQL,
     ),
@@ -388,8 +389,8 @@ _DIALECTS: dict[DatabaseEngine, BridgeDialect] = {
         ),
         columns_sql=lambda t: (
             "SELECT COLNAME, TYPENAME FROM SYSCAT.COLUMNS "
-            f"WHERE TABNAME = '{t}' AND TABSCHEMA = CURRENT SCHEMA "  # noqa: S608
-            "ORDER BY COLNO"
+            f"WHERE TABNAME = '{t.replace(chr(39), chr(39) * 2)}' "  # noqa: S608
+            "AND TABSCHEMA = CURRENT SCHEMA ORDER BY COLNO"
         ),
         keys_sql=_DB2_KEYS_SQL,
     ),
