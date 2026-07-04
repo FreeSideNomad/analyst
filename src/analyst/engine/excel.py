@@ -13,7 +13,7 @@ from pathlib import Path
 
 from openpyxl import load_workbook
 
-from analyst.engine.reader import MalformedFileError
+from analyst.engine.reader import FileTooLargeError, MalformedFileError
 
 
 def _sheet_has_content(rows: list[list[object]]) -> bool:
@@ -22,20 +22,44 @@ def _sheet_has_content(rows: list[list[object]]) -> bool:
     )
 
 
+class _TooManyCells(Exception):
+    """Guard trip (M9): a workbook expands to more cells than the cap."""
+
+
+def _max_cells() -> int:
+    return int(os.environ.get("ANALYST_MAX_EXCEL_CELLS", str(5_000_000)))
+
+
 def _xlsx_sheets(path: str) -> list[tuple[str, list[list[object]]]]:
+    # SECURITY M9: cap total cells while streaming — a small, highly-compressed
+    # .xlsx (zip bomb) or a sparse sheet with a cell at row 1,048,576 can expand
+    # to enormous memory. Count as we go and abort past the cap.
+    cap = _max_cells()
     workbook = load_workbook(filename=path, read_only=True, data_only=True)
-    out = [
-        (sheet.title, [list(r) for r in sheet.iter_rows(values_only=True)])
-        for sheet in workbook.worksheets
-    ]
-    workbook.close()
+    out: list[tuple[str, list[list[object]]]] = []
+    seen = 0
+    try:
+        for sheet in workbook.worksheets:
+            rows: list[list[object]] = []
+            for row in sheet.iter_rows(values_only=True):
+                seen += len(row)
+                if seen > cap:
+                    raise _TooManyCells
+                rows.append(list(row))
+            out.append((sheet.title, rows))
+    finally:
+        workbook.close()
     return out
 
 
 def _xls_sheets(path: str) -> list[tuple[str, list[list[object]]]]:
     import xlrd
 
+    cap = _max_cells()
     book = xlrd.open_workbook(path)
+    total = sum(s.nrows * s.ncols for s in book.sheets())
+    if total > cap:
+        raise _TooManyCells
     return [
         (
             sheet.name,
@@ -61,6 +85,11 @@ class ExcelReader:
         reader = _xls_sheets if str(path).lower().endswith(".xls") else _xlsx_sheets
         try:
             sheets = reader(str(path))
+        except _TooManyCells as exc:
+            raise FileTooLargeError(
+                f"The Excel workbook expands to more than {_max_cells()} cells — "
+                "too large for this version."
+            ) from exc
         except Exception as exc:  # openpyxl / xlrd raise several types on bad files
             raise MalformedFileError(
                 f"The Excel file could not be read: {exc}"

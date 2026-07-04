@@ -27,6 +27,10 @@ CREATE TABLE IF NOT EXISTS users (
     is_admin   INTEGER NOT NULL DEFAULT 0,
     created_at REAL NOT NULL
 );
+-- SECURITY M2: at most ONE admin, enforced at the DB level so a race between
+-- workers (both seeing COUNT==0) can't create two admins — the second INSERT
+-- fails the unique index and is retried as a non-admin.
+CREATE UNIQUE INDEX IF NOT EXISTS one_admin ON users (is_admin) WHERE is_admin = 1;
 CREATE TABLE IF NOT EXISTS workspaces (
     id         TEXT PRIMARY KEY,
     name       TEXT NOT NULL,
@@ -102,11 +106,20 @@ class AppState:
                 return self._user(self._row("users", row["id"]))
             first = self._conn.execute("SELECT COUNT(*) FROM users").fetchone()[0] == 0
             user_id = _new_id()
-            self._conn.execute(
-                "INSERT INTO users (id, email, name, provider, is_admin, created_at)"
-                " VALUES (?, ?, ?, ?, ?, ?)",
-                (user_id, email, name, provider, int(first), time.time()),
-            )
+            try:
+                self._conn.execute(
+                    "INSERT INTO users (id, email, name, provider, is_admin,"
+                    " created_at) VALUES (?, ?, ?, ?, ?, ?)",
+                    (user_id, email, name, provider, int(first), time.time()),
+                )
+            except sqlite3.IntegrityError:
+                # M2: another worker won the admin race — insert as a non-admin.
+                first = False
+                self._conn.execute(
+                    "INSERT INTO users (id, email, name, provider, is_admin,"
+                    " created_at) VALUES (?, ?, ?, ?, 0, ?)",
+                    (user_id, email, name, provider, time.time()),
+                )
             if first:
                 self._create_workspace_locked(DEFAULT_WORKSPACE_NAME, user_id)
             self._conn.commit()

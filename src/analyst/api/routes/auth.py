@@ -199,6 +199,22 @@ def _require_admin(request: Request) -> SessionRecord:
 # Middleware — session enforcement (no-op while auth is not configured)
 # --------------------------------------------------------------------------- #
 def install(app: FastAPI) -> None:
+    # SECURITY M2: without a stable ANALYST_SESSION_SECRET the per-process random
+    # key breaks multi-worker auth and doesn't survive restart. Warn loudly when
+    # auth is configured for real (not the local-http dev/e2e opt-out).
+    if (
+        auth_enabled()
+        and not os.environ.get("ANALYST_SESSION_SECRET")
+        and os.environ.get("ANALYST_INSECURE_COOKIES") != "1"
+    ):
+        import logging
+
+        logging.getLogger("analyst.auth").warning(
+            "ANALYST_SESSION_SECRET is not set — sessions use a per-process random "
+            "key: they break across multiple workers and reset on restart. Set a "
+            "stable secret for any real deployment (see the auth runbook)."
+        )
+
     @app.middleware("http")
     async def _session_guard(
         request: Request,

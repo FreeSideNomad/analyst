@@ -26,10 +26,11 @@ def run_select(
     The SQL is gated by the closed-world AST guard (SECURITY C2) immediately
     before execution — a file-path or table-function source can never run.
     """
-    assert_safe_select(store._con, sql)
-    cursor = store._con.execute(sql)  # engine-internal (same layer)
-    columns = tuple(d[0] for d in (cursor.description or ()))
-    rows = cursor.fetchmany(max_rows + 1)
+    with store._lock:  # M4: serialize access to the shared connection
+        assert_safe_select(store._con, sql)
+        cursor = store._con.execute(sql)  # engine-internal (same layer)
+        columns = tuple(d[0] for d in (cursor.description or ()))
+        rows = cursor.fetchmany(max_rows + 1)
     return ResultTable(
         columns=columns,
         rows=tuple(tuple(row) for row in rows[:max_rows]),

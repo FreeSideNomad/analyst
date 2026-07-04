@@ -76,3 +76,22 @@ def test_malformed_excel_fails_cleanly(tmp_path):
     path.write_bytes(b"this is not a real xlsx file")
     with pytest.raises(MalformedFileError):
         _service(tmp_path).ingest(path)
+
+
+def test_M9_oversize_excel_is_rejected(tmp_path, monkeypatch):
+    """M9: a workbook past the cell cap is rejected (too large), not OOM'd."""
+    import pytest
+    from openpyxl import Workbook
+
+    from analyst.engine.excel import ExcelReader
+    from analyst.engine.reader import FileTooLargeError
+
+    monkeypatch.setenv("ANALYST_MAX_EXCEL_CELLS", "100")
+    wb = Workbook()
+    ws = wb.active
+    for r in range(60):
+        ws.append([f"c{c}" for c in range(5)])  # 300 cells > cap 100
+    path = tmp_path / "big.xlsx"
+    wb.save(path)
+    with pytest.raises(FileTooLargeError):
+        ExcelReader().sheets(path, tmp_path)
