@@ -39,6 +39,13 @@ explore-real: ## Same, against the real DuckDB store
 explore-report: ## Re-summarize the last exploratory session's logs
 	$(UV) run python scripts/summarize_defects.py .explore
 
+## ── live federation test databases (feature 005) ───────────────────
+dbs-up: ## Start + seed Docker sample DBs (Pagila/Northwind/DB2 SAMPLE)
+	sh scripts/dbs_up.sh
+
+dbs-down: ## Stop the sample DBs and remove their volumes
+	docker compose -f docker-compose.dbs.yml down -v
+
 ## ── build / check ──────────────────────────────────────────────────
 build: ## Production build of the frontend → frontend/dist
 	cd frontend && $(BUN) run build
@@ -59,4 +66,4 @@ clean: ## Remove build artifacts, deps and local data
 	cd frontend && rm -rf node_modules dist
 	rm -rf .analyst-data
 
-.PHONY: help install install-api install-web dev api api-real web build test lint typecheck-web check clean
+.PHONY: help install install-api install-web dev api api-real web dbs-up dbs-down build test lint typecheck-web check clean

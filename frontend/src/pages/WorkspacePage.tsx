@@ -8,6 +8,7 @@ import type { AnswerResult, ChatMessage, ClarificationResult, TrustTrail as Trus
 import { useCatalog, useUI, useQuery } from '../stores';
 import { money, nfmt, roleBadge } from '../lib/format';
 import { Icon, IconButton, Card, Badge, Button, Tag, SegmentedControl, EYEBROW } from '../components/ui';
+import { DatabasePanel } from '../components/DatabasePanel';
 
 /* ── catalog tree ─────────────────────────────────────────────────── */
 function CatalogTree() {
@@ -20,11 +21,7 @@ function CatalogTree() {
       </div>
 
       <div style={{ padding: '0 18px', ...EYEBROW, marginBottom: 8 }}>Databases</div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '8px 18px', color: 'var(--text-subtle)' }}>
-        <Icon as={Database} size={16} color="var(--text-subtle)" />
-        <span style={{ font: '500 13px/1.2 var(--font-sans)', flex: 1 }}>Connect a database</span>
-        <span style={{ font: '400 10px/1 var(--font-mono)' }}>soon</span>
-      </div>
+      <DatabasePanel />{/* feature 005: connect/list/detach federated databases */}
 
       <div style={{ padding: '0 18px', ...EYEBROW, margin: '14px 0 8px' }}>Tables</div>
       {datasets.map((d) => {

@@ -15,8 +15,17 @@ dependencies = [
     "httpx>=0.28.1",
     "openpyxl>=3.1.5",
     "python-multipart>=0.0.9",
+    "pytz>=2024.1",
     "uvicorn[standard]>=0.30.0",
     "xlrd>=2.0.2",
+]
+
+[project.optional-dependencies]
+# Heavy source-DB drivers for federation (feature 005). Optional so default
+# `uv sync` stays lean; live Docker tests install with `uv sync --extra dbs`.
+dbs = [
+    "pymssql>=2.3.0",
+    "ibm-db>=3.2.0",
 ]
 
 [build-system]
@@ -43,7 +52,7 @@ warn_redundant_casts = true
 warn_unused_ignores = true
 
 [[tool.mypy.overrides]]
-module = ["openpyxl.*", "claude_agent_sdk.*", "xlrd.*"]
+module = ["openpyxl.*", "claude_agent_sdk.*", "xlrd.*", "pymssql", "ibm_db_dbi"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
