@@ -14,7 +14,9 @@ router = APIRouter(prefix="/api")
 def health() -> dict:
     from analyst.api.app import fixtures_enabled
 
-    return {"ok": True, "fixtures": fixtures_enabled(), "qa": "provisional"}
+    # Feature 003: "canned" (deterministic fixtures path) vs "real" (planner).
+    qa_mode = "canned" if fixtures_enabled() else "real"
+    return {"ok": True, "fixtures": fixtures_enabled(), "qa": qa_mode}
 
 
 @router.post("/_reset", status_code=204, include_in_schema=False)
