@@ -150,6 +150,7 @@ class DatabaseManager:
                 file_name=f"{spec.name}.{table.name}",
                 status=IngestionStatus.COMPLETE,
                 ingested_at=time.strftime("%Y-%m-%d"),
+                federated=True,  # catalogued + visible, but not Q&A-queryable yet
             )
             for table in tables
         ]

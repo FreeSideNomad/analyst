@@ -155,3 +155,29 @@ def test_reset_clears_connections(client, db_path, monkeypatch):
     assert client.get("/api/databases").json() == []
     names = {d["name"] for d in client.get("/api/datasets").json()}
     assert not any(n.startswith("chinook.") for n in names)
+
+
+def test_federated_tables_are_excluded_from_qa(tmp_path):
+    """Connected-DB tables are catalogued but not offered to the Q&A planner
+    (they're not locally queryable until 007/008) — so no un-runnable SQL."""
+    from analyst.api.qa import PlannerQAService
+    from analyst.api.repository import StoreRepository
+    from analyst.domain.dataset import DatasetSummary
+    from analyst.api.repository import DatasetRecord
+    from analyst.domain.status import IngestionStatus
+
+    repo = StoreRepository(str(tmp_path / "data"))
+    repo.ingest("orders.csv", b"id,amount\n1,10\n2,20\n")
+    # a federated record, as the DatabaseManager would add it
+    fed = DatasetRecord(
+        summary=DatasetSummary(
+            name="pgsql.film", profile=repo.get_dataset("orders").summary.profile
+        ),
+        file_name="pgsql.film",
+        status=IngestionStatus.COMPLETE,
+        federated=True,
+    )
+    repo.add_records([fed])
+    names = {t.name for t in PlannerQAService.__new__(PlannerQAService)._tables(repo)}
+    assert "orders" in names
+    assert "pgsql.film" not in names

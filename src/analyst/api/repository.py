@@ -29,6 +29,9 @@ class DatasetRecord:
     status: IngestionStatus = IngestionStatus.COMPLETE
     ingested_at: str | None = None
     started_at: float | None = None  # monotonic; drives simulated progress
+    # Federated (connected-DB) tables are catalogued + visible, but NOT locally
+    # queryable yet — excluded from Q&A until features 007/008 land.
+    federated: bool = False
 
     @property
     def name(self) -> str:
