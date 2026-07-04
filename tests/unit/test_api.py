@@ -211,3 +211,82 @@ def test_fixture_mode_also_rejects_empty_files(client):
     response = client.post("/api/datasets/ingest", files={"file": ("empty.csv", b"")})
     assert response.status_code == 400
     assert "empty" in response.json()["detail"].lower()
+
+
+# --------------------------------------------------------------------------- #
+# Security hardening (review 2026-07-04). Each test reproduces a CONFIRMED
+# exploit found by the independent adversarial review, then locks the fix.
+# --------------------------------------------------------------------------- #
+def test_C1_upload_filename_traversal_is_contained(tmp_path):
+    """CRITICAL C1: a `../`-laden upload filename must not escape the temp dir."""
+    import tempfile
+    from pathlib import Path
+
+    repo = StoreRepository(str(tmp_path / "data"))
+    marker = f"ESCAPED_{abs(hash(tmp_path))}.csv"
+    # The reviewer's exploit: a single `../` escaped the internal TemporaryDirectory
+    # into the system temp root. Reproduce and assert containment.
+    repo.ingest(f"../{marker}", b"id,amount\n1,10\n2,20\n")
+    escaped = Path(tempfile.gettempdir()) / marker
+    assert not escaped.exists(), f"upload filename escaped to {escaped}"
+
+
+def test_C1_safe_upload_name_strips_path():
+    from analyst.api.repository import _safe_upload_name
+
+    assert _safe_upload_name("../../etc/passwd") == "passwd"
+    assert _safe_upload_name("/abs/path/x.csv") == "x.csv"
+    assert _safe_upload_name("..\\..\\windows\\evil.csv").endswith("evil.csv")
+    assert _safe_upload_name("") == "upload.csv"
+    assert _safe_upload_name("   ") == "upload.csv"
+    assert _safe_upload_name("normal.csv") == "normal.csv"
+
+
+def test_H2_datasets_survive_a_restart_at_the_api_level(tmp_path):
+    """HIGH H2: a new StoreRepository on the same data dir must still list and
+    serve datasets ingested before (the DuckDB catalog + parquet persist)."""
+    data = str(tmp_path / "data")
+    StoreRepository(data).ingest("survivors.csv", CSV.encode())
+    # simulate a process restart: brand-new repository, same directory
+    reopened = StoreRepository(data)
+    names = {r.name for r in reopened.list_datasets()}
+    assert "survivors" in names, "dataset vanished from the API after restart"
+    assert reopened.get_dataset("survivors").summary.profile.row_count == 3
+
+
+def test_H4_malformed_json_is_rejected_as_400_not_500(store_client):
+    """HIGH H4: a malformed JSON upload must surface as a clean 4xx, not a 500."""
+    resp = store_client.post(
+        "/api/datasets/ingest",
+        files={"file": ("bad.json", b"{ this is : not json ]")},
+    )
+    assert resp.status_code == 400, f"got {resp.status_code}: {resp.text[:120]}"
+
+
+def test_M3_real_ingest_gets_a_catalog_and_it_persists(tmp_path, monkeypatch):
+    """M3/gap#3: with a cataloguer wired, a real upload gets descriptions/roles,
+    surfaces via /api/catalog, and survives a restart (replayed — CI-safe)."""
+    from analyst.api.app import build_cataloguer
+
+    monkeypatch.setenv(
+        "ANALYST_CATALOG_CASSETTE", "tests/cassettes/catalog_orders.json"
+    )
+    data = str(tmp_path / "data")
+    csv = b"order_id,customer,amount_usd\n1,Acme,120.50\n2,Globex,89.00\n"
+    repo = StoreRepository(data, cataloguer=build_cataloguer())
+    recs = repo.ingest("orders.csv", csv)
+    cat = recs[0].summary.catalog
+    assert cat is not None and cat.table_description
+    assert {c.name for c in cat.columns} == {"order_id", "customer", "amount_usd"}
+    # persists across a restart via the sidecar (no cataloguer needed to reload)
+    assert StoreRepository(data).get_dataset("orders").summary.catalog is not None
+
+
+def test_H3_oversize_upload_is_rejected_before_full_buffering(tmp_path, monkeypatch):
+    """HIGH H3: an upload beyond the cap is rejected (413) via a bounded read."""
+    monkeypatch.setenv("ANALYST_MAX_UPLOAD_BYTES", "1024")
+    client = TestClient(create_app(StoreRepository(str(tmp_path / "data"))))
+    big = b"id,v\n" + b"1,2\n" * 2000  # > 1 KiB
+    resp = client.post("/api/datasets/ingest", files={"file": ("big.csv", big)})
+    assert resp.status_code == 413
+    assert "limit" in resp.json()["detail"].lower()

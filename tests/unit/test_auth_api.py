@@ -30,6 +30,9 @@ def _clean_auth_env(monkeypatch):
     for var in AUTH_ENV:
         monkeypatch.delenv(var, raising=False)
     monkeypatch.setenv("ANALYST_FIXTURES", "1")
+    # TestClient talks http; browsers/httpx won't return a Secure cookie, so
+    # tests run with the local-dev opt-out (the H1 test overrides this).
+    monkeypatch.setenv("ANALYST_INSECURE_COOKIES", "1")
 
 
 def make_client() -> TestClient:
@@ -38,6 +41,8 @@ def make_client() -> TestClient:
 
 def dev_client(monkeypatch) -> TestClient:
     monkeypatch.setenv("ANALYST_DEV_LOGIN", "1")
+    # over http (TestClient), the browser/client won't return a Secure cookie
+    monkeypatch.setenv("ANALYST_INSECURE_COOKIES", "1")
     return make_client()
 
 
@@ -298,3 +303,17 @@ def test_reset_clears_users_and_sessions(monkeypatch):
     assert client.get("/api/datasets").status_code == 401  # session revoked
     me = login(client, "Zoe")  # first user again after reset
     assert me["user"]["isAdmin"] is True
+
+
+def test_H1_session_cookie_is_secure_by_default(monkeypatch):
+    """HIGH H1: the session cookie must carry Secure unless local-dev opts out."""
+    monkeypatch.setenv("ANALYST_DEV_LOGIN", "1")
+    monkeypatch.delenv("ANALYST_INSECURE_COOKIES", raising=False)
+    resp = make_client().post("/api/auth/dev-login", json={"name": "Sec"})
+    set_cookie = resp.headers.get("set-cookie", "")
+    assert "Secure" in set_cookie, set_cookie
+    assert "HttpOnly" in set_cookie
+
+    monkeypatch.setenv("ANALYST_INSECURE_COOKIES", "1")
+    resp2 = make_client().post("/api/auth/dev-login", json={"name": "Dev"})
+    assert "Secure" not in resp2.headers.get("set-cookie", "")

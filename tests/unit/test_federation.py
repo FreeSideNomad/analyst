@@ -8,6 +8,7 @@ Docker, no network.
 
 from __future__ import annotations
 
+import re
 import shutil
 from pathlib import Path
 
@@ -279,3 +280,46 @@ def test_service_fetch_is_capped_small(chinook):
     service.connect(_sqlite_spec(chinook))
     rows = service.fetch("chinook", "Track", limit=3)
     assert len(rows) == 3
+
+
+# --------------------------------------------------------------------------- #
+# Security C3 (review 2026-07-04): a connection failure must NEVER echo the
+# password (the DuckDB/driver error text contains the full DSN). Reproduced by
+# the reviewer end-to-end against Postgres; here we hit an unreachable host
+# (connection-refused also leaks the DSN) so the test is CI-safe.
+# --------------------------------------------------------------------------- #
+def test_C3_connection_error_does_not_leak_password():
+    from analyst.domain.connection import ConnectionSpec, DatabaseEngine
+    from analyst.engine.federation import FederationError, create_connector
+
+    secret = "PW_LEAK_MARKER_9x7"
+    spec = ConnectionSpec(
+        name="leaky",
+        engine=DatabaseEngine.POSTGRES,
+        host="127.0.0.1",
+        port=1,  # nothing listens — connection refused
+        database="whatever",
+        user="postgres",
+        password=secret,
+    )
+    try:
+        create_connector(spec)
+    except FederationError as exc:
+        assert secret not in str(exc), f"password leaked in error: {exc}"
+        # any password= pair must be redacted, never a real value
+        assert not re.search(r"(?i)password\s*=\s*(?!\*)\S", str(exc))
+    else:  # pragma: no cover
+        raise AssertionError("expected the unreachable connection to fail")
+
+
+def test_C3_redact_secrets_scrubs_password_and_dsn():
+    from analyst.domain.connection import ConnectionSpec, DatabaseEngine
+    from analyst.engine.federation import _redact_secrets
+
+    spec = ConnectionSpec(
+        name="x", engine=DatabaseEngine.POSTGRES, password="hunter2secret"
+    )
+    text = "IO Error: host=h port=5432 user=u password=hunter2secret: auth failed"
+    out = _redact_secrets(text, spec)
+    assert "hunter2secret" not in out
+    assert "password=***" in out or "password=[redacted]" in out

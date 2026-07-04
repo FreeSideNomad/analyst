@@ -38,3 +38,5 @@ tests/.dbs_seed/
 
 # Exploratory-session logs
 .explore/
+.analyst-data/
+samples/

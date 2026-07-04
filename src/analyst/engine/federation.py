@@ -18,6 +18,7 @@ entry point takes an explicit row cap.
 
 from __future__ import annotations
 
+import re
 import sqlite3
 from dataclasses import dataclass
 from typing import Callable, Protocol
@@ -40,6 +41,19 @@ DEFAULT_FETCH_CAP = 200
 
 class FederationError(RuntimeError):
     """A connection/federation failure with a user-facing message."""
+
+
+def _redact_secrets(text: str, spec: ConnectionSpec) -> str:
+    """Scrub the password (SECURITY C3) from any driver/DuckDB error text.
+
+    The scanners and drivers echo the full connection string — including the
+    password — in their error messages. Never let that reach the user or logs.
+    Removes both the literal secret value and any ``password=``/``PWD=`` pair.
+    """
+    if spec.password:
+        text = text.replace(spec.password, "***")
+    text = re.sub(r"(?i)\b(password|pwd)\b\s*[=:]\s*\S+", r"\1=***", text)
+    return text
 
 
 class DuplicateConnectionError(FederationError):
@@ -69,6 +83,43 @@ def _quote(name: str) -> str:
 # --------------------------------------------------------------------------- #
 _ATTACH_ALIAS = "fed_src"
 
+# Engines with a DuckDB scanner can be ATTACHed into the analytical store so
+# their tables are directly NL-queryable (HIGH H5). Bridge engines cannot.
+ATTACHABLE_ENGINES = frozenset({DatabaseEngine.SQLITE, DatabaseEngine.POSTGRES})
+
+
+def build_attach_sql(spec: ConnectionSpec, alias: str) -> str:
+    """The `ATTACH … READ_ONLY` statement for a scanner engine into `alias`."""
+    if spec.engine is DatabaseEngine.SQLITE:
+        # DuckDB's sqlite ATTACH happily creates a missing file — reject
+        # instead: connecting must never invent a database.
+        from pathlib import Path
+
+        if not Path(str(spec.path)).is_file():
+            raise duckdb.IOException(f"SQLite database file not found: {spec.path}")
+        source = str(spec.path)
+    elif spec.engine is DatabaseEngine.POSTGRES:
+        parts = [
+            f"host={spec.host}",
+            f"port={spec.resolved_port}",
+            f"dbname={spec.database}",
+            "connect_timeout=5",
+        ]
+        if spec.user:
+            parts.append(f"user={spec.user}")
+        if spec.password:
+            parts.append(f"password={spec.password}")
+        source = " ".join(parts)
+    else:  # pragma: no cover - only scanner engines are attachable
+        raise FederationError(f"No DuckDB scanner for {spec.engine.label}.")
+    literal = source.replace("'", "''")
+    return f"ATTACH '{literal}' AS {alias} (TYPE {spec.engine.value}, READ_ONLY)"
+
+
+def source_schema(engine: DatabaseEngine) -> str:
+    return _SOURCE_SCHEMAS[engine]
+
+
 # The user-facing schema per scanner engine: attached catalogs also surface
 # internal schemas (e.g. postgres information_schema/pg_catalog) — those are
 # not user tables and must never become datasets.
@@ -89,38 +140,12 @@ class DuckDBAttachConnector:
         except duckdb.Error as exc:
             self._con.close()
             raise FederationError(
-                f"Could not connect to {spec.engine.label} database: {exc}"
+                f"Could not connect to {spec.engine.label} database: "
+                f"{_redact_secrets(str(exc), spec)}"
             ) from exc
 
     def _attach_sql(self) -> str:
-        spec = self.spec
-        if spec.engine is DatabaseEngine.SQLITE:
-            # DuckDB's sqlite ATTACH happily creates a missing file — reject
-            # instead: connecting must never invent a database.
-            from pathlib import Path
-
-            if not Path(str(spec.path)).is_file():
-                raise duckdb.IOException(f"SQLite database file not found: {spec.path}")
-            source = str(spec.path)
-        elif spec.engine is DatabaseEngine.POSTGRES:
-            parts = [
-                f"host={spec.host}",
-                f"port={spec.resolved_port}",
-                f"dbname={spec.database}",
-                "connect_timeout=5",
-            ]
-            if spec.user:
-                parts.append(f"user={spec.user}")
-            if spec.password:
-                parts.append(f"password={spec.password}")
-            source = " ".join(parts)
-        else:  # pragma: no cover - factory never routes others here
-            raise FederationError(f"No DuckDB scanner for {spec.engine.label}.")
-        literal = source.replace("'", "''")
-        return (
-            f"ATTACH '{literal}' AS {_ATTACH_ALIAS} "
-            f"(TYPE {self.spec.engine.value}, READ_ONLY)"
-        )
+        return build_attach_sql(self.spec, _ATTACH_ALIAS)
 
     def tables(self) -> tuple[str, ...]:
         if self.spec.engine is DatabaseEngine.POSTGRES:
@@ -351,7 +376,8 @@ _DIALECTS: dict[DatabaseEngine, BridgeDialect] = {
         ),
         columns_sql=lambda t: (
             "SELECT COLUMN_NAME, DATA_TYPE FROM INFORMATION_SCHEMA.COLUMNS "
-            f"WHERE TABLE_NAME = '{t}' ORDER BY ORDINAL_POSITION"  # noqa: S608
+            f"WHERE TABLE_NAME = '{t.replace(chr(39), chr(39) * 2)}' "  # noqa: S608
+            "ORDER BY ORDINAL_POSITION"
         ),
         keys_sql=_MSSQL_KEYS_SQL,
     ),
@@ -363,8 +389,8 @@ _DIALECTS: dict[DatabaseEngine, BridgeDialect] = {
         ),
         columns_sql=lambda t: (
             "SELECT COLNAME, TYPENAME FROM SYSCAT.COLUMNS "
-            f"WHERE TABNAME = '{t}' AND TABSCHEMA = CURRENT SCHEMA "  # noqa: S608
-            "ORDER BY COLNO"
+            f"WHERE TABNAME = '{t.replace(chr(39), chr(39) * 2)}' "  # noqa: S608
+            "AND TABSCHEMA = CURRENT SCHEMA ORDER BY COLNO"
         ),
         keys_sql=_DB2_KEYS_SQL,
     ),
@@ -518,7 +544,8 @@ def _mssql_driver(spec: ConnectionSpec) -> BridgeDriver:
                 )
             except Exception as exc:
                 raise FederationError(
-                    f"Could not connect to SQL Server: {exc}"
+                    "Could not connect to SQL Server: "
+                    f"{_redact_secrets(str(exc), spec)}"
                 ) from exc
 
         def execute(self, sql: str) -> list[tuple]:
@@ -552,7 +579,9 @@ def _db2_driver(spec: ConnectionSpec) -> BridgeDriver:
             try:
                 self._con = ibm_db_dbi.connect(dsn, "", "")
             except Exception as exc:
-                raise FederationError(f"Could not connect to DB2: {exc}") from exc
+                raise FederationError(
+                    f"Could not connect to DB2: {_redact_secrets(str(exc), spec)}"
+                ) from exc
 
         def execute(self, sql: str) -> list[tuple]:
             cursor = self._con.cursor()

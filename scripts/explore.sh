@@ -22,10 +22,16 @@ mkdir -p "$LOGDIR"
 : > "$LOGDIR/web.log"
 printf '%s\n' "$MODE" > "$LOGDIR/mode"
 
+# Per-mode server environment.
+#   mock — in-memory fixtures (seeded workspace), no auth, no live model.
+#   real — real DuckDB store, no auth, no live cataloguing (fast).
+#   mvp  — the full MVP: real store + auth (dev-login) + LIVE agent cataloguing.
+API_ENV="ANALYST_FIXTURES=0"
 if [ "$MODE" = "mock" ]; then
-    FIXTURES=1
-else
-    FIXTURES=0
+    API_ENV="ANALYST_FIXTURES=1"
+elif [ "$MODE" = "mvp" ]; then
+    API_ENV="ANALYST_FIXTURES=0 ANALYST_DEV_LOGIN=1 ANALYST_CATALOG=live \
+ANALYST_INSECURE_COOKIES=1 ANALYST_SESSION_SECRET=${ANALYST_SESSION_SECRET:-local-explore-secret}"
 fi
 
 cleanup() {
@@ -42,8 +48,8 @@ cleanup() {
 }
 trap cleanup INT TERM EXIT
 
-echo "── analyst exploratory session ($MODE data) ──────────────────"
-ANALYST_FIXTURES=$FIXTURES uv run uvicorn analyst.api.app:app \
+echo "── analyst exploratory session ($MODE) ───────────────────────"
+env $API_ENV uv run uvicorn analyst.api.app:app \
     --port "$API_PORT" --log-level info >>"$LOGDIR/api.log" 2>&1 &
 API_PID=$!
 
@@ -61,7 +67,7 @@ done
 
 echo ""
 echo "  app:  http://localhost:$WEB_PORT"
-echo "  api:  http://localhost:$API_PORT/api/health  (fixtures: $FIXTURES)"
+echo "  api:  http://localhost:$API_PORT/api/health  (mode: '"$MODE"')"
 echo "  logs: $LOGDIR/{api,web}.log"
 echo ""
 echo "  Explore away. Error lines are flagged below as they happen."

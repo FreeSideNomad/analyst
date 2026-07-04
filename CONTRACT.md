@@ -39,6 +39,7 @@ JS side needs no case-munging; Python stays snake_case.
 | DELETE | `/api/datasets/{name}` | 204 |
 | POST | `/api/datasets/{name}/refresh` | `RefreshResult` |
 | GET | `/api/catalog` | `Record<name, CatalogEntry>` |
+| GET | `/api/health` | `{ ok: true, fixtures: boolean, qa: "real"\|"canned" }` |
 
 `Dataset.id === name` — the backend keys datasets by their sanitized slug
 (`_sanitize` in `service/ingestion.py`); there is no separate id.

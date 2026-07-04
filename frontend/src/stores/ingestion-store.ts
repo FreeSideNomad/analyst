@@ -26,15 +26,21 @@ export const useIngestion = create<IngestionState>((set) => ({
     const ds = res.datasets[0];
     if (!ds) return;
     set((s) => ({ uploads: [...s.uploads, { name: ds.name, fileName: ds.fileName, status: ds.status, phase: null, progress: 0 }] }));
-    // poll status until complete
+    // poll status until complete — a transient error must not leak the
+    // interval or throw an unhandled rejection (frontend hardening).
     const poll = setInterval(async () => {
-      const st = await api.ingestionStatus(ds.name);
-      set((s) => ({ uploads: s.uploads.map((u) => u.name === ds.name ? { ...u, status: st.status, phase: st.phase ?? null, progress: st.progress ?? u.progress } : u) }));
-      if (st.status !== 'in progress') {
+      try {
+        const st = await api.ingestionStatus(ds.name);
+        set((s) => ({ uploads: s.uploads.map((u) => u.name === ds.name ? { ...u, status: st.status, phase: st.phase ?? null, progress: st.progress ?? u.progress } : u) }));
+        if (st.status !== 'in progress') {
+          clearInterval(poll);
+          await useCatalog.getState().refresh();
+          useCatalog.getState().setActiveProfile(ds.name);
+          setTimeout(() => set((s) => ({ uploads: s.uploads.filter((u) => u.name !== ds.name) })), 1500);
+        }
+      } catch {
         clearInterval(poll);
-        await useCatalog.getState().refresh();
-        useCatalog.getState().setActiveProfile(ds.name);
-        setTimeout(() => set((s) => ({ uploads: s.uploads.filter((u) => u.name !== ds.name) })), 1500);
+        set((s) => ({ uploads: s.uploads.map((u) => u.name === ds.name ? { ...u, status: 'failed', error: 'Lost contact while profiling.' } : u) }));
       }
     }, 500);
   },

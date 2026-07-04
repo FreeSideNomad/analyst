@@ -169,7 +169,13 @@ class PlannerQAService:
         self._pending: dict[str, tuple[str, Clarification]] = {}
 
     def _tables(self, repo: DatasetRepository) -> tuple[QueryTable, ...]:
-        records = sorted(repo.list_datasets(), key=lambda r: r.name)
+        # Only locally-queryable datasets go to the planner. Federated
+        # (connected-DB) tables are catalogued but not yet queryable (007/008),
+        # so excluding them prevents the planner from writing un-runnable SQL.
+        records = sorted(
+            (r for r in repo.list_datasets() if not getattr(r, "federated", False)),
+            key=lambda r: r.name,
+        )
         return tuple(query_table_from_summary(r.summary) for r in records)
 
     def submit(self, question: str, repo: DatasetRepository) -> QueryResult:

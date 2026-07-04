@@ -36,17 +36,45 @@ def fixtures_enabled() -> bool:
     return os.environ.get("ANALYST_FIXTURES", "0") == "1"
 
 
+def build_cataloguer() -> object | None:
+    """The agent cataloguer for real ingestion — OPT-IN so CI/tests stay
+    deterministic and offline (golden-path fix M3):
+
+    - ANALYST_CATALOG_CASSETTE=<path> → replay recorded responses (deterministic).
+    - ANALYST_CATALOG=live            → real Claude Agent SDK calls (the app).
+    - otherwise                        → None (profiles only; no model calls).
+    """
+    from analyst.agentic.cataloguer import Cataloguer
+    from analyst.agentic.gateway import LLMGateway, ReplayBackend
+
+    cassette = os.environ.get("ANALYST_CATALOG_CASSETTE")
+    if cassette:
+        return Cataloguer(LLMGateway(ReplayBackend(cassette)))
+    if os.environ.get("ANALYST_CATALOG") == "live":
+        from analyst.agentic.claude_backend import ClaudeAgentBackend
+
+        return Cataloguer(LLMGateway(ClaudeAgentBackend()))
+    return None
+
+
 def _build_repository() -> DatasetRepository:
     if fixtures_enabled():
         return FixtureRepository()
-    return StoreRepository(os.environ.get("ANALYST_DATA_DIR", ".analyst-data"))
+    return StoreRepository(
+        os.environ.get("ANALYST_DATA_DIR", ".analyst-data"),
+        cataloguer=build_cataloguer(),
+    )
 
 
 def create_app(repo: DatasetRepository | None = None) -> FastAPI:
     app = FastAPI(title="analyst", version="0.1.0")
+    # Pin CORS to the deployment origin when known (ANALYST_PUBLIC_URL); the
+    # wildcard is a dev convenience only. Credentials are not enabled, so the
+    # cookie is never exposed cross-origin regardless.
+    public_url = os.environ.get("ANALYST_PUBLIC_URL")
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
+        allow_origins=[public_url] if public_url else ["*"],
         allow_methods=["*"],
         allow_headers=["*"],
     )

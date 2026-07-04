@@ -1,0 +1,3 @@
+{
+  "16678ee64f0238626db9372087286dfbb95e730d31da71ee5c7ff5e6459a98e9": "{\"table_description\": \"A table of customer orders. Each row represents a single order placed by a customer, capturing which customer placed it and the order's monetary value in US dollars.\", \"columns\": [{\"name\": \"order_id\", \"description\": \"Unique integer identifier for each order. No nulls and fully distinct across rows.\", \"role\": \"identifier\"}, {\"name\": \"customer\", \"description\": \"Name of the customer (company) that placed the order, e.g. 'Acme' or 'Globex'.\", \"role\": \"category\"}, {\"name\": \"amount_usd\", \"description\": \"Monetary value of the order expressed in US dollars, as a decimal.\", \"role\": \"measure\"}], \"clarifications\": []}"
+}

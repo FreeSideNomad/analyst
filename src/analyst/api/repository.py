@@ -29,6 +29,9 @@ class DatasetRecord:
     status: IngestionStatus = IngestionStatus.COMPLETE
     ingested_at: str | None = None
     started_at: float | None = None  # monotonic; drives simulated progress
+    # Federated (connected-DB) tables are catalogued + visible, but NOT locally
+    # queryable yet — excluded from Q&A until features 007/008 land.
+    federated: bool = False
 
     @property
     def name(self) -> str:
@@ -153,7 +156,7 @@ class StoreRepository:
     the service returns. Requires ANALYST_DATA_DIR.
     """
 
-    def __init__(self, data_dir: str) -> None:
+    def __init__(self, data_dir: str, cataloguer: object = None) -> None:
         import tempfile
 
         from analyst.engine.store import DatasetStore
@@ -161,8 +164,30 @@ class StoreRepository:
 
         self._tempfile = tempfile
         self.store = DatasetStore(data_dir)
-        self.service = IngestionService(self.store)
+        self.service = IngestionService(self.store, cataloguer=cataloguer)  # type: ignore[arg-type]
         self._records: dict[str, DatasetRecord] = {}
+        self._rehydrate()
+
+    def _rehydrate(self) -> None:
+        """Rebuild the dataset registry from the persisted store (HIGH H2).
+
+        The DuckDB catalog + Parquet survive a restart; without this the API
+        would show an empty workspace though the data is all on disk. Catalog
+        entries are reloaded from their persisted sidecar when present.
+        """
+        from analyst.domain.dataset import DatasetSummary
+
+        for name in self.store.datasets():
+            try:
+                profile = self.store.profile(name)
+            except Exception:  # noqa: BLE001 - a broken relation shouldn't abort boot
+                continue
+            catalog = _load_catalog_sidecar(self.store.base_dir, name)
+            self._records[name] = DatasetRecord(
+                summary=DatasetSummary(name=name, profile=profile, catalog=catalog),
+                file_name=f"{name}.csv",
+                status=IngestionStatus.COMPLETE,
+            )
 
     def list_datasets(self) -> list[DatasetRecord]:
         return list(self._records.values())
@@ -180,6 +205,7 @@ class StoreRepository:
     def delete(self, name: str) -> None:
         self.service.delete(name)
         self._records.pop(name, None)
+        _catalog_sidecar(self.store.base_dir, name).unlink(missing_ok=True)
 
     def add_records(self, records: list[DatasetRecord]) -> None:
         for record in records:
@@ -192,15 +218,18 @@ class StoreRepository:
     def ingest(self, file_name: str, content: bytes) -> list[DatasetRecord]:
         # Write under the REAL file name (in a temp dir) — the service derives
         # the dataset name from the file's stem, so a NamedTemporaryFile would
-        # produce garbage dataset names like "tmps9jbs9y1".
+        # produce garbage dataset names like "tmps9jbs9y1". SECURITY (C1): the
+        # name is basename-sanitized so a `../`-laden upload can't escape the dir.
         with self._tempfile.TemporaryDirectory() as tmp_dir:
             from pathlib import Path
 
-            tmp_path = Path(tmp_dir) / (file_name or "upload.csv")
+            tmp_path = Path(tmp_dir) / _safe_upload_name(file_name)
             tmp_path.write_bytes(content)
             result = self.service.ingest(tmp_path)
         out: list[DatasetRecord] = []
         for summary in result.datasets:
+            # Persist the agent-authored catalog so it survives a restart (H2).
+            _save_catalog_sidecar(self.store.base_dir, summary.name, summary.catalog)
             rec = DatasetRecord(
                 summary=summary,
                 file_name=file_name,
@@ -232,3 +261,60 @@ class StoreRepository:
 
             record.summary = dataclasses.replace(record.summary, profile=result.profile)
         return result
+
+
+def _catalog_sidecar(base_dir: object, name: str):  # noqa: ANN001
+    from pathlib import Path
+
+    return Path(str(base_dir)) / f"{name}.catalog.json"
+
+
+def _save_catalog_sidecar(base_dir: object, name: str, catalog: object) -> None:
+    """Persist a catalog entry so it survives a restart (HIGH H2 + cataloguer)."""
+    import dataclasses
+    import json
+
+    if not dataclasses.is_dataclass(catalog) or isinstance(catalog, type):
+        return
+    _catalog_sidecar(base_dir, name).write_text(
+        json.dumps(dataclasses.asdict(catalog)), encoding="utf-8"
+    )
+
+
+def _load_catalog_sidecar(base_dir: object, name: str):  # noqa: ANN001
+    path = _catalog_sidecar(base_dir, name)
+    if not path.exists():
+        return None
+    import json
+
+    from analyst.domain.catalog import (
+        CatalogEntry,
+        Clarification,
+        ColumnDescription,
+    )
+
+    data = json.loads(path.read_text(encoding="utf-8"))
+    return CatalogEntry(
+        table_description=data["table_description"],
+        columns=tuple(ColumnDescription(**c) for c in data["columns"]),
+        clarifications=tuple(
+            Clarification(
+                question=c["question"],
+                options=tuple(c["options"]),
+                column=c.get("column"),
+            )
+            for c in data["clarifications"]
+        ),
+    )
+
+
+def _safe_upload_name(file_name: str) -> str:
+    """Basename-only upload name (SECURITY C1) — strips any directory component
+    (`../`, absolute paths, Windows separators) so a crafted filename can never
+    escape the temp directory it's written into."""
+    from pathlib import PurePosixPath, PureWindowsPath
+
+    raw = (file_name or "").strip()
+    # Handle both separator styles regardless of host OS.
+    base = PureWindowsPath(PurePosixPath(raw).name).name.strip()
+    return base or "upload.csv"

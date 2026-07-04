@@ -123,3 +123,28 @@ def test_file_backed_state_persists(tmp_path):
     reopened = AppState(db)
     ana = reopened.user_by_email("ana@dev.local")
     assert ana is not None and ana.is_admin is True
+
+
+def test_M2_only_one_admin_even_under_a_race(tmp_path):
+    """M2: the DB-level unique index guarantees a single admin; a concurrent
+    'both saw COUNT==0' insert is retried as a non-admin."""
+    from analyst.persistence.appstate import AppState
+
+    state = AppState(str(tmp_path / "app.sqlite3"))
+    a = state.sign_in("a@x.com", "Ana", "dev")
+    assert a.is_admin is True
+    # simulate a second worker that also computed first=True (raw insert)
+    import sqlite3
+
+    with sqlite3.connect(str(tmp_path / "app.sqlite3")) as raw:
+        try:
+            raw.execute(
+                "INSERT INTO users (id,email,name,provider,is_admin,created_at)"
+                " VALUES ('x','b@x.com','Ben','dev',1,1.0)"
+            )
+            raced = False
+        except sqlite3.IntegrityError:
+            raced = True
+    assert raced, "the unique admin index must reject a second admin"
+    b = state.sign_in("c@x.com", "Cy", "dev")
+    assert b.is_admin is False

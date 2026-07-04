@@ -79,7 +79,13 @@ def _e2e_stack():
                     "warning",
                 ],
                 cwd=REPO_ROOT,
-                env={**os.environ, "ANALYST_FIXTURES": "1", "ANALYST_DEV_LOGIN": "1"},
+                env={
+                    **os.environ,
+                    "ANALYST_FIXTURES": "1",
+                    "ANALYST_DEV_LOGIN": "1",
+                    # Playwright drives the app over http, not TLS.
+                    "ANALYST_INSECURE_COOKIES": "1",
+                },
             )
         )
         subprocess.run(

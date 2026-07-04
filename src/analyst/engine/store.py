@@ -8,13 +8,35 @@ from __future__ import annotations
 import csv
 import io
 import os
+import threading
+from collections.abc import Callable
+from functools import wraps
 from pathlib import Path
+from typing import Any, TypeVar, cast
 
 import duckdb
 
 from analyst.domain.profile import DatasetProfile
 from analyst.engine.profiler import profile_relation
-from analyst.engine.reader import CsvReader, ReadPlan
+from analyst.engine.reader import CsvReader, MalformedFileError, ReadPlan
+
+_F = TypeVar("_F", bound=Callable[..., Any])
+
+
+def _synchronized(method: _F) -> _F:
+    """Serialize a store method on the store's lock (SECURITY M4).
+
+    FastAPI runs sync endpoints in a threadpool; a DuckDB connection is not safe
+    for concurrent use, so every operation on the shared connection takes the
+    (reentrant) store lock.
+    """
+
+    @wraps(method)
+    def wrapper(self: "DatasetStore", *args: Any, **kwargs: Any) -> Any:
+        with self._lock:
+            return method(self, *args, **kwargs)
+
+    return cast(_F, wrapper)
 
 
 def _sql_str(value: str) -> str:
@@ -46,9 +68,11 @@ class DatasetStore:
     def __init__(self, base_dir: str | os.PathLike[str]):
         self.base_dir = Path(base_dir)
         self.base_dir.mkdir(parents=True, exist_ok=True)
+        self._lock = threading.RLock()  # M4: serialize the DuckDB connection
         self._con = duckdb.connect(str(self.base_dir / "catalog.duckdb"))
         self._reader = CsvReader()
 
+    @_synchronized
     def materialize_delimited(
         self,
         dataset: str,
@@ -83,6 +107,7 @@ class DatasetStore:
         )
         return plan
 
+    @_synchronized
     def materialize_json(
         self, dataset: str, json_path: str | os.PathLike[str]
     ) -> tuple[str, ...]:
@@ -92,28 +117,47 @@ class DatasetStore:
         dropped; their column names are returned so the caller can record them.
         """
         src = _sql_str(str(json_path))
-        schema = self._con.execute(
-            f"DESCRIBE SELECT * FROM read_json_auto({src})"
-        ).fetchall()
-        nested = tuple(row[0] for row in schema if _is_nested_type(row[1]))
-        select = ", ".join(
-            (
-                f"to_json({_quote_ident(name)}) AS {_quote_ident(name)}"
-                if _is_nested_type(dtype)
-                else _quote_ident(name)
+        try:
+            schema = self._con.execute(
+                f"DESCRIBE SELECT * FROM read_json_auto({src})"
+            ).fetchall()
+            nested = tuple(row[0] for row in schema if _is_nested_type(row[1]))
+            select = ", ".join(
+                (
+                    f"to_json({_quote_ident(name)}) AS {_quote_ident(name)}"
+                    if _is_nested_type(dtype)
+                    else _quote_ident(name)
+                )
+                for name, dtype, *_ in schema
             )
-            for name, dtype, *_ in schema
-        )
-        self._register_parquet(dataset, f"SELECT {select} FROM read_json_auto({src})")
+            self._register_parquet(
+                dataset, f"SELECT {select} FROM read_json_auto({src})"
+            )
+        except duckdb.Error as exc:
+            # HIGH H4: a parse failure must surface as a clean 4xx, not a 500.
+            raise MalformedFileError(f"The JSON file could not be read: {exc}") from exc
         return nested
 
+    @_synchronized
+    def datasets(self) -> list[str]:
+        """Persisted dataset (view) names — the source of truth across restarts
+        (HIGH H2). Excludes transient/internal relations."""
+        rows = self._con.execute(
+            "SELECT table_name FROM information_schema.tables "
+            "WHERE table_schema = 'main' ORDER BY table_name"
+        ).fetchall()
+        return [str(r[0]) for r in rows if not str(r[0]).startswith(("fed_", "__"))]
+
+    @_synchronized
     def _register_parquet(self, dataset: str, select_sql: str) -> None:
         """Write the next version's Parquet and point the dataset view at it.
 
         Each materialization is a new, retained version (AC-19); the view always
         resolves to the latest.
         """
-        version = len(self.versions(dataset)) + 1
+        # M8: derive from the max existing version, not the count — a gap in
+        # versions (e.g. [1, 3]) must never make a new write overwrite v3.
+        version = max(self.versions(dataset), default=0) + 1
         parquet_path = self.base_dir / f"{dataset}.v{version}.parquet"
         self._con.execute(
             f"COPY ({select_sql}) TO {_sql_str(str(parquet_path))} (FORMAT PARQUET)"
@@ -133,20 +177,24 @@ class DatasetStore:
                 out.append(int(num))
         return sorted(out)
 
+    @_synchronized
     def schema(self, dataset: str) -> tuple[tuple[str, str], ...]:
         """The established schema: (column name, inferred type) pairs."""
         return tuple(
             (col.name, col.inferred_type.value) for col in self.profile(dataset).columns
         )
 
+    @_synchronized
     def profile(self, dataset: str, sample_cap: int | None = None) -> DatasetProfile:
         if sample_cap is None:
             return profile_relation(self._con, dataset)
         return profile_relation(self._con, dataset, sample_cap=sample_cap)
 
+    @_synchronized
     def fetch_all(self, dataset: str) -> list[tuple]:
         return self._con.execute(f"SELECT * FROM {_quote_ident(dataset)}").fetchall()
 
+    @_synchronized
     def delete(self, dataset: str) -> None:
         """Drop the dataset's view and remove all its versions (AC-20)."""
         self._con.execute(f"DROP VIEW IF EXISTS {_quote_ident(dataset)}")
@@ -154,6 +202,7 @@ class DatasetStore:
         for path in self.base_dir.glob(f"{dataset}.v*.parquet"):
             path.unlink(missing_ok=True)
 
+    @_synchronized
     def exists(self, dataset: str) -> bool:
         rows = self._con.execute(
             "SELECT 1 FROM information_schema.tables WHERE table_name = ?",

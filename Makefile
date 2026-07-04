@@ -20,8 +20,8 @@ install-web: ## Install frontend deps (bun)
 dev: ## Run API (:8000) + web (:5173) together
 	@$(MAKE) -j2 api web
 
-api: ## Backend API on :8000 (real DuckDB store — the default)
-	$(UV) run uvicorn analyst.api.app:app --reload --port 8000
+api: ## Backend API on :8000 (real DuckDB store + live agent cataloguing)
+	ANALYST_CATALOG=live $(UV) run uvicorn analyst.api.app:app --reload --port 8000
 
 api-mock: ## Backend serving the in-memory Python fixtures (demos / e2e)
 	ANALYST_FIXTURES=1 $(UV) run uvicorn analyst.api.app:app --reload --port 8000
@@ -33,8 +33,11 @@ web: ## Frontend dev server on :5173 (proxies /api → :8000)
 explore: ## Boot app on mocked data, tail logs live, defect summary on Ctrl-C
 	MODE=mock sh scripts/explore.sh
 
-explore-real: ## Same, against the real DuckDB store
+explore-real: ## Same, against the real DuckDB store (no auth/catalog)
 	MODE=real sh scripts/explore.sh
+
+explore-mvp: ## Full MVP: real store + dev-login auth + LIVE agent cataloguing
+	MODE=mvp sh scripts/explore.sh
 
 explore-report: ## Re-summarize the last exploratory session's logs
 	$(UV) run python scripts/summarize_defects.py .explore

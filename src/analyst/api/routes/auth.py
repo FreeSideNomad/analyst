@@ -158,12 +158,23 @@ def resolve_session(request: Request) -> SessionRecord | None:
     return app_state(request.app).get_session(session_id)
 
 
+def _cookie_secure() -> bool:
+    """The session cookie is Secure (HTTPS-only) unless explicitly in local dev.
+
+    SECURITY H1: without Secure, an on-path attacker captures the session over a
+    downgraded/cleartext request. Default ON; opt out for http://localhost dev
+    with ANALYST_INSECURE_COOKIES=1 (the e2e harness / bare-http local runs).
+    """
+    return os.environ.get("ANALYST_INSECURE_COOKIES") != "1"
+
+
 def _set_session_cookie(response: Response, session_id: str) -> None:
     response.set_cookie(
         SESSION_COOKIE,
         sign(session_id, _secret()),
         max_age=SESSION_TTL_SECONDS,
         httponly=True,
+        secure=_cookie_secure(),
         samesite="lax",
         path="/",
     )
@@ -188,6 +199,22 @@ def _require_admin(request: Request) -> SessionRecord:
 # Middleware — session enforcement (no-op while auth is not configured)
 # --------------------------------------------------------------------------- #
 def install(app: FastAPI) -> None:
+    # SECURITY M2: without a stable ANALYST_SESSION_SECRET the per-process random
+    # key breaks multi-worker auth and doesn't survive restart. Warn loudly when
+    # auth is configured for real (not the local-http dev/e2e opt-out).
+    if (
+        auth_enabled()
+        and not os.environ.get("ANALYST_SESSION_SECRET")
+        and os.environ.get("ANALYST_INSECURE_COOKIES") != "1"
+    ):
+        import logging
+
+        logging.getLogger("analyst.auth").warning(
+            "ANALYST_SESSION_SECRET is not set — sessions use a per-process random "
+            "key: they break across multiple workers and reset on restart. Set a "
+            "stable secret for any real deployment (see the auth runbook)."
+        )
+
     @app.middleware("http")
     async def _session_guard(
         request: Request,
