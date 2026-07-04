@@ -182,15 +182,18 @@ class DatabaseManager:
 
 
 def get_manager(request: Request) -> DatabaseManager:
-    """The manager bound to the CURRENT repository (reset-aware)."""
+    """The manager bound to the current WORKSPACE's repository (HIGH H6).
+
+    Managers are kept PER workspace repo — a workspace switch must never close
+    another tenant's live connections. Each workspace repo is a stable singleton
+    in the repo holder, so keying on its identity is safe and persistent.
+    """
     repo = get_repository(request)
-    holder = getattr(request.app.state, "database_manager", None)
-    if holder is None or holder.repo is not repo:
-        if holder is not None:
-            holder.service.close()
-        holder = DatabaseManager(repo=repo)
-        request.app.state.database_manager = holder
-    return holder
+    managers = request.app.state.__dict__.setdefault("database_managers", {})
+    key = id(repo)
+    if key not in managers:
+        managers[key] = DatabaseManager(repo=repo)
+    return managers[key]
 
 
 # --------------------------------------------------------------------------- #

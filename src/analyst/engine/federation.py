@@ -83,6 +83,43 @@ def _quote(name: str) -> str:
 # --------------------------------------------------------------------------- #
 _ATTACH_ALIAS = "fed_src"
 
+# Engines with a DuckDB scanner can be ATTACHed into the analytical store so
+# their tables are directly NL-queryable (HIGH H5). Bridge engines cannot.
+ATTACHABLE_ENGINES = frozenset({DatabaseEngine.SQLITE, DatabaseEngine.POSTGRES})
+
+
+def build_attach_sql(spec: ConnectionSpec, alias: str) -> str:
+    """The `ATTACH … READ_ONLY` statement for a scanner engine into `alias`."""
+    if spec.engine is DatabaseEngine.SQLITE:
+        # DuckDB's sqlite ATTACH happily creates a missing file — reject
+        # instead: connecting must never invent a database.
+        from pathlib import Path
+
+        if not Path(str(spec.path)).is_file():
+            raise duckdb.IOException(f"SQLite database file not found: {spec.path}")
+        source = str(spec.path)
+    elif spec.engine is DatabaseEngine.POSTGRES:
+        parts = [
+            f"host={spec.host}",
+            f"port={spec.resolved_port}",
+            f"dbname={spec.database}",
+            "connect_timeout=5",
+        ]
+        if spec.user:
+            parts.append(f"user={spec.user}")
+        if spec.password:
+            parts.append(f"password={spec.password}")
+        source = " ".join(parts)
+    else:  # pragma: no cover - only scanner engines are attachable
+        raise FederationError(f"No DuckDB scanner for {spec.engine.label}.")
+    literal = source.replace("'", "''")
+    return f"ATTACH '{literal}' AS {alias} (TYPE {spec.engine.value}, READ_ONLY)"
+
+
+def source_schema(engine: DatabaseEngine) -> str:
+    return _SOURCE_SCHEMAS[engine]
+
+
 # The user-facing schema per scanner engine: attached catalogs also surface
 # internal schemas (e.g. postgres information_schema/pg_catalog) — those are
 # not user tables and must never become datasets.
@@ -108,34 +145,7 @@ class DuckDBAttachConnector:
             ) from exc
 
     def _attach_sql(self) -> str:
-        spec = self.spec
-        if spec.engine is DatabaseEngine.SQLITE:
-            # DuckDB's sqlite ATTACH happily creates a missing file — reject
-            # instead: connecting must never invent a database.
-            from pathlib import Path
-
-            if not Path(str(spec.path)).is_file():
-                raise duckdb.IOException(f"SQLite database file not found: {spec.path}")
-            source = str(spec.path)
-        elif spec.engine is DatabaseEngine.POSTGRES:
-            parts = [
-                f"host={spec.host}",
-                f"port={spec.resolved_port}",
-                f"dbname={spec.database}",
-                "connect_timeout=5",
-            ]
-            if spec.user:
-                parts.append(f"user={spec.user}")
-            if spec.password:
-                parts.append(f"password={spec.password}")
-            source = " ".join(parts)
-        else:  # pragma: no cover - factory never routes others here
-            raise FederationError(f"No DuckDB scanner for {spec.engine.label}.")
-        literal = source.replace("'", "''")
-        return (
-            f"ATTACH '{literal}' AS {_ATTACH_ALIAS} "
-            f"(TYPE {self.spec.engine.value}, READ_ONLY)"
-        )
+        return build_attach_sql(self.spec, _ATTACH_ALIAS)
 
     def tables(self) -> tuple[str, ...]:
         if self.spec.engine is DatabaseEngine.POSTGRES:

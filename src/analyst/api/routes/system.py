@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import contextlib
+
 from fastapi import APIRouter, HTTPException, Request
 
 from analyst.api.repository import FixtureRepository
@@ -29,3 +31,10 @@ def reset_fixtures(request: Request) -> None:
     # Feature 004: also drop per-workspace repos + auth state (users/sessions).
     holder.pop("workspaces", None)
     auth.reset_state(request.app)
+    # M7: tear down the cached Q&A + database-manager singletons too, so a
+    # reset truly restores a clean fixture workspace between e2e scenarios.
+    for manager in getattr(request.app.state, "database_managers", {}).values():
+        with contextlib.suppress(Exception):
+            manager.service.close()
+    request.app.state.__dict__["database_managers"] = {}
+    request.app.state.__dict__.pop("qa_holder", None)
