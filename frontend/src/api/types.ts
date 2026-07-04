@@ -50,7 +50,7 @@ export interface CatalogEntry {
 }
 
 export interface Dataset {
-  id: string;                  // === name (backend keys by sanitized slug)
+  id: string;                  // === name (source.entity.ext id)
   name: string;
   fileName: string;
   status: IngestionStatusValue;
@@ -59,6 +59,10 @@ export interface Dataset {
   columnCount: number;
   profile: DatasetProfile;
   catalog: CatalogEntry | null;
+  // Feature 006 — source-grouped workbench:
+  group: string;               // first dot-segment of the name
+  sourceKind: 'file' | 'database';
+  queryable: boolean;          // false for connected-DB tables (not yet Q&A-able)
 }
 
 export interface IngestionResult { datasets: Dataset[]; }

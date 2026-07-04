@@ -9,7 +9,9 @@ interface UIState {
   toggleDetail: () => void;
 }
 export const useUI = create<UIState>((set) => ({
-  view: 'workspace',
+  // Feature 006: the workbench (Ingest & Profile) is the landing surface —
+  // add data + browse the source-grouped catalog; Query is the pure chat.
+  view: 'ingest',
   detailCollapsed: false,
   setView: (view) => set({ view }),
   toggleDetail: () => set((s) => ({ detailCollapsed: !s.detailCollapsed })),

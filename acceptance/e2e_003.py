@@ -161,7 +161,8 @@ def given_real_service(ctx: ScenarioContext) -> None:
     health = httpx.get(f"{api}/api/health").json()
     assert health["ok"] is True and health["qa"] == "real"
     names = {d["name"] for d in httpx.get(f"{api}/api/datasets").json()}
-    assert "qa_orders" in names
+    # Feature 006 naming: the ingested dataset id now carries its extension.
+    assert "qa_orders.csv" in names
 
 
 @step(r'the user asks the planner "(?P<question>[^"]+)"')
@@ -278,6 +279,9 @@ def given_app_open(ctx: ScenarioContext) -> None:
 
 @step(r'the user asks in the chat "(?P<question>[^"]+)"')
 def when_user_asks_chat(ctx: ScenarioContext, question: str) -> None:
+    # Feature 006: the chat lives on the Query surface; the app opens on the
+    # Ingest & Profile workbench, so switch to Query before asking.
+    ctx.page.get_by_role("button", name="Query").click()
     box = ctx.page.get_by_placeholder("Ask across all tables")
     box.fill(question)
     box.press("Enter")
