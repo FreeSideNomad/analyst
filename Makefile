@@ -33,8 +33,11 @@ web: ## Frontend dev server on :5173 (proxies /api → :8000)
 explore: ## Boot app on mocked data, tail logs live, defect summary on Ctrl-C
 	MODE=mock sh scripts/explore.sh
 
-explore-real: ## Same, against the real DuckDB store
+explore-real: ## Same, against the real DuckDB store (no auth/catalog)
 	MODE=real sh scripts/explore.sh
+
+explore-mvp: ## Full MVP: real store + dev-login auth + LIVE agent cataloguing
+	MODE=mvp sh scripts/explore.sh
 
 explore-report: ## Re-summarize the last exploratory session's logs
 	$(UV) run python scripts/summarize_defects.py .explore
