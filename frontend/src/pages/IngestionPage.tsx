@@ -182,7 +182,7 @@ function TableNode({ d, catalog }: { d: Dataset; catalog: Record<string, Catalog
           style={{ display: 'flex', alignItems: 'center', border: 'none', background: 'transparent', cursor: 'pointer', padding: '7px 2px 7px 30px' }}>
           <Icon as={open ? ChevronDown : ChevronRight} size={14} color="var(--text-muted)" />
         </button>
-        <button onClick={() => setDetail(d.id)}
+        <button aria-label={`Open table ${d.name}`} onClick={() => setDetail(d.id)}
           style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 7, padding: '7px 16px 7px 2px', border: 'none', background: 'transparent', cursor: 'pointer', textAlign: 'left' }}>
           <Icon as={Table2} size={15} color={isDetail ? 'var(--brand)' : 'var(--text-muted)'} />
           <span className="mono" style={{ font: '600 12.5px/1.2 var(--font-mono)', color: 'var(--text-strong)', flex: 1 }}>{d.fileName}</span>
