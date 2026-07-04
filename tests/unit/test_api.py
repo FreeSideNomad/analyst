@@ -211,3 +211,32 @@ def test_fixture_mode_also_rejects_empty_files(client):
     response = client.post("/api/datasets/ingest", files={"file": ("empty.csv", b"")})
     assert response.status_code == 400
     assert "empty" in response.json()["detail"].lower()
+
+
+# --------------------------------------------------------------------------- #
+# Security hardening (review 2026-07-04). Each test reproduces a CONFIRMED
+# exploit found by the independent adversarial review, then locks the fix.
+# --------------------------------------------------------------------------- #
+def test_C1_upload_filename_traversal_is_contained(tmp_path):
+    """CRITICAL C1: a `../`-laden upload filename must not escape the temp dir."""
+    import tempfile
+    from pathlib import Path
+
+    repo = StoreRepository(str(tmp_path / "data"))
+    marker = f"ESCAPED_{abs(hash(tmp_path))}.csv"
+    # The reviewer's exploit: a single `../` escaped the internal TemporaryDirectory
+    # into the system temp root. Reproduce and assert containment.
+    repo.ingest(f"../{marker}", b"id,amount\n1,10\n2,20\n")
+    escaped = Path(tempfile.gettempdir()) / marker
+    assert not escaped.exists(), f"upload filename escaped to {escaped}"
+
+
+def test_C1_safe_upload_name_strips_path():
+    from analyst.api.repository import _safe_upload_name
+
+    assert _safe_upload_name("../../etc/passwd") == "passwd"
+    assert _safe_upload_name("/abs/path/x.csv") == "x.csv"
+    assert _safe_upload_name("..\\..\\windows\\evil.csv").endswith("evil.csv")
+    assert _safe_upload_name("") == "upload.csv"
+    assert _safe_upload_name("   ") == "upload.csv"
+    assert _safe_upload_name("normal.csv") == "normal.csv"

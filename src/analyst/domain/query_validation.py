@@ -159,6 +159,14 @@ def validate_sql(sql: str, tables: Mapping[str, Sequence[str]]) -> list[str]:
     ``tables`` is the closed world: dataset name -> its column names.
     """
     problems: list[str] = []
+
+    # SECURITY (C2, defense in depth): a string literal directly after FROM/JOIN
+    # is a DuckDB replacement scan that reads that path as a file. Reject before
+    # noise-stripping erases it. The engine-level AST guard is the authoritative
+    # gate; this keeps the pure validator honest instead of silently passing it.
+    if re.search(r"\b(?:FROM|JOIN)\s+'", sql, re.IGNORECASE):
+        return ["A query may not select from a string literal or file path."]
+
     stripped = _strip_noise(sql).strip()
     if not stripped:
         return ["The SQL statement is empty."]

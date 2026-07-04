@@ -109,10 +109,18 @@ def test_aliases_and_functions_are_not_flagged():
 
 
 def test_string_literals_and_comments_are_ignored():
+    # WHERE-clause literals and comments are correctly ignored...
     ok(
         "SELECT amount -- profit is not a column\n"
         "FROM qa_orders WHERE customer = 'nonexistent_column'"
     )
+
+
+def test_C2_from_string_literal_is_rejected():
+    # ...but a string literal as a FROM/JOIN *source* is a file-read attempt.
+    bad("SELECT * FROM '/etc/passwd.csv'", "string literal")
+    bad("SELECT * FROM qa_orders JOIN '/etc/x.csv' ON 1=1", "string literal")
+    bad("select amount from   '/tmp/creds.json'", "string literal")
 
 
 def test_quoted_identifiers_are_checked():

@@ -192,11 +192,12 @@ class StoreRepository:
     def ingest(self, file_name: str, content: bytes) -> list[DatasetRecord]:
         # Write under the REAL file name (in a temp dir) — the service derives
         # the dataset name from the file's stem, so a NamedTemporaryFile would
-        # produce garbage dataset names like "tmps9jbs9y1".
+        # produce garbage dataset names like "tmps9jbs9y1". SECURITY (C1): the
+        # name is basename-sanitized so a `../`-laden upload can't escape the dir.
         with self._tempfile.TemporaryDirectory() as tmp_dir:
             from pathlib import Path
 
-            tmp_path = Path(tmp_dir) / (file_name or "upload.csv")
+            tmp_path = Path(tmp_dir) / _safe_upload_name(file_name)
             tmp_path.write_bytes(content)
             result = self.service.ingest(tmp_path)
         out: list[DatasetRecord] = []
@@ -232,3 +233,15 @@ class StoreRepository:
 
             record.summary = dataclasses.replace(record.summary, profile=result.profile)
         return result
+
+
+def _safe_upload_name(file_name: str) -> str:
+    """Basename-only upload name (SECURITY C1) — strips any directory component
+    (`../`, absolute paths, Windows separators) so a crafted filename can never
+    escape the temp directory it's written into."""
+    from pathlib import PurePosixPath, PureWindowsPath
+
+    raw = (file_name or "").strip()
+    # Handle both separator styles regardless of host OS.
+    base = PureWindowsPath(PurePosixPath(raw).name).name.strip()
+    return base or "upload.csv"

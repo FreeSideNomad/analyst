@@ -18,6 +18,7 @@ entry point takes an explicit row cap.
 
 from __future__ import annotations
 
+import re
 import sqlite3
 from dataclasses import dataclass
 from typing import Callable, Protocol
@@ -40,6 +41,19 @@ DEFAULT_FETCH_CAP = 200
 
 class FederationError(RuntimeError):
     """A connection/federation failure with a user-facing message."""
+
+
+def _redact_secrets(text: str, spec: ConnectionSpec) -> str:
+    """Scrub the password (SECURITY C3) from any driver/DuckDB error text.
+
+    The scanners and drivers echo the full connection string — including the
+    password — in their error messages. Never let that reach the user or logs.
+    Removes both the literal secret value and any ``password=``/``PWD=`` pair.
+    """
+    if spec.password:
+        text = text.replace(spec.password, "***")
+    text = re.sub(r"(?i)\b(password|pwd)\b\s*[=:]\s*\S+", r"\1=***", text)
+    return text
 
 
 class DuplicateConnectionError(FederationError):
@@ -89,7 +103,8 @@ class DuckDBAttachConnector:
         except duckdb.Error as exc:
             self._con.close()
             raise FederationError(
-                f"Could not connect to {spec.engine.label} database: {exc}"
+                f"Could not connect to {spec.engine.label} database: "
+                f"{_redact_secrets(str(exc), spec)}"
             ) from exc
 
     def _attach_sql(self) -> str:
@@ -518,7 +533,8 @@ def _mssql_driver(spec: ConnectionSpec) -> BridgeDriver:
                 )
             except Exception as exc:
                 raise FederationError(
-                    f"Could not connect to SQL Server: {exc}"
+                    "Could not connect to SQL Server: "
+                    f"{_redact_secrets(str(exc), spec)}"
                 ) from exc
 
         def execute(self, sql: str) -> list[tuple]:
@@ -552,7 +568,9 @@ def _db2_driver(spec: ConnectionSpec) -> BridgeDriver:
             try:
                 self._con = ibm_db_dbi.connect(dsn, "", "")
             except Exception as exc:
-                raise FederationError(f"Could not connect to DB2: {exc}") from exc
+                raise FederationError(
+                    f"Could not connect to DB2: {_redact_secrets(str(exc), spec)}"
+                ) from exc
 
         def execute(self, sql: str) -> list[tuple]:
             cursor = self._con.cursor()
