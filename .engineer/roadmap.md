@@ -6,13 +6,13 @@
 ## now
 - [x] **File ingestion & agentic data profiling** `id:file-ingestion-agentic-data-profiling` priority:1 status:shipped area:ingestion → feature:file-ingestion-and-profiling
       CSV/Excel -> profiling (nullability, cardinality, distributions) -> Parquet/DuckDB catalog. Claude Agent SDK drives cataloguing.
-- [ ] **Natural-language Q&A over a dataset** `id:natural-language-q-a-over-a-dataset` priority:2 status:in-progress area:query → feature:nl-qa
+- [x] **Natural-language Q&A over a dataset** `id:natural-language-q-a-over-a-dataset` priority:2 status:shipped area:query → feature:nl-qa
       Confidence-gated NL->query with expandable assumptions/lineage/SQL trail. Ambiguity resolved via the structured AskQuestion primitive (native React multiple-choice), which is then reused product-wide.
-- [ ] **Auth & workspaces** `id:auth-workspaces` priority:3 status:in-progress area:platform → feature:auth-workspaces
+- [x] **Auth & workspaces** `id:auth-workspaces` priority:3 status:shipped area:platform → feature:auth-workspaces
       Google + Microsoft OAuth; first-user-becomes-admin; admin creates workspaces and permissions users; per-workspace isolation of sources/catalog/conversations. Foundational for real team use (MVP value-loop can be built workspace-light before this lands).
 
 ## next
-- [ ] **Relational database federation** `id:relational-database-ingestion` priority:1 status:in-progress area:ingestion → feature:db-federation
+- [x] **Relational database federation** `id:relational-database-ingestion` priority:1 status:shipped area:ingestion → feature:db-federation
       Attach relational DBs and query through (federated, DuckDB attaches Postgres/MySQL/etc.) — nothing copied. Profile via the live connection.
 - [ ] **PK/FK relationship discovery & validation** `id:pk-fk-relationship-discovery-validation` priority:2 status:planned area:profiling → feature:—
       Discover candidate PK/FK relationships not formally declared; validate via tests.

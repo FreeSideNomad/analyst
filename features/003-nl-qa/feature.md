@@ -2,7 +2,8 @@
 slug: nl-qa
 title: Natural-language Q&A over a dataset
 outcome: A user asks a plain-English question about a loaded dataset and gets a confidence-gated answer — direct when confident, an AskQuestion clarification when ambiguous — always carrying the expandable trust trail (assumptions, lineage, SQL). The real planner (semantic catalog → SQL via the Claude Agent SDK, local DuckDB execution) replaces the canned Q&A in real mode; fixtures mode stays deterministic for e2e.
-status: ready
+status: done
+merged_at: 2026-07-04
 autonomy_level: high
 assignee: cloud
 owner: igormusic
