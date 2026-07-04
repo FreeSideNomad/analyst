@@ -22,7 +22,7 @@ from analyst.api.repository import (
     FixtureRepository,
     StoreRepository,
 )
-from analyst.api.routes import datasets, qa, system
+from analyst.api.routes import auth, datasets, qa, system
 from analyst.engine.reader import (
     EmptyFileError,
     FileTooLargeError,
@@ -66,6 +66,12 @@ def create_app(repo: DatasetRepository | None = None) -> FastAPI:
         app.add_exception_handler(error_type, _rejection(400))
     app.add_exception_handler(FileTooLargeError, _rejection(413))
 
+    # Feature 004: session enforcement — a NO-OP until a login method is
+    # configured via env (see analyst.api.routes.auth.auth_enabled).
+    auth.install(app)
+
+    app.include_router(auth.router)
+    app.include_router(auth.workspaces_router)
     app.include_router(datasets.router)
     app.include_router(qa.router)
     app.include_router(system.router)

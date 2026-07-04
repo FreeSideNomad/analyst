@@ -12,6 +12,7 @@ dependencies = [
     "claude-agent-sdk>=0.2.110",
     "duckdb>=1.5.4",
     "fastapi>=0.115.0",
+    "httpx>=0.28.1",
     "openpyxl>=3.1.5",
     "python-multipart>=0.0.9",
     "uvicorn[standard]>=0.30.0",
