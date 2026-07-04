@@ -148,6 +148,11 @@ def test_mssql_dialect_pushes_down_with_top():
     assert "TOP 5" in dialect_for(DatabaseEngine.MSSQL).cap('SELECT * FROM "t"', 5)
 
 
+def test_mssql_dialect_puts_top_after_distinct():
+    capped = dialect_for(DatabaseEngine.MSSQL).cap('SELECT DISTINCT "c" FROM "t"', 5)
+    assert capped.startswith("SELECT DISTINCT TOP 5 ")
+
+
 def test_db2_dialect_pushes_down_with_fetch_first():
     capped = dialect_for(DatabaseEngine.DB2).cap('SELECT * FROM "t"', 5)
     assert "FETCH FIRST 5 ROWS ONLY" in capped

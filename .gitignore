@@ -33,5 +33,8 @@ data/*.parquet
 # Golden-corpus cache (fetched at test time, not committed)
 tests/.golden_cache/
 
+# Live-DB seed SQL cache (fetched by scripts/dbs_up.sh, not committed)
+tests/.dbs_seed/
+
 # Exploratory-session logs
 .explore/

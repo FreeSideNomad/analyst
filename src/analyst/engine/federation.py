@@ -69,6 +69,14 @@ def _quote(name: str) -> str:
 # --------------------------------------------------------------------------- #
 _ATTACH_ALIAS = "fed_src"
 
+# The user-facing schema per scanner engine: attached catalogs also surface
+# internal schemas (e.g. postgres information_schema/pg_catalog) — those are
+# not user tables and must never become datasets.
+_SOURCE_SCHEMAS = {
+    DatabaseEngine.SQLITE: "main",
+    DatabaseEngine.POSTGRES: "public",
+}
+
 
 class DuckDBAttachConnector:
     """ATTACH the source into a private in-memory DuckDB and query through."""
@@ -115,15 +123,26 @@ class DuckDBAttachConnector:
         )
 
     def tables(self) -> tuple[str, ...]:
-        rows = self._con.execute(
-            "SELECT table_name FROM duckdb_tables() "
-            "WHERE database_name = ? ORDER BY table_name",
-            [_ATTACH_ALIAS],
-        ).fetchall()
+        if self.spec.engine is DatabaseEngine.POSTGRES:
+            # Push down to the source: BASE TABLEs only. The scanner also
+            # surfaces materialized views (possibly unpopulated) as tables.
+            rows = self._con.execute(
+                f"SELECT * FROM postgres_query({_ATTACH_ALIAS!r}, "
+                "'SELECT table_name FROM information_schema.tables "
+                "WHERE table_schema = ''public'' AND table_type = ''BASE TABLE'' "
+                "ORDER BY table_name')"
+            ).fetchall()
+        else:
+            rows = self._con.execute(
+                "SELECT table_name FROM duckdb_tables() "
+                "WHERE database_name = ? AND schema_name = ? ORDER BY table_name",
+                [_ATTACH_ALIAS, _SOURCE_SCHEMAS[self.spec.engine]],
+            ).fetchall()
         return tuple(r[0] for r in rows)
 
     def _source_relation(self, table: str) -> str:
-        return f"{_ATTACH_ALIAS}.{_quote(table)}"
+        schema = _SOURCE_SCHEMAS[self.spec.engine]
+        return f"{_ATTACH_ALIAS}.{_quote(schema)}.{_quote(table)}"
 
     def profile(self, table: str) -> DatasetProfile:
         # profile_relation quotes its relation name as one identifier, so give
@@ -268,6 +287,9 @@ def _cap_limit(sql: str, n: int) -> str:
 
 
 def _cap_top(sql: str, n: int) -> str:
+    # T-SQL: TOP goes after DISTINCT (SELECT DISTINCT TOP n ...).
+    if sql.startswith("SELECT DISTINCT "):
+        return sql.replace("SELECT DISTINCT ", f"SELECT DISTINCT TOP {int(n)} ", 1)
     return sql.replace("SELECT ", f"SELECT TOP {int(n)} ", 1)
 
 
@@ -487,11 +509,11 @@ def _mssql_driver(spec: ConnectionSpec) -> BridgeDriver:
         def __init__(self) -> None:
             try:
                 self._con = pymssql.connect(
-                    server=spec.host,
+                    server=spec.host or "",
                     port=str(spec.resolved_port),
                     user=spec.user,
                     password=spec.password or "",
-                    database=spec.database,
+                    database=spec.database or "",
                     login_timeout=5,
                 )
             except Exception as exc:
