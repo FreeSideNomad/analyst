@@ -64,6 +64,11 @@ def to_dataset_schema(rec: DatasetRecord) -> DatasetSchema:
             if rec.summary.catalog
             else None
         ),
+        # Feature 006 — source grouping + the not-yet-queryable marking for
+        # connected-database tables (federated records).
+        group=rec.name.split(".", 1)[0],
+        source_kind="database" if rec.federated else "file",
+        queryable=not rec.federated,
     )
 
 

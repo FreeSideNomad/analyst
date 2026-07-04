@@ -156,7 +156,8 @@ def test_store_mode_real_ingest_and_query(store_client):
         "/api/datasets/ingest", files={"file": ("numbers.csv", CSV.encode())}
     ).json()
     ds = result["datasets"][0]
-    assert ds["name"] == "numbers" and ds["status"] == "complete"
+    assert ds["name"] == "numbers.csv" and ds["status"] == "complete"
+    assert ds["group"] == "numbers" and ds["sourceKind"] == "file" and ds["queryable"]
     assert ds["rowCount"] == 3
     types = {c["name"]: c["inferredType"] for c in ds["profile"]["columns"]}
     assert types == {"id": "integer", "amount": "integer"}
@@ -168,13 +169,13 @@ def test_store_mode_refresh_versions_and_delete(store_client):
     )
     conforming = "id,amount\n5,50\n6,60\n"
     refreshed = store_client.post(
-        "/api/datasets/numbers/refresh",
+        "/api/datasets/numbers.csv/refresh",
         files={"file": ("numbers.csv", conforming.encode())},
     ).json()
     assert refreshed["replaced"] is True and refreshed["version"] == 2
-    assert store_client.get("/api/datasets/numbers").json()["rowCount"] == 2
-    assert store_client.delete("/api/datasets/numbers").status_code == 204
-    assert store_client.get("/api/datasets/numbers").status_code == 404
+    assert store_client.get("/api/datasets/numbers.csv").json()["rowCount"] == 2
+    assert store_client.delete("/api/datasets/numbers.csv").status_code == 204
+    assert store_client.get("/api/datasets/numbers.csv").status_code == 404
 
 
 # --------------------------------------------------------------------------- #
@@ -250,8 +251,8 @@ def test_H2_datasets_survive_a_restart_at_the_api_level(tmp_path):
     # simulate a process restart: brand-new repository, same directory
     reopened = StoreRepository(data)
     names = {r.name for r in reopened.list_datasets()}
-    assert "survivors" in names, "dataset vanished from the API after restart"
-    assert reopened.get_dataset("survivors").summary.profile.row_count == 3
+    assert "survivors.csv" in names, "dataset vanished from the API after restart"
+    assert reopened.get_dataset("survivors.csv").summary.profile.row_count == 3
 
 
 def test_H4_malformed_json_is_rejected_as_400_not_500(store_client):
@@ -279,7 +280,7 @@ def test_M3_real_ingest_gets_a_catalog_and_it_persists(tmp_path, monkeypatch):
     assert cat is not None and cat.table_description
     assert {c.name for c in cat.columns} == {"order_id", "customer", "amount_usd"}
     # persists across a restart via the sidecar (no cataloguer needed to reload)
-    assert StoreRepository(data).get_dataset("orders").summary.catalog is not None
+    assert StoreRepository(data).get_dataset("orders.csv").summary.catalog is not None
 
 
 def test_H3_oversize_upload_is_rejected_before_full_buffering(tmp_path, monkeypatch):

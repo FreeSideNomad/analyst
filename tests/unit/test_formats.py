@@ -60,7 +60,8 @@ def test_excel_each_sheet_becomes_its_own_dataset(tmp_path):
 
     result = _service(tmp_path).ingest(path)
     names = {d.name for d in result.datasets}
-    assert names == {"orders", "returns"}
+    # Feature 006: an Excel sheet is named "<file>.<sheet>.<ext>".
+    assert names == {"book.orders.xlsx", "book.returns.xlsx"}
 
 
 def test_unsupported_format_is_rejected(tmp_path):
