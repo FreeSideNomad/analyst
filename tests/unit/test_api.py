@@ -280,3 +280,13 @@ def test_M3_real_ingest_gets_a_catalog_and_it_persists(tmp_path, monkeypatch):
     assert {c.name for c in cat.columns} == {"order_id", "customer", "amount_usd"}
     # persists across a restart via the sidecar (no cataloguer needed to reload)
     assert StoreRepository(data).get_dataset("orders").summary.catalog is not None
+
+
+def test_H3_oversize_upload_is_rejected_before_full_buffering(tmp_path, monkeypatch):
+    """HIGH H3: an upload beyond the cap is rejected (413) via a bounded read."""
+    monkeypatch.setenv("ANALYST_MAX_UPLOAD_BYTES", "1024")
+    client = TestClient(create_app(StoreRepository(str(tmp_path / "data"))))
+    big = b"id,v\n" + b"1,2\n" * 2000  # > 1 KiB
+    resp = client.post("/api/datasets/ingest", files={"file": ("big.csv", big)})
+    assert resp.status_code == 413
+    assert "limit" in resp.json()["detail"].lower()

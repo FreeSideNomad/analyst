@@ -158,12 +158,23 @@ def resolve_session(request: Request) -> SessionRecord | None:
     return app_state(request.app).get_session(session_id)
 
 
+def _cookie_secure() -> bool:
+    """The session cookie is Secure (HTTPS-only) unless explicitly in local dev.
+
+    SECURITY H1: without Secure, an on-path attacker captures the session over a
+    downgraded/cleartext request. Default ON; opt out for http://localhost dev
+    with ANALYST_INSECURE_COOKIES=1 (the e2e harness / bare-http local runs).
+    """
+    return os.environ.get("ANALYST_INSECURE_COOKIES") != "1"
+
+
 def _set_session_cookie(response: Response, session_id: str) -> None:
     response.set_cookie(
         SESSION_COOKIE,
         sign(session_id, _secret()),
         max_age=SESSION_TTL_SECONDS,
         httponly=True,
+        secure=_cookie_secure(),
         samesite="lax",
         path="/",
     )
