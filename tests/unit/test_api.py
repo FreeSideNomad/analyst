@@ -240,3 +240,43 @@ def test_C1_safe_upload_name_strips_path():
     assert _safe_upload_name("") == "upload.csv"
     assert _safe_upload_name("   ") == "upload.csv"
     assert _safe_upload_name("normal.csv") == "normal.csv"
+
+
+def test_H2_datasets_survive_a_restart_at_the_api_level(tmp_path):
+    """HIGH H2: a new StoreRepository on the same data dir must still list and
+    serve datasets ingested before (the DuckDB catalog + parquet persist)."""
+    data = str(tmp_path / "data")
+    StoreRepository(data).ingest("survivors.csv", CSV.encode())
+    # simulate a process restart: brand-new repository, same directory
+    reopened = StoreRepository(data)
+    names = {r.name for r in reopened.list_datasets()}
+    assert "survivors" in names, "dataset vanished from the API after restart"
+    assert reopened.get_dataset("survivors").summary.profile.row_count == 3
+
+
+def test_H4_malformed_json_is_rejected_as_400_not_500(store_client):
+    """HIGH H4: a malformed JSON upload must surface as a clean 4xx, not a 500."""
+    resp = store_client.post(
+        "/api/datasets/ingest",
+        files={"file": ("bad.json", b"{ this is : not json ]")},
+    )
+    assert resp.status_code == 400, f"got {resp.status_code}: {resp.text[:120]}"
+
+
+def test_M3_real_ingest_gets_a_catalog_and_it_persists(tmp_path, monkeypatch):
+    """M3/gap#3: with a cataloguer wired, a real upload gets descriptions/roles,
+    surfaces via /api/catalog, and survives a restart (replayed — CI-safe)."""
+    from analyst.api.app import build_cataloguer
+
+    monkeypatch.setenv(
+        "ANALYST_CATALOG_CASSETTE", "tests/cassettes/catalog_orders.json"
+    )
+    data = str(tmp_path / "data")
+    csv = b"order_id,customer,amount_usd\n1,Acme,120.50\n2,Globex,89.00\n"
+    repo = StoreRepository(data, cataloguer=build_cataloguer())
+    recs = repo.ingest("orders.csv", csv)
+    cat = recs[0].summary.catalog
+    assert cat is not None and cat.table_description
+    assert {c.name for c in cat.columns} == {"order_id", "customer", "amount_usd"}
+    # persists across a restart via the sidecar (no cataloguer needed to reload)
+    assert StoreRepository(data).get_dataset("orders").summary.catalog is not None

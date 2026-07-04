@@ -14,7 +14,7 @@ import duckdb
 
 from analyst.domain.profile import DatasetProfile
 from analyst.engine.profiler import profile_relation
-from analyst.engine.reader import CsvReader, ReadPlan
+from analyst.engine.reader import CsvReader, MalformedFileError, ReadPlan
 
 
 def _sql_str(value: str) -> str:
@@ -92,20 +92,35 @@ class DatasetStore:
         dropped; their column names are returned so the caller can record them.
         """
         src = _sql_str(str(json_path))
-        schema = self._con.execute(
-            f"DESCRIBE SELECT * FROM read_json_auto({src})"
-        ).fetchall()
-        nested = tuple(row[0] for row in schema if _is_nested_type(row[1]))
-        select = ", ".join(
-            (
-                f"to_json({_quote_ident(name)}) AS {_quote_ident(name)}"
-                if _is_nested_type(dtype)
-                else _quote_ident(name)
+        try:
+            schema = self._con.execute(
+                f"DESCRIBE SELECT * FROM read_json_auto({src})"
+            ).fetchall()
+            nested = tuple(row[0] for row in schema if _is_nested_type(row[1]))
+            select = ", ".join(
+                (
+                    f"to_json({_quote_ident(name)}) AS {_quote_ident(name)}"
+                    if _is_nested_type(dtype)
+                    else _quote_ident(name)
+                )
+                for name, dtype, *_ in schema
             )
-            for name, dtype, *_ in schema
-        )
-        self._register_parquet(dataset, f"SELECT {select} FROM read_json_auto({src})")
+            self._register_parquet(
+                dataset, f"SELECT {select} FROM read_json_auto({src})"
+            )
+        except duckdb.Error as exc:
+            # HIGH H4: a parse failure must surface as a clean 4xx, not a 500.
+            raise MalformedFileError(f"The JSON file could not be read: {exc}") from exc
         return nested
+
+    def datasets(self) -> list[str]:
+        """Persisted dataset (view) names — the source of truth across restarts
+        (HIGH H2). Excludes transient/internal relations."""
+        rows = self._con.execute(
+            "SELECT table_name FROM information_schema.tables "
+            "WHERE table_schema = 'main' ORDER BY table_name"
+        ).fetchall()
+        return [str(r[0]) for r in rows if not str(r[0]).startswith(("fed_", "__"))]
 
     def _register_parquet(self, dataset: str, select_sql: str) -> None:
         """Write the next version's Parquet and point the dataset view at it.

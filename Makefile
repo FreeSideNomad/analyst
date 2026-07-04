@@ -20,8 +20,8 @@ install-web: ## Install frontend deps (bun)
 dev: ## Run API (:8000) + web (:5173) together
 	@$(MAKE) -j2 api web
 
-api: ## Backend API on :8000 (real DuckDB store — the default)
-	$(UV) run uvicorn analyst.api.app:app --reload --port 8000
+api: ## Backend API on :8000 (real DuckDB store + live agent cataloguing)
+	ANALYST_CATALOG=live $(UV) run uvicorn analyst.api.app:app --reload --port 8000
 
 api-mock: ## Backend serving the in-memory Python fixtures (demos / e2e)
 	ANALYST_FIXTURES=1 $(UV) run uvicorn analyst.api.app:app --reload --port 8000
