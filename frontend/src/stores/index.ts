@@ -6,3 +6,4 @@ export { useUI } from './ui-store';
 export { useCatalog } from './catalog-store';
 export { useIngestion } from './ingestion-store';
 export { useQuery } from './query-store';
+export { useAuth } from './auth-store';

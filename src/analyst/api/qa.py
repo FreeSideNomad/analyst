@@ -1,16 +1,26 @@
-"""Provisional Q&A service (feature 002).
+"""Q&A services (feature 003) — the confidence-gated brain behind /api/query.
 
-The domain has no query/answer model yet — only the `Clarification` primitive.
-This module returns the API-schema Q&A shapes so the frontend has a stable
-contract to build against. When feature 002 lands, these become adapters over
-real domain objects; the wire shape should not need to change.
+Two implementations of one seam, on the UNCHANGED wire contract:
 
-Routing is keyword-based over the canned answers (a stand-in for the agent's
-semantic-catalog planner).
+- ``PlannerQAService`` (real mode, default) — the agentic planner: workspace
+  catalog metadata -> QueryPlanner (through the LLMGateway) -> closed-world
+  SQL validation -> local DuckDB execution -> a deterministically shaped
+  answer carrying the trust trail (assumptions, lineage, executed SQL).
+  SQL that fails validation is NEVER executed — the service abstains.
+- ``CannedQAService`` (fixtures mode) — the feature-002 deterministic path,
+  kept verbatim so UI e2e stays LLM-free.
 """
 
 from __future__ import annotations
 
+import math
+import os
+import uuid
+from typing import Protocol
+
+from analyst.agentic.gateway import LLMGateway, ReplayBackend
+from analyst.agentic.planner import QueryPlanner
+from analyst.api.repository import DatasetRepository, StoreRepository
 from analyst.api.schemas import (
     AnswerResult,
     ChartPoint,
@@ -19,7 +29,245 @@ from analyst.api.schemas import (
     StatBlock,
     TrustTrailSchema,
 )
+from analyst.domain.catalog import Clarification
+from analyst.domain.query import (
+    PlanAction,
+    QueryPlan,
+    QueryTable,
+    ResultTable,
+    query_table_from_summary,
+)
+from analyst.domain.query_validation import validate_sql
+from analyst.engine.query import run_select
 
+
+class QAService(Protocol):
+    """The seam the Q&A routes call. ``respond`` returns None for unknown ids."""
+
+    mode: str
+
+    def submit(self, question: str, repo: DatasetRepository) -> QueryResult: ...
+    def respond(
+        self, query_id: str, selected_options: list[str], repo: DatasetRepository
+    ) -> AnswerResult | None: ...
+
+
+# --------------------------------------------------------------------------- #
+# Real mode — the agentic planner over the local DuckDB store.
+# --------------------------------------------------------------------------- #
+def _query_id() -> str:
+    return f"qry-{uuid.uuid4().hex[:8]}"
+
+
+def _abstain_answer(summary: str) -> AnswerResult:
+    return AnswerResult(
+        query_id=_query_id(), abstain=True, chart_type="none", summary=summary
+    )
+
+
+def _format_value(value: object) -> str:
+    if isinstance(value, bool) or value is None:
+        return str(value)
+    if isinstance(value, int):
+        return f"{value:,}"
+    if isinstance(value, float):
+        return f"{value:,.2f}"
+    return str(value)
+
+
+def _nice_ceiling(value: float) -> float:
+    """The smallest 'nice' number (1/2/2.5/5 x 10^k) at or above ``value``."""
+    if value <= 0:
+        return 1.0
+    exponent = math.floor(math.log10(value))
+    for mantissa in (1.0, 2.0, 2.5, 5.0, 10.0):
+        candidate = mantissa * 10.0**exponent
+        if value <= candidate:
+            return candidate
+    return 10.0 ** (exponent + 1)
+
+
+def _is_number(value: object) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def _shape_answer(plan: QueryPlan, result: ResultTable) -> AnswerResult:
+    """Deterministically shape the locally computed result (no second model
+    call — no result rows need to cross to the model at all)."""
+    assert plan.sql is not None
+    trail = TrustTrailSchema(
+        assumptions=list(plan.assumptions),
+        lineage=list(plan.lineage),
+        sql=plan.sql,
+    )
+    title = plan.title or "Result"
+
+    if not result.rows:
+        return AnswerResult(
+            query_id=_query_id(),
+            summary=f"{title}: the query returned no rows.",
+            chart_type="none",
+            trust_trail=trail,
+        )
+
+    if len(result.rows) == 1 and len(result.columns) == 1:
+        value = _format_value(result.rows[0][0])
+        sub = plan.lineage[0] if plan.lineage else "computed locally in DuckDB"
+        return AnswerResult(
+            query_id=_query_id(),
+            summary=f"{title}: {value}.",
+            chart_type="stat",
+            chart_title=title,
+            stat=StatBlock(value=value, label=title, sub=sub),
+            trust_trail=trail,
+        )
+
+    bar_worthy = (
+        len(result.columns) == 2
+        and 2 <= len(result.rows) <= 12
+        and all(_is_number(row[1]) for row in result.rows)
+    )
+    if bar_worthy:
+        points = [
+            ChartPoint(label=str(row[0]), value=float(row[1]))  # type: ignore[arg-type]
+            for row in result.rows
+        ]
+        top = max(points, key=lambda p: p.value)
+        nice_max = _nice_ceiling(top.value)
+        return AnswerResult(
+            query_id=_query_id(),
+            summary=f"{title}. {top.label} leads at {_format_value(top.value)}.",
+            chart_type="bar",
+            chart_title=title,
+            highlight=top.label,
+            nice_max=nice_max,
+            tick_step=nice_max / 4,
+            chart_data=points,
+            trust_trail=trail,
+        )
+
+    shown = min(len(result.rows), 3)
+    preview = "; ".join(
+        ", ".join(_format_value(v) for v in row) for row in result.rows[:shown]
+    )
+    more = " (truncated)" if result.truncated else ""
+    return AnswerResult(
+        query_id=_query_id(),
+        summary=f"{title}: {len(result.rows)} row(s){more}. First rows: {preview}.",
+        chart_type="none",
+        trust_trail=trail,
+    )
+
+
+class PlannerQAService:
+    """Real mode: plan -> validate -> execute locally -> shaped answer."""
+
+    mode = "real"
+
+    def __init__(self, planner: QueryPlanner):
+        self.planner = planner
+        self._pending: dict[str, tuple[str, Clarification]] = {}
+
+    def _tables(self, repo: DatasetRepository) -> tuple[QueryTable, ...]:
+        records = sorted(repo.list_datasets(), key=lambda r: r.name)
+        return tuple(query_table_from_summary(r.summary) for r in records)
+
+    def submit(self, question: str, repo: DatasetRepository) -> QueryResult:
+        tables = self._tables(repo)
+        if not tables:
+            return _abstain_answer(
+                "No datasets are loaded yet — ingest a file first, then ask again."
+            )
+        plan = self.planner.plan(question, tables)
+        return self._realize(plan, question, tables, repo)
+
+    def respond(
+        self, query_id: str, selected_options: list[str], repo: DatasetRepository
+    ) -> AnswerResult | None:
+        pending = self._pending.pop(query_id, None)
+        if pending is None:
+            return None
+        question, clarification = pending
+        tables = self._tables(repo)
+        choice = selected_options[0] if selected_options else ""
+        plan = self.planner.replan(question, tables, clarification, choice)
+        realized = self._realize(plan, question, tables, repo)
+        if isinstance(realized, ClarificationResult):
+            # The wire contract: respond always yields an answer.
+            return _abstain_answer(
+                "The question is still ambiguous after that choice — "
+                "try rephrasing it with the column you mean."
+            )
+        return realized
+
+    def _realize(
+        self,
+        plan: QueryPlan,
+        question: str,
+        tables: tuple[QueryTable, ...],
+        repo: DatasetRepository,
+    ) -> QueryResult:
+        if plan.action is PlanAction.CLARIFY:
+            assert plan.clarification is not None
+            query_id = _query_id()
+            self._pending[query_id] = (question, plan.clarification)
+            return ClarificationResult(
+                query_id=query_id,
+                question=plan.clarification.question,
+                options=list(plan.clarification.options),
+                column=plan.clarification.column,
+            )
+
+        if plan.action is PlanAction.ABSTAIN:
+            coverage = ", ".join(t.name for t in tables)
+            reason = plan.reason or "The question is outside the loaded datasets."
+            return _abstain_answer(
+                f"I can't answer that from the current catalog. {reason} "
+                f"This workspace covers: {coverage}."
+            )
+
+        assert plan.sql is not None  # guaranteed by the planner for ANSWER
+        schema = {t.name: tuple(c.name for c in t.columns) for t in tables}
+        problems = validate_sql(plan.sql, schema)
+        if problems:
+            return _abstain_answer(
+                "The generated SQL failed validation and was not executed: "
+                + " ".join(problems)
+            )
+
+        if not isinstance(repo, StoreRepository):
+            return _abstain_answer(
+                "Real Q&A needs the real dataset store; fixtures mode serves "
+                "the canned path instead."
+            )
+        try:
+            result = run_select(repo.store, plan.sql)
+        except Exception as exc:
+            return _abstain_answer(f"The query could not be executed: {exc}")
+        return _shape_answer(plan, result)
+
+
+def build_qa_service(repo: DatasetRepository) -> QAService:
+    """Fixtures repo -> canned; real store -> the agentic planner.
+
+    ``ANALYST_QA_CASSETTE`` points the real planner at recorded responses
+    (deterministic replay — the e2e/demo seam); otherwise the live Claude
+    Agent SDK backend serves.
+    """
+    if not isinstance(repo, StoreRepository):
+        return CannedQAService()
+    cassette = os.environ.get("ANALYST_QA_CASSETTE")
+    if cassette:
+        return PlannerQAService(QueryPlanner(LLMGateway(ReplayBackend(cassette))))
+    from analyst.agentic.claude_backend import ClaudeAgentBackend
+
+    return PlannerQAService(QueryPlanner(LLMGateway(ClaudeAgentBackend())))
+
+
+# --------------------------------------------------------------------------- #
+# Fixtures mode — the feature-002 canned path, kept verbatim (deterministic,
+# LLM-free; the UI e2e suite drives it).
+# --------------------------------------------------------------------------- #
 _REGION_CLARIFY = ClarificationResult(
     query_id="qry-clarify-001",
     question="Two region columns are available. Which one should I use?",
@@ -139,7 +387,7 @@ _AOV = AnswerResult(
 )
 
 
-def _abstain() -> AnswerResult:
+def _canned_abstain() -> AnswerResult:
     return AnswerResult(
         query_id="qry-abstain",
         abstain=True,
@@ -152,20 +400,31 @@ def _abstain() -> AnswerResult:
     )
 
 
-def submit_query(question: str) -> QueryResult:
-    q = question.lower()
-    if "region" in q or ("revenue" in q and "by" in q):
-        return _REGION_CLARIFY
-    if "customer" in q and ("top" in q or "5" in q or "five" in q):
-        return _TOP_CUSTOMERS
-    if "average" in q or "aov" in q or "order value" in q:
-        return _AOV
-    if "revenue" in q:
-        return _REGION_CLARIFY
-    return _abstain()
+class CannedQAService:
+    """Keyword-routed canned answers — feature 002 behavior.
 
+    One routing fix over 002: the top-customers check runs before the
+    region-clarify check, so the suggested "top 5 customers by revenue"
+    question reaches its intended canned answer.
+    """
 
-def respond(query_id: str, selected_options: list[str]) -> AnswerResult:
-    choice = selected_options[0] if selected_options else ""
-    label = "Billing region" if "billing" in choice.lower() else "Customer region"
-    return _revenue_answer(label)
+    mode = "canned"
+
+    def submit(self, question: str, repo: DatasetRepository) -> QueryResult:
+        q = question.lower()
+        if "customer" in q and ("top" in q or "5" in q or "five" in q):
+            return _TOP_CUSTOMERS
+        if "region" in q or ("revenue" in q and "by" in q):
+            return _REGION_CLARIFY
+        if "average" in q or "aov" in q or "order value" in q:
+            return _AOV
+        if "revenue" in q:
+            return _REGION_CLARIFY
+        return _canned_abstain()
+
+    def respond(
+        self, query_id: str, selected_options: list[str], repo: DatasetRepository
+    ) -> AnswerResult | None:
+        choice = selected_options[0] if selected_options else ""
+        label = "Billing region" if "billing" in choice.lower() else "Customer region"
+        return _revenue_answer(label)
