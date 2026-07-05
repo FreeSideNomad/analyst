@@ -38,9 +38,7 @@ from analyst.domain.query import (
     ResultTable,
     query_table_from_summary,
 )
-from analyst.domain.query_validation import validate_sql
 from analyst.engine.query import run_select
-from analyst.engine.store import query_alias_name
 
 
 class QAService(Protocol):
@@ -73,11 +71,10 @@ def _friendly_sql(sql: str, repo: DatasetRepository) -> str:
     alias is a prefix of another."""
     import re
 
-    mapping = {
-        query_alias_name(r.name): r.name
-        for r in repo.list_datasets()
-        if not getattr(r, "federated", False) or getattr(r, "db_queryable", False)
-    }
+    store = getattr(repo, "store", None)
+    if store is None:
+        return sql
+    mapping = store.query_alias_map()  # alias -> dataset id
     for alias in sorted(mapping, key=len, reverse=True):
         sql = re.sub(rf"\b{re.escape(alias)}\b", f'"{mapping[alias]}"', sql)
     return sql
@@ -221,6 +218,9 @@ class PlannerQAService:
             for r in repo.list_datasets()
             if not getattr(r, "federated", False) or getattr(r, "db_queryable", False)
         }
+        store = getattr(repo, "store", None)
+        if store is None:
+            return ()
         out: list = []
         for r in repo.list_datasets():
             catalog = getattr(r.summary, "catalog", None)
@@ -232,8 +232,8 @@ class PlannerQAService:
                     out.append(
                         dataclasses.replace(
                             rel,
-                            child_table=query_alias_name(rel.child_table),
-                            parent_table=query_alias_name(rel.parent_table),
+                            child_table=store.alias_for(rel.child_table),
+                            parent_table=store.alias_for(rel.parent_table),
                         )
                     )
         return tuple(out)
@@ -295,18 +295,19 @@ class PlannerQAService:
             )
 
         assert plan.sql is not None  # guaranteed by the planner for ANSWER
-        schema = {t.name: tuple(c.name for c in t.columns) for t in tables}
-        problems = validate_sql(plan.sql, schema)
-        if problems:
-            return _abstain_answer(
-                "The generated SQL failed validation and was not executed: "
-                + " ".join(problems)
-            )
-
         if not isinstance(repo, StoreRepository):
             return _abstain_answer(
                 "Real Q&A needs the real dataset store; fixtures mode serves "
                 "the canned path instead."
+            )
+        # Review #2: validate through DuckDB's real binder (closed-world tables +
+        # columns), not a regex pseudo-parser that false-rejected valid function
+        # SQL. The query is bound, never executed, until it is proven safe + valid.
+        problems = repo.store.validation_problems(plan.sql)
+        if problems:
+            return _abstain_answer(
+                "The generated SQL failed validation and was not executed: "
+                + " ".join(problems)
             )
         try:
             result = run_select(repo.store, plan.sql)

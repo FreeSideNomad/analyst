@@ -55,10 +55,10 @@ def _quote_ident(name: str) -> str:
     return '"' + name.replace('"', '""') + '"'
 
 
-def query_alias_name(real: str) -> str:
-    """A dot-free SQL identifier for a dataset id. Dataset ids carry dots
-    (``orders.csv``, ``sales_db.Album``) which an LLM misreads as
-    ``schema.table``; the planner/validator/execution use this alias instead."""
+def query_alias_base(real: str) -> str:
+    """The readable (lossy) base SQL alias for a dataset id — dataset ids carry
+    dots (``orders.csv``) an LLM misreads as ``schema.table``. Lossy, so the
+    store's registry disambiguates real collisions on top of this."""
     return "q_" + re.sub(r"\W", "_", real)
 
 
@@ -84,10 +84,24 @@ class DatasetStore:
         self.base_dir.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()  # M4: serialize the DuckDB connection
         self._con = duckdb.connect(str(self.base_dir / "catalog.duckdb"))
+        # Review #5: a federated GROUP BY/JOIN is NOT pushed down — DuckDB streams
+        # the projected rows into this box. Cap memory so a runaway query over a
+        # huge remote source fails CLEANLY (caught -> abstain) instead of OOM-ing
+        # the box. Operator-tunable; unset -> DuckDB's default (80% RAM).
+        mem = os.environ.get("ANALYST_MAX_MEMORY")
+        if mem:
+            try:
+                self._con.execute(f"SET memory_limit = '{mem}'")
+            except duckdb.Error:
+                pass
         self._reader = CsvReader()
         # Feature 007: names of views backing connected-database tables. They are
         # queryable (planner SQL runs against them) but are NOT local datasets.
         self._fed_views: set[str] = set()
+        # 007-fix: injective dataset-id <-> SQL-alias registry (review #1). The
+        # readable base is lossy, so real collisions get a numeric suffix.
+        self._alias_by_real: dict[str, str] = {}
+        self._real_by_alias: dict[str, str] = {}
 
     @_synchronized
     def materialize_delimited(
@@ -177,14 +191,59 @@ class DatasetStore:
     @_synchronized
     def register_query_alias(self, real: str) -> str:
         """Register (idempotently) a dot-free TEMP view over dataset ``real`` and
-        return its alias. TEMP so it never persists nor leaks into datasets();
-        the planner/validator/execution reference the alias (see query_alias_name)."""
-        alias = query_alias_name(real)
+        return its INJECTIVE alias. TEMP so it never persists nor leaks into
+        datasets(); the planner/validator/execution reference the alias. The
+        readable base is lossy (review #1), so a real collision — two distinct
+        ids like ``sales.q1.csv`` and ``sales_q1.csv`` — gets a numeric suffix
+        instead of silently overwriting."""
+        alias = self._alias_by_real.get(real)
+        if alias is None:
+            base = query_alias_base(real)
+            alias = base
+            suffix = 2
+            while alias in self._real_by_alias:  # collision with a DIFFERENT id
+                alias = f"{base}_{suffix}"
+                suffix += 1
+            self._alias_by_real[real] = alias
+            self._real_by_alias[alias] = real
         self._con.execute(
             f"CREATE OR REPLACE TEMP VIEW {_quote_ident(alias)} AS "
             f"SELECT * FROM {_quote_ident(real)}"
         )
         return alias
+
+    def alias_for(self, real: str) -> str:
+        """The registered alias for a dataset (registering it if needed)."""
+        return self.register_query_alias(real)
+
+    @_synchronized
+    def validation_problems(self, sql: str) -> list[str]:
+        """Pre-execution validation via DuckDB's REAL parser/binder (review #2),
+        replacing a regex pseudo-parser that false-rejected valid SQL
+        (``EXTRACT(YEAR FROM d)``, ``COUNT(*) c``). The AST safety guard (single
+        SELECT, no table functions, real base tables) PLUS a bind check
+        (closed-world: only known tables/columns resolve) — the query is bound,
+        never executed. Returns problem strings; empty means valid."""
+        from analyst.engine.sql_guard import UnsafeQueryError, assert_safe_select
+
+        try:
+            assert_safe_select(self._con, sql)
+        except UnsafeQueryError as exc:
+            return [str(exc)]
+        try:
+            self._con.execute("PREPARE __analyst_validate AS " + sql)
+            self._con.execute("DEALLOCATE __analyst_validate")
+        except duckdb.Error as exc:
+            return [str(exc).splitlines()[0]]
+        return []
+
+    def dataset_for_alias(self, alias: str) -> str | None:
+        """The dataset id an alias maps back to (for the friendly trust trail)."""
+        return self._real_by_alias.get(alias)
+
+    def query_alias_map(self) -> dict[str, str]:
+        """A copy of the alias -> dataset-id map (for the friendly trust trail)."""
+        return dict(self._real_by_alias)
 
     @_synchronized
     def attach_database(

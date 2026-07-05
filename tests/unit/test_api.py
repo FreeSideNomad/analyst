@@ -303,3 +303,21 @@ def test_group_and_entity_split():
     )
     assert _group_and_entity("orders.csv", False) == ("orders.csv", "orders")
     assert _group_and_entity("sales_db.orders", True) == ("sales_db", "orders")
+
+
+def test_corrupt_catalog_sidecar_does_not_brick_the_workspace(tmp_path):
+    """Review #3 (HIGH): a corrupt/schema-drifted sidecar must not abort boot —
+    that dataset just loses its cached catalog; healthy datasets survive."""
+    from pathlib import Path
+
+    from analyst.api.repository import StoreRepository
+
+    data = str(tmp_path / "data")
+    repo = StoreRepository(data)
+    repo.ingest("good1.csv", b"id,amount\n1,10\n")
+    repo.ingest("good2.csv", b"id,amount\n1,20\n")
+    (Path(data) / "good1.csv.catalog.json").write_text("{corrupt json")
+
+    reopened = StoreRepository(data)  # simulate a restart — must not raise
+    names = {r.name for r in reopened.list_datasets()}
+    assert {"good1.csv", "good2.csv"} <= names  # both survive

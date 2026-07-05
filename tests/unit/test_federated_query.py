@@ -103,7 +103,8 @@ def test_real_nl_question_over_connected_db_answers_live(tmp_path):
     qa = PlannerQAService(QueryPlanner(LLMGateway(ClaudeAgentBackend())))
     res = qa.submit("How many albums does each artist have? Top 5 artists.", repo)
     assert not res.abstain, res.summary
-    assert res.trust_trail and "q_sales_db_" in res.trust_trail.sql
+    # trust trail shows the friendly dataset id (not the internal q_ alias)
+    assert res.trust_trail and "sales_db." in res.trust_trail.sql
 
 
 def test_trust_trail_shows_friendly_names_not_aliases(tmp_path):
@@ -113,7 +114,8 @@ def test_trust_trail_shows_friendly_names_not_aliases(tmp_path):
 
     repo = StoreRepository(str(tmp_path / "data"))
     repo.ingest("orders.csv", b"id,amount\n1,10\n2,20\n")
-    friendly = _friendly_sql("SELECT SUM(amount) FROM q_orders_csv", repo)
+    alias = repo.store.register_query_alias("orders.csv")  # as _tables() does
+    friendly = _friendly_sql(f"SELECT SUM(amount) FROM {alias}", repo)
     assert friendly == 'SELECT SUM(amount) FROM "orders.csv"'
 
 
@@ -183,3 +185,36 @@ def test_postgres_within_db_qa_live(tmp_path):
     film = next(r.name for r in recs if r.name.endswith(".film"))
     res = run_select(repo.store, f'SELECT COUNT(*) FROM "{film}"')
     assert res.rows[0][0] > 0
+
+
+def test_query_aliases_are_injective_under_collision(tmp_path):
+    """Review #1 (CRITICAL): two dataset ids that mangle to the same q_ base must
+    get distinct aliases, each returning its OWN data — never silently overwrite."""
+    store = DatasetStore(base_dir=tmp_path)
+    # "a.b" and "a_b" both mangle to base q_a_b
+    store._con.execute('CREATE VIEW "a.b" AS SELECT 100 AS rev')
+    store._con.execute('CREATE VIEW "a_b" AS SELECT 999 AS rev')
+    a1 = store.register_query_alias("a.b")
+    a2 = store.register_query_alias("a_b")
+    assert a1 != a2, (a1, a2)
+    assert store.alias_for("a.b") == a1  # stable
+    assert run_select(store, f"SELECT rev FROM {a1}").rows[0][0] == 100
+    assert run_select(store, f"SELECT rev FROM {a2}").rows[0][0] == 999
+
+
+def test_bind_validation_accepts_valid_sql_and_rejects_unknowns(tmp_path):
+    """Review #2: validation via DuckDB's real binder — valid function SQL
+    (EXTRACT ... FROM, alias without AS) must NOT be rejected; unknown
+    columns/tables must be. Never executes."""
+    from analyst.api.repository import StoreRepository
+
+    repo = StoreRepository(str(tmp_path / "data"))
+    repo.ingest("orders.csv", b"order_date,amount\n2024-01-01,10\n2023-06-01,20\n")
+    alias = repo.store.register_query_alias("orders.csv")
+    ok = (
+        f"SELECT EXTRACT(YEAR FROM order_date) y, SUM(amount) c FROM {alias} GROUP BY y"
+    )
+    assert repo.store.validation_problems(ok) == [], repo.store.validation_problems(ok)
+    assert repo.store.validation_problems(f"SELECT profit FROM {alias}")  # unknown col
+    assert repo.store.validation_problems("SELECT * FROM nope")  # unknown table
+    assert repo.store.validation_problems(f"DELETE FROM {alias}")  # not a SELECT
