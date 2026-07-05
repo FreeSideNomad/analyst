@@ -3,6 +3,12 @@
 > Checkpoint 3. Standard Gherkin formalization of the 24 approved ACs in `acs.md`.
 > External observables only — no implementation language. Scoped workspace-light (a single default workspace).
 > Each scenario is tagged with the AC(s) it covers.
+>
+> NAMING UPDATE (feature 006, 2026-07-04): datasets now carry a unified
+> `source.entity.ext` id — a single delimited/JSON file is `<file>.<ext>` (e.g.
+> `sales.csv`, `data.tsv`), and an Excel sheet is `<file>.<sheet>.<ext>` (e.g.
+> `book.orders.xlsx`). The dataset-name assertions below were updated to the new
+> scheme; this is a deliberate product change, not a test tweak to pass code.
 
 Feature: File ingestion & agentic data profiling
   A user adds a tabular file to a workspace and, on autopilot, gets a profiled,
@@ -14,7 +20,7 @@ Feature: File ingestion & agentic data profiling
   Scenario: A clean CSV becomes a profiled, queryable dataset
     Given a clean CSV file "sales.csv" with a header row and 100 data rows
     When the user ingests the file
-    Then a dataset named "sales" is available
+    Then a dataset named "sales.csv" is available
     And the dataset has the same columns as the file
     And querying the dataset returns the same 100 rows as the file
     And the dataset reports a row count of 100
@@ -30,7 +36,7 @@ Feature: File ingestion & agentic data profiling
   Scenario: An ingested dataset remains queryable after a restart
     Given the user has ingested a clean CSV file "sales.csv"
     When the system restarts
-    Then the dataset "sales" is still available and returns the same rows
+    Then the dataset "sales.csv" is still available and returns the same rows
 
   # AC-4
   Scenario: An agent-authored catalog entry is produced automatically
@@ -60,15 +66,15 @@ Feature: File ingestion & agentic data profiling
   Scenario: Each non-empty Excel sheet becomes its own dataset
     Given an Excel workbook with two non-empty sheets "orders" and "returns"
     When the user ingests the workbook
-    Then a dataset "orders" is available
-    And a dataset "returns" is available
+    Then a dataset "book.orders.xlsx" is available
+    And a dataset "book.returns.xlsx" is available
     And each dataset is independently profiled and catalogued
 
   # AC-7 (TSV)
   Scenario: A tab-separated file is ingested like a CSV
     Given a clean tab-separated file "data.tsv" with a header row
     When the user ingests the file
-    Then a profiled, queryable dataset "data" is available
+    Then a profiled, queryable dataset "data.tsv" is available
 
   # AC-7 (JSON records)
   Scenario: A JSON array of records becomes a dataset

@@ -23,7 +23,7 @@ export function Header() {
       </div>
       <div style={{ width: 1, height: 26, background: 'var(--border-subtle)' }} />
       <SegmentedControl size="sm" value={view} onChange={(v) => setView(v as 'ingest' | 'workspace')}
-        options={[{ value: 'ingest', label: 'Ingest & profile' }, { value: 'workspace', label: 'Catalog & Q\u0026A' }]} />
+        options={[{ value: 'ingest', label: 'Ingest & profile' }, { value: 'workspace', label: 'Query' }]} />
       <div style={{ flex: 1 }} />
       <span style={{ font: '400 12px/1 var(--font-mono)', color: 'var(--text-subtle)' }}>self-hosted · local DuckDB</span>
       <WorkspaceControls />

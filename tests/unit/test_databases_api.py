@@ -171,7 +171,7 @@ def test_federated_tables_are_excluded_from_qa(tmp_path):
     # a federated record, as the DatabaseManager would add it
     fed = DatasetRecord(
         summary=DatasetSummary(
-            name="pgsql.film", profile=repo.get_dataset("orders").summary.profile
+            name="pgsql.film", profile=repo.get_dataset("orders.csv").summary.profile
         ),
         file_name="pgsql.film",
         status=IngestionStatus.COMPLETE,
@@ -179,5 +179,5 @@ def test_federated_tables_are_excluded_from_qa(tmp_path):
     )
     repo.add_records([fed])
     names = {t.name for t in PlannerQAService.__new__(PlannerQAService)._tables(repo)}
-    assert "orders" in names
+    assert "orders.csv" in names
     assert "pgsql.film" not in names

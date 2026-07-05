@@ -165,6 +165,9 @@ def then_columns_described(ctx: ScenarioContext) -> None:
 
 @step(r'the user asks "(?P<question>[^"]+)"')
 def when_user_asks(ctx: ScenarioContext, question: str) -> None:
+    # Feature 006: Q&A now lives on the dedicated Query surface; switch to it
+    # before asking (the app opens on the Ingest & Profile workbench).
+    ctx.page.get_by_role("button", name="Query").click()
     box = ctx.page.get_by_placeholder("Ask across all tables")
     box.fill(question)
     box.press("Enter")
@@ -245,7 +248,8 @@ def then_upload_zone_visible(ctx: ScenarioContext) -> None:
 
 @step(r"the user opens the workspace view")
 def when_open_workspace(ctx: ScenarioContext) -> None:
-    ctx.page.get_by_role("button", name="Catalog & Q&A").click()
+    # Feature 006: the "Catalog & Q&A" tab is renamed to "Query".
+    ctx.page.get_by_role("button", name="Query").click()
 
 
 @step(r"the Q&A panel invites them to ask a question")

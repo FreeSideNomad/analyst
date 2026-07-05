@@ -132,6 +132,10 @@ class DatasetSchema(Camel):
     column_count: int
     profile: DatasetProfileSchema
     catalog: Optional[CatalogEntrySchema] = None
+    # Feature 006 — source-grouped workbench:
+    group: str  # first dot-segment of the name (source grouping)
+    source_kind: str  # "file" | "database" (from DatasetRecord.federated)
+    queryable: bool  # False for connected-DB tables (not yet Q&A-answerable)
 
 
 class IngestionResultSchema(Camel):

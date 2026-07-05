@@ -35,6 +35,23 @@ def _sanitize(name: str) -> str:
     return slug or "dataset"
 
 
+def _dataset_name(stem: str, entity: str | None, ext: str) -> str:
+    """Compose a ``source.entity.ext`` dataset id (feature 006).
+
+    Each *segment* (the file stem, and an optional entity such as an Excel
+    sheet) is sanitized independently so the dot separators are preserved; the
+    extension is lowercased, without its leading dot. Examples::
+
+        _dataset_name("orders", None, ".csv")        -> "orders.csv"
+        _dataset_name("company", "employees", "xlsx") -> "company.employees.xlsx"
+    """
+    parts = [_sanitize(stem)]
+    if entity is not None:
+        parts.append(_sanitize(entity))
+    clean_ext = ext.lower().lstrip(".")
+    return ".".join(parts) + ("." + clean_ext if clean_ext else "")
+
+
 class IngestionService:
     """Orchestrates ingestion. Thin — no bulk data handling of its own.
 
@@ -122,7 +139,7 @@ class IngestionService:
 
     def ingest(self, source: str | os.PathLike[str]) -> IngestionResult:
         path = Path(source)
-        name = _sanitize(path.stem)
+        name = _dataset_name(path.stem, None, path.suffix or "")
         self._report(name, IngestionStatus.IN_PROGRESS)
         try:
             self._check_size(path)
@@ -145,11 +162,13 @@ class IngestionService:
         ext = path.suffix.lower()
         if ext in _DELIMITED:
             summary = self._ingest_delimited(
-                _sanitize(path.stem), path, _DELIMITED[ext]
+                _dataset_name(path.stem, None, ext), path, _DELIMITED[ext]
             )
             return IngestionResult((summary,))
         if ext == ".json":
-            return IngestionResult((self._ingest_json(_sanitize(path.stem), path),))
+            return IngestionResult(
+                (self._ingest_json(_dataset_name(path.stem, None, ext), path),)
+            )
         if ext in _EXCEL:
             return self._ingest_excel(path)
         raise UnsupportedFormatError(
@@ -183,8 +202,11 @@ class IngestionService:
         return DatasetSummary(dataset, profile, self._catalog(dataset, profile))
 
     def _ingest_excel(self, path: Path) -> IngestionResult:
+        ext = path.suffix.lower()
         summaries = [
-            self._ingest_delimited(_sanitize(sheet_name), csv_path, ",")
+            self._ingest_delimited(
+                _dataset_name(path.stem, sheet_name, ext), csv_path, ","
+            )
             for sheet_name, csv_path in ExcelReader().sheets(path, self.store.base_dir)
         ]
         return IngestionResult(tuple(summaries))

@@ -1,172 +1,12 @@
-// ── pages/WorkspacePage.tsx ───────────────────────────────────────────
+// ── pages/WorkspacePage.tsx — the Query surface (chat only, feature 006) ──
 import { useState, useEffect, useRef } from 'react';
 import {
-  Database, Table2, ChevronRight, ChevronDown, ChevronsLeft, ChevronsRight,
-  Search, Check, Send, Sparkles, GitBranch, Info, Braces, HelpCircle, Trash2,
+  ChevronRight, ChevronDown, Search, Check, Send, Sparkles, Info,
 } from 'lucide-react';
 import type { AnswerResult, ChatMessage, ClarificationResult, TrustTrail as TrustTrailT } from '../api/types';
-import { useCatalog, useUI, useQuery } from '../stores';
-import { money, nfmt, roleBadge } from '../lib/format';
-import { Icon, IconButton, Card, Badge, Button, Tag, SegmentedControl, EYEBROW } from '../components/ui';
-import { DatabasePanel } from '../components/DatabasePanel';
-
-/* ── catalog tree ─────────────────────────────────────────────────── */
-function CatalogTree() {
-  const { datasets, catalog, expanded, toggleExpand, selectColumn, selectedColumn, detailDatasetId } = useCatalog();
-  return (
-    <aside style={{ width: 250, flex: 'none', overflow: 'auto', borderRight: '1px solid var(--border-subtle)', background: 'var(--surface-card)', padding: '18px 0' }}>
-      <div style={{ padding: '0 18px 16px', display: 'flex', alignItems: 'center', gap: 9 }}>
-        <div style={{ width: 22, height: 22, background: 'var(--brand)', borderRadius: 2, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Icon as={Braces} size={12} color="#fff" /></div>
-        <span style={{ font: '700 12px/1 var(--font-sans)', letterSpacing: '.1em', textTransform: 'uppercase', color: 'var(--text-strong)' }}>Semantic catalog</span>
-      </div>
-
-      <div style={{ padding: '0 18px', ...EYEBROW, marginBottom: 8 }}>Databases</div>
-      <DatabasePanel />{/* feature 005: connect/list/detach federated databases */}
-
-      <div style={{ padding: '0 18px', ...EYEBROW, margin: '14px 0 8px' }}>Tables</div>
-      {datasets.map((d) => {
-        const open = !!expanded[d.id];
-        const cols = catalog[d.id]?.columns || [];
-        const isDetail = d.id === detailDatasetId;
-        const needsReview = (catalog[d.id]?.clarifications || []).length > 0;
-        return (
-          <div key={d.id}>
-            <button onClick={() => toggleExpand(d.id)}
-              style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 6, padding: '8px 18px', border: 'none',
-                background: isDetail && !open ? 'var(--brand-subtle)' : 'transparent', cursor: 'pointer', textAlign: 'left' }}>
-              <Icon as={open ? ChevronDown : ChevronRight} size={15} color="var(--text-muted)" />
-              <Icon as={Table2} size={16} color={isDetail ? 'var(--brand)' : 'var(--text-muted)'} />
-              <span className="mono" style={{ font: '600 13px/1.2 var(--font-mono)', color: 'var(--text-strong)', flex: 1 }}>{d.fileName}</span>
-              {needsReview && <Icon as={HelpCircle} size={13} color="var(--amber-500)" />}
-            </button>
-            {open && (
-              <div>
-                <div style={{ font: '600 10px/1 var(--font-sans)', letterSpacing: '.12em', textTransform: 'uppercase', color: 'var(--text-subtle)', padding: '4px 18px 4px 46px' }}>Columns</div>
-                {cols.map((c) => {
-                  const sel = selectedColumn?.ds === d.id && selectedColumn?.name === c.name;
-                  const rb = roleBadge(c.role);
-                  return (
-                    <button key={c.name} onClick={() => selectColumn(d.id, c.name)}
-                      style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 8, padding: '6px 16px 6px 46px', border: 'none',
-                        borderLeft: `2px solid ${sel ? 'var(--brand)' : 'transparent'}`, background: sel ? 'var(--brand-subtle)' : 'transparent',
-                        cursor: 'pointer', textAlign: 'left' }}>
-                      <span className="mono" style={{ font: '500 12.5px/1.2 var(--font-mono)', color: sel ? 'var(--text-brand)' : 'var(--text-body)', flex: 1 }}>{c.name}</span>
-                      <Badge tone={rb.tone}>{rb.label}</Badge>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        );
-      })}
-    </aside>
-  );
-}
-
-/* ── delete affordance: two-step inline confirm (no blocking dialog) ── */
-function DeleteDataset({ id }: { id: string }) {
-  const remove = useCatalog((s) => s.remove);
-  const [arm, setArm] = useState(false);
-  useEffect(() => { setArm(false); }, [id]);
-  if (!arm) return <IconButton as={Trash2} label={`Delete dataset ${id}`} onClick={() => setArm(true)} />;
-  return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-      <button onClick={() => remove(id)} aria-label={`Confirm delete ${id}`}
-        style={{ font: '600 12px/1 var(--font-sans)', color: '#fff', background: 'var(--red-500, #c0392b)',
-          border: 'none', borderRadius: 'var(--radius-md)', padding: '6px 10px', cursor: 'pointer' }}>
-        Delete dataset?
-      </button>
-      <button onClick={() => setArm(false)} aria-label="Cancel delete"
-        style={{ font: '500 12px/1 var(--font-sans)', color: 'var(--text-muted)', background: 'transparent',
-          border: '1px solid var(--border-default)', borderRadius: 'var(--radius-md)', padding: '6px 10px', cursor: 'pointer' }}>
-        Cancel
-      </button>
-    </span>
-  );
-}
-
-/* ── collapsible table-detail pane ────────────────────────────────── */
-function ColumnDetail() {
-  const { datasets, catalog, detailDatasetId, selectedColumn, selectColumn } = useCatalog();
-  const { detailCollapsed, toggleDetail } = useUI();
-  const det = datasets.find((d) => d.id === detailDatasetId);
-  const cat = detailDatasetId ? catalog[detailDatasetId] : undefined;
-  if (!cat || !det) return null;
-
-  if (detailCollapsed) return (
-    <section style={{ width: 46, flex: 'none', borderRight: '1px solid var(--border-subtle)', background: 'var(--surface-card)',
-      display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '12px 0', gap: 10 }}>
-      <IconButton as={ChevronsRight} label="Expand table details" onClick={toggleDetail} />
-      <div style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)', font: '600 12px/1 var(--font-sans)',
-        letterSpacing: '.08em', textTransform: 'uppercase', color: 'var(--text-muted)', marginTop: 6 }}>Table details · {det.name}</div>
-    </section>
-  );
-
-  return (
-    <section style={{ width: 340, flex: 'none', overflow: 'auto', borderRight: '1px solid var(--border-subtle)', background: 'var(--surface-page)' }}>
-      <div style={{ padding: '18px 18px 16px 22px', borderBottom: '1px solid var(--border-subtle)', background: 'var(--surface-card)' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 8 }}>
-          <Icon as={Table2} size={18} color="var(--brand)" />
-          <span className="mono" style={{ font: '700 16px/1 var(--font-mono)', color: 'var(--text-strong)' }}>{det.name}</span>
-          <span className="mono" style={{ font: '400 12px/1 var(--font-mono)', color: 'var(--text-subtle)' }}>{det.fileName}</span>
-          <div style={{ flex: 1 }} />
-          <DeleteDataset id={det.id} />
-          <IconButton as={ChevronsLeft} label="Collapse table details" onClick={toggleDetail} />
-        </div>
-        <p style={{ margin: 0, font: '400 13px/1.55 var(--font-sans)', color: 'var(--text-body)', textWrap: 'pretty' }}>{cat.tableDescription}</p>
-        <div style={{ display: 'flex', gap: 18, marginTop: 12 }}>
-          <span className="mono" style={{ font: '500 12px/1 var(--font-mono)', color: 'var(--text-muted)' }}>{nfmt(det.rowCount)} rows</span>
-          <span className="mono" style={{ font: '500 12px/1 var(--font-mono)', color: 'var(--text-muted)' }}>{det.columnCount} columns</span>
-        </div>
-      </div>
-
-      <div style={{ padding: '16px 22px' }}>
-        <div style={EYEBROW}>Columns</div>
-        <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 2 }}>
-          {cat.columns.map((c) => {
-            const sel = selectedColumn?.ds === detailDatasetId && selectedColumn?.name === c.name;
-            const rb = roleBadge(c.role);
-            return (
-              <button key={c.name} onClick={() => detailDatasetId && selectColumn(detailDatasetId, c.name)}
-                style={{ display: 'block', width: '100%', textAlign: 'left', padding: '9px 10px', border: 'none', borderRadius: 'var(--radius-md)',
-                  background: sel ? 'var(--surface-card)' : 'transparent', boxShadow: sel ? 'var(--shadow-xs)' : 'none',
-                  outline: sel ? '1px solid var(--navy-100)' : 'none', cursor: 'pointer' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 3 }}>
-                  <span className="mono" style={{ font: '600 13px/1 var(--font-mono)', color: 'var(--text-strong)', flex: 1 }}>{c.name}</span>
-                  <Badge tone={rb.tone}>{rb.label}</Badge>
-                </div>
-                <div style={{ font: '400 12px/1.45 var(--font-sans)', color: 'var(--text-muted)', textWrap: 'pretty' }}>{c.description}</div>
-              </button>
-            );
-          })}
-        </div>
-
-        {cat.clarifications.length > 0 && (
-          <div style={{ marginTop: 20 }}>
-            <div style={{ ...EYEBROW, display: 'flex', alignItems: 'center', gap: 6 }}>
-              <Icon as={HelpCircle} size={13} color="var(--amber-500)" /> Needs review
-            </div>
-            <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {cat.clarifications.map((q, i) => (
-                <div key={i} style={{ padding: '12px 13px', border: '1px solid var(--amber-100)', borderRadius: 'var(--radius-md)', background: 'var(--amber-100)' }}>
-                  {q.column && <div className="mono" style={{ font: '600 11px/1 var(--font-mono)', color: 'var(--amber-600)', marginBottom: 6 }}>{q.column}</div>}
-                  <div style={{ font: '500 13px/1.45 var(--font-sans)', color: 'var(--text-strong)', marginBottom: 9 }}>{q.question}</div>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                    {q.options.map((o, k) => (
-                      <span key={k} style={{ font: '500 12px/1 var(--font-sans)', color: 'var(--text-body)', background: 'var(--surface-card)',
-                        border: '1px solid var(--border-default)', padding: '6px 10px', borderRadius: 'var(--radius-full)' }}>{o}</span>
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-      </div>
-    </section>
-  );
-}
+import { useQuery } from '../stores';
+import { money } from '../lib/format';
+import { Icon, Card, Button, Tag, SegmentedControl } from '../components/ui';
 
 /* ── Q&A chat ─────────────────────────────────────────────────────── */
 function BarChart({ result }: { result: AnswerResult }) {
@@ -326,7 +166,6 @@ function Thinking() {
 
 function QueryChat() {
   const { messages, thinking, submit } = useQuery();
-  const { datasets } = useCatalog();
   const [text, setText] = useState('');
   const scroller = useRef<HTMLDivElement>(null);
   useEffect(() => { if (scroller.current) scroller.current.scrollTop = scroller.current.scrollHeight; }, [messages, thinking]);
@@ -337,14 +176,8 @@ function QueryChat() {
   return (
     <section style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: 'var(--surface-page)' }}>
       <div style={{ height: 56, flex: 'none', display: 'flex', alignItems: 'center', gap: 10, padding: '0 24px', borderBottom: '1px solid var(--border-subtle)', background: 'var(--surface-card)' }}>
-        <h1 style={{ margin: 0, font: '800 18px/1 var(--font-sans)', letterSpacing: '-.02em' }}>Q&amp;A</h1>
-        <span style={{ font: '400 12px/1.4 var(--font-sans)', color: 'var(--text-muted)' }}>Answers span the whole workspace — joins are automatic</span>
-        <div style={{ flex: 1 }} />
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '5px 11px', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-full)' }}>
-          <Icon as={Database} size={13} color="var(--text-muted)" />
-          <span className="mono" style={{ font: '500 12px/1 var(--font-mono)', color: 'var(--text-body)' }}>All {datasets.length} tables</span>
-        </span>
-        <Badge tone="brand"><Icon as={GitBranch} size={10} style={{ marginRight: 3 }} />Joins on</Badge>
+        <h1 style={{ margin: 0, font: '800 18px/1 var(--font-sans)', letterSpacing: '-.02em' }}>Query</h1>
+        <span style={{ font: '400 12px/1.4 var(--font-sans)', color: 'var(--text-muted)' }}>Ask a plain-English question — answers span the whole workspace</span>
       </div>
 
       <div ref={scroller} style={{ flex: 1, overflow: 'auto', padding: '26px 28px', display: 'flex', flexDirection: 'column', gap: 22 }}>
@@ -394,8 +227,6 @@ function QueryChat() {
 export function WorkspacePage() {
   return (
     <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
-      <CatalogTree />
-      <ColumnDetail />
       <QueryChat />
     </div>
   );

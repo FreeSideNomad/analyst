@@ -836,7 +836,9 @@ def given_violating_file(ctx: ScenarioContext) -> None:
 
 @step(r'the user refreshes "(?P<name>[^"]+)" with the new file')
 def when_user_refreshes(ctx: ScenarioContext, name: str) -> None:
-    ctx.refresh_result = ctx.service.refresh(name, ctx.refresh_file)
+    # The dataset id now carries its extension (feature 006 naming); refresh the
+    # dataset that the Given actually produced rather than the bare spec label.
+    ctx.refresh_result = ctx.service.refresh(ctx.result.dataset_name, ctx.refresh_file)
 
 
 @step(r"the new data is validated against the schema before replacement")
