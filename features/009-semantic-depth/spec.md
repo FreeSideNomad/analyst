@@ -96,14 +96,14 @@ Feature: Semantic depth — PK/FK discovery + richer catalog to UI & planner
   # AC-12
   Scenario: Focusing a table shows its meaning and relationships
     Given the app is open on the Ingest & Profile view with related tables
-    When the user selects the table "orders"
+    When the user selects the table "sales"
     Then its description is shown
     And its relationships to "customers" and "products" are listed with declared-or-inferred and required-or-optional
 
   # AC-13
   Scenario: Focusing a column shows its meaning, role, and relationship
     Given the app is open on the Ingest & Profile view with related tables
-    When the user selects the column "customer_id" of "orders"
+    When the user selects the column "customer_id" of "sales"
     Then its description and role are shown
     And it shows a relationship referencing "customers"
 

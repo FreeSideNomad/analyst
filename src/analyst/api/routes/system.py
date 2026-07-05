@@ -35,6 +35,6 @@ def reset_fixtures(request: Request) -> None:
     # reset truly restores a clean fixture workspace between e2e scenarios.
     for manager in getattr(request.app.state, "database_managers", {}).values():
         with contextlib.suppress(Exception):
-            manager.service.close()
+            manager.close()
     request.app.state.__dict__["database_managers"] = {}
     request.app.state.__dict__.pop("qa_holder", None)

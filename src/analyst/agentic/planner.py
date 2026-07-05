@@ -24,6 +24,7 @@ from pydantic import BaseModel, ValidationError
 from analyst.agentic.gateway import LLMGateway
 from analyst.domain.catalog import CatalogPayload, Clarification, ColumnMetadata
 from analyst.domain.query import PlanAction, QueryPlan, QueryTable
+from analyst.domain.relationships import Relationship
 
 MIN_CONFIDENCE = 0.5
 
@@ -104,7 +105,10 @@ def _flatten(tables: Sequence[QueryTable]) -> CatalogPayload:
 
 
 def render_plan_prompt(
-    question: str, capped: CatalogPayload, tables: Sequence[QueryTable]
+    question: str,
+    capped: CatalogPayload,
+    tables: Sequence[QueryTable],
+    relationships: Sequence[Relationship] = (),
 ) -> str:
     """Deterministic prompt: sorted tables, profile-ordered columns, and the
     CAPPED samples from the gateway payload (descriptions are metadata)."""
@@ -122,6 +126,23 @@ def render_plan_prompt(
                 f"- {col.name} (type={col.inferred_type.value}, "
                 f"null_rate={col.null_rate:.2f}, distinct={col.distinct_count}) "
                 f"samples: [{samples}]{described}"
+            )
+    if relationships:
+        lines += [
+            "",
+            "Foreign-key relationships — when the question needs more than one "
+            "table, JOIN on these and honor the join type (never invent keys); "
+            "quote any identifier containing a dot with double quotes:",
+        ]
+        for r in sorted(
+            relationships,
+            key=lambda r: (r.child_table, r.child_column, r.parent_table),
+        ):
+            join = "INNER" if r.join_type == "required" else "LEFT"
+            lines.append(
+                f"- {r.child_table}.{r.child_column} -> "
+                f"{r.parent_table}.{r.parent_column} "
+                f"({r.join_type} → {join} JOIN, {r.origin})"
             )
     return "\n".join(lines)
 
@@ -178,12 +199,17 @@ class QueryPlanner:
     def __init__(self, gateway: LLMGateway):
         self.gateway = gateway
 
-    def plan(self, question: str, tables: Sequence[QueryTable]) -> QueryPlan:
+    def plan(
+        self,
+        question: str,
+        tables: Sequence[QueryTable],
+        relationships: Sequence[Relationship] = (),
+    ) -> QueryPlan:
         ordered = tuple(sorted(tables, key=lambda t: t.name))
         raw = self.gateway.run(
             _flatten(ordered),
             PLANNER_SYSTEM_PROMPT,
-            lambda capped: render_plan_prompt(question, capped, ordered),
+            lambda capped: render_plan_prompt(question, capped, ordered, relationships),
         )
         try:
             parsed = _PlanOut.model_validate_json(_extract_json(raw))
@@ -197,6 +223,7 @@ class QueryPlanner:
         tables: Sequence[QueryTable],
         asked: Clarification,
         choice: str,
+        relationships: Sequence[Relationship] = (),
     ) -> QueryPlan:
         """Re-plan after the user answered a clarification."""
         augmented = (
@@ -205,4 +232,4 @@ class QueryPlanner:
             f"The user chose: {choice}\n"
             "Plan the answer using that choice; do not ask again."
         )
-        return self.plan(augmented, tables)
+        return self.plan(augmented, tables, relationships)

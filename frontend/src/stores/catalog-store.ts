@@ -60,6 +60,17 @@ export const useCatalog = create<CatalogState>((set) => ({
       api.listDatasets(), api.getCatalog(), databasesApi.list(),
     ]);
     set({ datasets, catalog, connections });
+    // Feature 009: cataloguing runs in the background; poll until every table
+    // has finished (complete or failed) so descriptions refresh with no reload.
+    const poll = setInterval(async () => {
+      try {
+        const [ds, cat] = await Promise.all([api.listDatasets(), api.getCatalog()]);
+        set({ datasets: ds, catalog: cat });
+        if (!ds.some((d) => d.catalogStatus === 'pending')) clearInterval(poll);
+      } catch {
+        clearInterval(poll);
+      }
+    }, 600);
   },
   detachDatabase: async (name) => {
     await databasesApi.detach(name);

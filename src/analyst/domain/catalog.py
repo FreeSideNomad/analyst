@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from analyst.domain.profile import DatasetProfile
+from analyst.domain.relationships import Relationship
 from analyst.domain.types import ColumnType
 
 
@@ -33,6 +34,9 @@ class CatalogEntry:
     table_description: str
     columns: tuple[ColumnDescription, ...]
     clarifications: tuple[Clarification, ...] = ()
+    # The relationships THIS table participates in (feature 009): FK links where
+    # it is the child (references another table) or the parent (is referenced).
+    relationships: tuple[Relationship, ...] = ()
 
 
 # --------------------------------------------------------------------------- #

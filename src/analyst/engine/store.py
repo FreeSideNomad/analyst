@@ -9,16 +9,22 @@ import csv
 import io
 import os
 import threading
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from functools import wraps
 from pathlib import Path
-from typing import Any, TypeVar, cast
+from typing import TYPE_CHECKING, Any, TypeVar, cast
+
+if TYPE_CHECKING:
+    from analyst.domain.relationships import Relationship
+    from analyst.engine.relationships import DiscoverTable
 
 import duckdb
 
 from analyst.domain.profile import DatasetProfile
+from analyst.domain.relationships import Relationship
 from analyst.engine.profiler import profile_relation
 from analyst.engine.reader import CsvReader, MalformedFileError, ReadPlan
+from analyst.engine.relationships import DiscoverTable, discover
 
 _F = TypeVar("_F", bound=Callable[..., Any])
 
@@ -201,6 +207,49 @@ class DatasetStore:
         (self.base_dir / f"{dataset}.norm.csv").unlink(missing_ok=True)
         for path in self.base_dir.glob(f"{dataset}.v*.parquet"):
             path.unlink(missing_ok=True)
+
+    @_synchronized
+    def discover_relationships(
+        self, extra: Sequence[DiscoverTable] | None = None
+    ) -> list[Relationship]:
+        """Discover relationships across all datasets (parquet views) in this
+        store's connection — plus any ``extra`` DiscoverTable relations already
+        registered in it (e.g. an attached DB, for cross-source). Local only."""
+        from analyst.engine.relationships import DiscoverTable
+
+        tables = [
+            DiscoverTable(name=name, profile=profile_relation(self._con, name))
+            for name in self.datasets()
+        ]
+        if extra:
+            tables += list(extra)
+        return discover(self._con, tables)
+
+    @_synchronized
+    def attach_sqlite(self, alias: str, path: str, tables: tuple[str, ...]) -> object:
+        """Attach a SQLite database into this connection and register each table
+        as a scanner-backed temp view, so file↔DB discovery runs in one
+        connection (AC-6). Returns the DiscoverTable relations to include."""
+        from analyst.engine.relationships import DiscoverTable
+
+        self._con.execute(
+            f"ATTACH {_sql_str(path)} AS {_quote_ident(alias)} (TYPE sqlite, READ_ONLY)"
+        )
+        out = []
+        for table in tables:
+            view = f"__fed_{alias}_{table}"
+            self._con.execute(
+                f"CREATE OR REPLACE TEMP VIEW {_quote_ident(view)} AS SELECT * FROM "
+                f"{_quote_ident(alias)}.main.{_quote_ident(table)}"
+            )
+            out.append(
+                DiscoverTable(
+                    name=table,
+                    profile=profile_relation(self._con, view),
+                    relation=_quote_ident(view),
+                )
+            )
+        return out
 
     @_synchronized
     def exists(self, dataset: str) -> bool:

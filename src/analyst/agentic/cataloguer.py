@@ -19,6 +19,7 @@ from analyst.domain.catalog import (
     Clarification,
     ColumnDescription,
 )
+from analyst.domain.relationships import Relationship
 
 
 class CatalogingError(RuntimeError):
@@ -57,7 +58,9 @@ class _CatalogOut(BaseModel):
     clarifications: list[_ClarificationOut] = []
 
 
-def render_prompt(payload: CatalogPayload) -> str:
+def render_prompt(
+    payload: CatalogPayload, relationships: tuple[Relationship, ...] = ()
+) -> str:
     lines = [
         f"Dataset: {payload.dataset}",
         f"Row count: {payload.row_count}",
@@ -70,6 +73,14 @@ def render_prompt(payload: CatalogPayload) -> str:
             f"null_rate={col.null_rate:.2f}, distinct={col.distinct_count}) "
             f"samples: [{samples}]"
         )
+    mine = [r for r in relationships if r.child_table == payload.dataset]
+    if mine:
+        lines.append("Foreign-key relationships (this table references):")
+        for r in mine:
+            lines.append(
+                f"- {r.child_column} -> {r.parent_table}.{r.parent_column} "
+                f"({r.join_type}, {r.origin})"
+            )
     return "\n".join(lines)
 
 
@@ -87,8 +98,16 @@ class Cataloguer:
     def __init__(self, gateway: LLMGateway):
         self.gateway = gateway
 
-    def catalog(self, payload: CatalogPayload) -> CatalogEntry:
-        raw = self.gateway.run(payload, SYSTEM_PROMPT, render_prompt)
+    def catalog(
+        self,
+        payload: CatalogPayload,
+        relationships: tuple[Relationship, ...] = (),
+    ) -> CatalogEntry:
+        raw = self.gateway.run(
+            payload,
+            SYSTEM_PROMPT,
+            lambda capped: render_prompt(capped, relationships),
+        )
         try:
             parsed = _CatalogOut.model_validate_json(_extract_json(raw))
         except (ValidationError, json.JSONDecodeError) as exc:
@@ -108,5 +127,8 @@ class Cataloguer:
                     column=c.column,
                 )
                 for c in parsed.clarifications
+            ),
+            relationships=tuple(
+                r for r in relationships if r.child_table == payload.dataset
             ),
         )

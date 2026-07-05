@@ -15,6 +15,7 @@ from pydantic.alias_generators import to_camel
 
 from analyst.domain.catalog import CatalogEntry, Clarification, ColumnDescription
 from analyst.domain.profile import ColumnProfile, DatasetProfile
+from analyst.domain.relationships import Relationship
 
 
 class Camel(BaseModel):
@@ -108,10 +109,35 @@ class ClarificationSchema(Camel):
         return cls(question=c.question, options=list(c.options), column=c.column)
 
 
+class RelationshipSchema(Camel):
+    """A single-column FK relationship (feature 009), origin + join semantics."""
+
+    child_table: str
+    child_column: str
+    parent_table: str
+    parent_column: str
+    origin: str  # "declared" | "inferred"
+    join_type: str  # "required" | "optional"
+    coverage: float = 1.0
+
+    @classmethod
+    def from_domain(cls, r: Relationship) -> "RelationshipSchema":
+        return cls(
+            child_table=r.child_table,
+            child_column=r.child_column,
+            parent_table=r.parent_table,
+            parent_column=r.parent_column,
+            origin=r.origin,
+            join_type=r.join_type,
+            coverage=r.coverage,
+        )
+
+
 class CatalogEntrySchema(Camel):
     table_description: str
     columns: list[ColumnDescriptionSchema] = []
     clarifications: list[ClarificationSchema] = []
+    relationships: list[RelationshipSchema] = []
 
     @classmethod
     def from_domain(cls, e: CatalogEntry) -> "CatalogEntrySchema":
@@ -121,6 +147,7 @@ class CatalogEntrySchema(Camel):
             clarifications=[
                 ClarificationSchema.from_domain(c) for c in e.clarifications
             ],
+            relationships=[RelationshipSchema.from_domain(r) for r in e.relationships],
         )
 
 
@@ -143,6 +170,8 @@ class DatasetSchema(Camel):
     entity: str  # the sheet/table/stem shown as the table node ("employees", "orders")
     source_kind: str  # "file" | "database" (from DatasetRecord.federated)
     queryable: bool  # False for connected-DB tables (not yet Q&A-answerable)
+    # Feature 009 — async cataloguing lifecycle: "complete" | "pending" | "failed".
+    catalog_status: str = "complete"
 
 
 class IngestionResultSchema(Camel):
