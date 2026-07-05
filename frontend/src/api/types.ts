@@ -44,11 +44,25 @@ export interface Clarification {
   column?: string | null;
 }
 
+// Feature 009 — a discovered single-column PK/FK relationship.
+export interface Relationship {
+  childTable: string;
+  childColumn: string;
+  parentTable: string;
+  parentColumn: string;
+  origin: 'declared' | 'inferred';
+  joinType: 'required' | 'optional';
+  coverage: number;
+}
+
 export interface CatalogEntry {
   tableDescription: string;
   columns: ColumnDescription[];
   clarifications: Clarification[];
+  relationships: Relationship[];
 }
+
+export type CatalogStatus = 'complete' | 'pending' | 'failed';
 
 export interface Dataset {
   id: string;                  // === name (source.entity.ext id)
@@ -65,6 +79,7 @@ export interface Dataset {
   entity: string;              // the sheet/table/stem shown as the table node ("employees", "orders")
   sourceKind: 'file' | 'database';
   queryable: boolean;          // false for connected-DB tables (not yet Q&A-able)
+  catalogStatus: CatalogStatus; // feature 009 — async cataloguing lifecycle
 }
 
 export interface IngestionResult { datasets: Dataset[]; }

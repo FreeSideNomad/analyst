@@ -14,6 +14,7 @@ from __future__ import annotations
 from analyst.domain.catalog import CatalogEntry, Clarification, ColumnDescription
 from analyst.domain.dataset import DatasetSummary
 from analyst.domain.profile import ColumnProfile, DatasetProfile
+from analyst.domain.relationships import INFERRED, OPTIONAL, REQUIRED, Relationship
 from analyst.domain.types import ColumnType
 
 T = ColumnType
@@ -121,6 +122,23 @@ _SALES = DatasetSummary(
             ("channel", "Sales channel: online, retail, wholesale.", "category"),
         ),
         clarifications=(),
+        # Feature 009 — discovered relationships surfaced on focus (AC-12/13):
+        # sales references customers and products (customer_id fully populated →
+        # required; product_id is optional).
+        relationships=(
+            Relationship(
+                "sales",
+                "customer_id",
+                "customers",
+                "customer_id",
+                INFERRED,
+                REQUIRED,
+                1.0,
+            ),
+            Relationship(
+                "sales", "product_id", "products", "product_id", INFERRED, OPTIONAL, 1.0
+            ),
+        ),
     ),
 )
 

@@ -9,7 +9,7 @@ import {
   Plus, Upload, Plug, Unplug,
 } from 'lucide-react';
 import { useCatalog, useIngestion } from '../stores';
-import type { Dataset, CatalogEntry, ColumnDescription } from '../api/types';
+import type { Dataset, CatalogEntry, ColumnDescription, Relationship } from '../api/types';
 import { columnVM, type ColumnVM } from '../lib/adapt';
 import { nfmt, roleBadge } from '../lib/format';
 import { Icon, IconButton, Card, Badge, StatusPill, ProgressBar, Sparkline, EYEBROW } from '../components/ui';
@@ -124,7 +124,9 @@ function TableNode({ d, catalog }: { d: Dataset; catalog: Record<string, Catalog
           <Icon as={Table2} size={15} color={isDetail ? 'var(--brand)' : 'var(--text-muted)'} />
           <span className="mono" style={{ font: '600 12.5px/1.2 var(--font-mono)', color: 'var(--text-strong)', flex: 1 }}>{d.entity}</span>
           {needsReview && <Icon as={HelpCircle} size={13} color="var(--amber-500)" />}
-          {d.queryable
+          {d.catalogStatus === 'pending'
+            ? <Badge tone="info">Cataloguing…</Badge>
+            : d.queryable
             ? <StatusPill status={status}>{status === 'ready' ? 'Ready' : 'Profiling'}</StatusPill>
             : <Badge tone="warning"><Icon as={Lock} size={9} style={{ marginRight: 3 }} />Not queryable</Badge>}
         </button>
@@ -292,12 +294,56 @@ function DisconnectDatabase({ connection }: { connection: string }) {
   );
 }
 
-/* ── column drilldown (profile + semantic description + role) ──────── */
-function ColumnDrilldown({ d, col }: { d: Dataset; col: ColumnDescription | undefined }) {
+/* ── relationships (feature 009): declared/inferred + required/optional ── */
+function RelBadges({ r }: { r: Relationship }) {
+  return (
+    <>
+      <Badge tone={r.origin === 'declared' ? 'info' : 'neutral'}>{r.origin}</Badge>
+      <Badge tone={r.joinType === 'required' ? 'brand' : 'warning'}>{r.joinType}</Badge>
+    </>
+  );
+}
+
+function RelationshipsBlock({ table, rels }: { table: string; rels: Relationship[] }) {
+  const outgoing = rels.filter((r) => r.childTable === table);
+  const incoming = rels.filter((r) => r.parentTable === table && r.childTable !== table);
+  if (outgoing.length === 0 && incoming.length === 0) return null;
+  const row = { display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)', background: 'var(--surface-card)' } as const;
+  const monoRef = { font: '600 12.5px/1.2 var(--font-mono)', color: 'var(--text-strong)' } as const;
+  return (
+    <div style={{ marginBottom: 22 }}>
+      <div style={{ ...EYEBROW, marginBottom: 10 }}>Relationships</div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {outgoing.map((r, i) => (
+          <div key={`out-${i}`} aria-label={`Relationship ${r.childColumn} references ${r.parentTable}`} style={row}>
+            <span className="mono" style={monoRef}>{r.childColumn}</span>
+            <Icon as={ChevronRight} size={13} color="var(--text-muted)" />
+            <span className="mono" style={monoRef}>{r.parentTable}.{r.parentColumn}</span>
+            <span style={{ flex: 1 }} />
+            <RelBadges r={r} />
+          </div>
+        ))}
+        {incoming.map((r, i) => (
+          <div key={`in-${i}`} aria-label={`Referenced by ${r.childTable}`} style={row}>
+            <span style={{ font: '500 12px/1 var(--font-sans)', color: 'var(--text-muted)' }}>Referenced by</span>
+            <span className="mono" style={monoRef}>{r.childTable}.{r.childColumn}</span>
+            <span style={{ flex: 1 }} />
+            <RelBadges r={r} />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ── column drilldown (profile + semantic description + role + FK) ──── */
+function ColumnDrilldown({ d, col, rels }: { d: Dataset; col: ColumnDescription | undefined; rels: Relationship[] }) {
   const { selectedColumn } = useCatalog();
   const profile = d.profile.columns.find((c) => c.name === selectedColumn?.name);
   if (!profile) return null;
   const rb = col ? roleBadge(col.role) : null;
+  const fk = rels.find((r) => r.childTable === d.entity && r.childColumn === profile.name)
+    ?? rels.find((r) => r.childColumn === profile.name && r.childTable !== d.entity && r.parentTable !== d.entity);
   return (
     <Card style={{ padding: 18, marginBottom: 22, background: 'var(--surface-card)' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 10 }}>
@@ -306,6 +352,14 @@ function ColumnDrilldown({ d, col }: { d: Dataset; col: ColumnDescription | unde
         {rb && <Badge tone={rb.tone}>{rb.label}</Badge>}
       </div>
       {col && <p style={{ margin: '0 0 14px', font: '400 13px/1.55 var(--font-sans)', color: 'var(--text-body)', textWrap: 'pretty' }}>{col.description}</p>}
+      {fk && (
+        <div aria-label={`Column relationship referencing ${fk.parentTable}`} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14, padding: '8px 12px', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)', background: 'var(--neutral-50)' }}>
+          <span style={{ font: '500 12px/1 var(--font-sans)', color: 'var(--text-muted)' }}>References</span>
+          <span className="mono" style={{ font: '600 12.5px/1.2 var(--font-mono)', color: 'var(--text-strong)' }}>{fk.parentTable}.{fk.parentColumn}</span>
+          <span style={{ flex: 1 }} />
+          <RelBadges r={fk} />
+        </div>
+      )}
       <ProfileCard col={columnVM(profile, d.profile.rowCount)} />
     </Card>
   );
@@ -321,6 +375,7 @@ function TableDetail() {
     ? cat?.columns.find((c) => c.name === selectedColumn.name)
     : undefined;
   const showDrill = selectedColumn?.ds === d.id;
+  const rels = cat?.relationships ?? [];
 
   return (
     <section style={{ flex: 1, overflow: 'auto', padding: '26px 30px' }}>
@@ -360,10 +415,11 @@ function TableDetail() {
               borderRadius: 'var(--radius-md)', background: 'transparent', cursor: 'pointer', font: '600 12px/1 var(--font-sans)', color: 'var(--text-muted)' }}>
             <Icon as={ChevronRight} size={13} style={{ transform: 'rotate(180deg)' }} /> All columns
           </button>
-          <ColumnDrilldown d={d} col={selCol} />
+          <ColumnDrilldown d={d} col={selCol} rels={rels} />
         </>
       ) : (
       <>
+      <RelationshipsBlock table={d.entity} rels={rels} />
       <div style={{ ...EYEBROW, marginBottom: 10 }}>Columns</div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
         {d.profile.columns.map((pc) => {

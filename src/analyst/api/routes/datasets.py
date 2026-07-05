@@ -70,6 +70,7 @@ def to_dataset_schema(rec: DatasetRecord) -> DatasetSchema:
         entity=_group_and_entity(rec.name, rec.federated)[1],
         source_kind="database" if rec.federated else "file",
         queryable=not rec.federated,
+        catalog_status=rec.catalog_status,
     )
 
 

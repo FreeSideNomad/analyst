@@ -32,6 +32,9 @@ class DatasetRecord:
     # Federated (connected-DB) tables are catalogued + visible, but NOT locally
     # queryable yet — excluded from Q&A until features 007/008 land.
     federated: bool = False
+    # Feature 009 — async cataloguing lifecycle for connected-DB tables:
+    # "complete" | "pending" (background cataloguing) | "failed" (contained).
+    catalog_status: str = "complete"
 
     @property
     def name(self) -> str:
@@ -292,6 +295,7 @@ def _load_catalog_sidecar(base_dir: object, name: str):  # noqa: ANN001
         Clarification,
         ColumnDescription,
     )
+    from analyst.domain.relationships import Relationship
 
     data = json.loads(path.read_text(encoding="utf-8"))
     return CatalogEntry(
@@ -305,6 +309,7 @@ def _load_catalog_sidecar(base_dir: object, name: str):  # noqa: ANN001
             )
             for c in data["clarifications"]
         ),
+        relationships=tuple(Relationship(**r) for r in data.get("relationships", [])),
     )
 
 
