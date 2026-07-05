@@ -2,7 +2,8 @@
 slug: semantic-depth
 title: Semantic depth — PK/FK discovery + richer catalog to UI & planner
 outcome: The catalog carries real meaning. Column meaning is derived from names + sampled data + type/cardinality; table meaning aggregates its columns AND its relationships. PK/FK relationships are discovered — declared (DB information_schema/SYSCAT) and IMPLIED by analysis (name heuristic + full referential-integrity validation) — with join semantics (inner vs left-outer when the FK is nullable). All of it is surfaced on table/column focus in the workbench, and fed into the query planner's prompt so it joins correctly.
-status: ready
+status: done
+merged_at: 2026-07-05
 autonomy_level: high
 assignee: local
 owner: igormusic
