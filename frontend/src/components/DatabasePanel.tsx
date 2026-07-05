@@ -87,6 +87,9 @@ export function ConnectForm({ onDone }: { onDone: () => void }) {
           <Field id="db-conn-database" label="Database name" value={database} onChange={setDatabase} />
           <Field id="db-conn-user" label="Username" value={user} onChange={setUser} />
           <Field id="db-conn-password" label="Password" type="password" value={password} onChange={setPassword} />
+          <div style={{ margin: '2px 0 0', font: '400 11.5px/1.45 var(--font-sans)', color: 'var(--text-muted)' }}>
+            Prefer a read-only database account — analyst only ever reads your data.
+          </div>
         </>
       )}
       {error && (
@@ -108,6 +111,7 @@ export function ConnectForm({ onDone }: { onDone: () => void }) {
 export function DatabasePanel() {
   const connections = useCatalog((s) => s.connections);
   const detachDatabase = useCatalog((s) => s.detachDatabase);
+  const reconnectDatabase = useCatalog((s) => s.reconnectDatabase);
   const [open, setOpen] = useState(false);
 
   return (
@@ -117,6 +121,15 @@ export function DatabasePanel() {
           <Icon as={Database} size={16} color="var(--brand)" />
           <span className="mono" style={{ font: '600 13px/1.2 var(--font-mono)', color: 'var(--text-strong)', flex: 1 }}>{c.name}</span>
           <Badge tone="info">{c.engine}</Badge>
+          {c.status === 'unreachable' && (
+            <>
+              <Badge tone="warning">unreachable</Badge>
+              <button onClick={() => { void reconnectDatabase(c.name); }} aria-label={`Retry connection ${c.name}`}
+                style={{ display: 'inline-flex', border: 'none', background: 'transparent', cursor: 'pointer', padding: 2, color: 'var(--brand)', font: '600 11px/1 var(--font-sans)' }}>
+                Retry
+              </button>
+            </>
+          )}
           <button onClick={() => { void detachDatabase(c.name); }} aria-label={`Detach database ${c.name}`}
             style={{ display: 'inline-flex', border: 'none', background: 'transparent', cursor: 'pointer', padding: 2, color: 'var(--text-muted)' }}>
             <Icon as={X} size={14} />

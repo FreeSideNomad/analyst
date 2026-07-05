@@ -68,11 +68,16 @@ class DatasetRepository(Protocol):
     # naturally by the record name ``<connection>.<table>``; the fingerprint
     # detects a schema change while the service was down.
     def persist_catalog(
-        self, name: str, entry: object, fingerprint: str | None = None
+        self,
+        name: str,
+        entry: object,
+        fingerprint: str | None = None,
+        profile: object | None = None,
     ) -> None: ...
     def load_persisted_catalog(
         self, name: str
-    ) -> "tuple[object, str | None] | None": ...
+    ) -> "tuple[object, str | None, object | None] | None": ...
+    def persisted_connection_tables(self, connection: str) -> list[str]: ...
 
 
 # --------------------------------------------------------------------------- #
@@ -123,12 +128,21 @@ class FixtureRepository:
         """No-op: fixture catalogs are static seed data (feature 010)."""
 
     def persist_catalog(
-        self, name: str, entry: object, fingerprint: str | None = None
+        self,
+        name: str,
+        entry: object,
+        fingerprint: str | None = None,
+        profile: object | None = None,
     ) -> None:
         """No-op: the fixture workspace has no disk (feature 010)."""
 
-    def load_persisted_catalog(self, name: str) -> tuple[object, str | None] | None:
+    def load_persisted_catalog(
+        self, name: str
+    ) -> tuple[object, str | None, object | None] | None:
         return None
+
+    def persisted_connection_tables(self, connection: str) -> list[str]:
+        return []
 
     def ingest(self, file_name: str, content: bytes) -> list[DatasetRecord]:
         # Mirror the real engine's validation so the mock can't hide the
@@ -321,28 +335,46 @@ class StoreRepository:
                 _LOG.warning("re-cataloguing %r failed; keeping prior entry", name)
                 continue
             record.summary = dataclasses.replace(record.summary, catalog=entry)
-            # A federated record keeps its schema fingerprint (AC-7) so the
-            # retroactive refresh doesn't force a re-derive on next reconnect.
-            fingerprint = (
-                _schema_fingerprint(record.summary.profile)
-                if record.federated
-                else None
+            # A federated record keeps its schema fingerprint (AC-7) and its
+            # profile (011: unreachable display) so the retroactive refresh
+            # doesn't degrade the sidecar.
+            fed = record.federated
+            _save_catalog_sidecar(
+                self.store.base_dir,
+                name,
+                entry,
+                _schema_fingerprint(record.summary.profile) if fed else None,
+                record.summary.profile if fed else None,
             )
-            _save_catalog_sidecar(self.store.base_dir, name, entry, fingerprint)
 
     def persist_catalog(
-        self, name: str, entry: object, fingerprint: str | None = None
+        self,
+        name: str,
+        entry: object,
+        fingerprint: str | None = None,
+        profile: object | None = None,
     ) -> None:
         """Persist a connected-DB table's catalog (feature 010, AC-6)."""
-        _save_catalog_sidecar(self.store.base_dir, name, entry, fingerprint)
+        _save_catalog_sidecar(self.store.base_dir, name, entry, fingerprint, profile)
 
-    def load_persisted_catalog(self, name: str) -> tuple[object, str | None] | None:
-        """The persisted (entry, fingerprint) for a record name, or None."""
+    def load_persisted_catalog(
+        self, name: str
+    ) -> tuple[object, str | None, object | None] | None:
+        """The persisted (entry, fingerprint, profile) for a record, or None."""
         try:
             return _load_catalog_sidecar_with_fingerprint(self.store.base_dir, name)
         except Exception:  # noqa: BLE001 - a corrupt sidecar just re-derives
             _LOG.warning("ignoring unreadable catalog sidecar for %r", name)
             return None
+
+    def persisted_connection_tables(self, connection: str) -> list[str]:
+        """Record names with a persisted sidecar under this connection
+        (feature 011: what an unreachable connection can still show)."""
+        suffix = ".catalog.json"
+        return sorted(
+            path.name[: -len(suffix)]
+            for path in self.store.base_dir.glob(f"{connection}.*{suffix}")
+        )
 
     def _derive_entry(self, name: str, profile, rels, catalogs):  # noqa: ANN001
         """One table's catalog entry, via the same path that catalogued it:
@@ -391,6 +423,54 @@ def _catalog_sidecar(base_dir: object, name: str):  # noqa: ANN001
     return Path(str(base_dir)) / f"{name}.catalog.json"
 
 
+def _profile_to_dict(profile) -> dict:  # noqa: ANN001
+    """JSON-safe DatasetProfile (feature 011: shown while a remembered
+    connection is unreachable). Enum types become their values; scalars that
+    JSON can't carry become strings (display-only until reconnect)."""
+    import dataclasses
+    import json
+
+    data = dataclasses.asdict(profile)
+    for col in data["columns"]:
+        col["inferred_type"] = col["inferred_type"].value
+        if col.get("dominant_type") is not None:
+            col["dominant_type"] = col["dominant_type"].value
+    return json.loads(json.dumps(data, default=str))
+
+
+def _profile_from_dict(data: dict):  # noqa: ANN001
+    from analyst.domain.profile import ColumnProfile, DatasetProfile, DistributionBin
+    from analyst.domain.types import ColumnType
+
+    columns = tuple(
+        ColumnProfile(
+            name=c["name"],
+            inferred_type=ColumnType(c["inferred_type"]),
+            null_count=c["null_count"],
+            distinct_count=c["distinct_count"],
+            samples=tuple(c.get("samples", ())),
+            minimum=c.get("minimum"),
+            maximum=c.get("maximum"),
+            quantiles=tuple(c.get("quantiles", ())),
+            distribution=tuple(DistributionBin(**b) for b in c.get("distribution", ())),
+            is_mixed=c.get("is_mixed", False),
+            dominant_type=(
+                ColumnType(c["dominant_type"]) if c.get("dominant_type") else None
+            ),
+            off_type_examples=tuple(c.get("off_type_examples", ())),
+            is_nested=c.get("is_nested", False),
+        )
+        for c in data["columns"]
+    )
+    return DatasetProfile(
+        row_count=data["row_count"],
+        columns=columns,
+        encoding=data.get("encoding"),
+        synthesized_headers=data.get("synthesized_headers", False),
+        had_duplicate_columns=data.get("had_duplicate_columns", False),
+    )
+
+
 def _schema_fingerprint(profile: object) -> str:
     """A stable schema id (feature 010, AC-7): sorted column name:type pairs.
     A table whose fingerprint changed while the service was down is
@@ -400,11 +480,16 @@ def _schema_fingerprint(profile: object) -> str:
 
 
 def _save_catalog_sidecar(
-    base_dir: object, name: str, catalog: object, fingerprint: str | None = None
+    base_dir: object,
+    name: str,
+    catalog: object,
+    fingerprint: str | None = None,
+    profile: object | None = None,
 ) -> None:
     """Persist a catalog entry so it survives a restart (HIGH H2 + cataloguer).
-    ``fingerprint`` (feature 010) rides along for connected-DB tables; loaders
-    that don't know the key simply ignore it."""
+    ``fingerprint`` (feature 010) and ``profile`` (feature 011: display while
+    unreachable) ride along for connected-DB tables; loaders that don't know
+    the keys simply ignore them."""
     import dataclasses
     import json
 
@@ -413,6 +498,8 @@ def _save_catalog_sidecar(
     payload = dataclasses.asdict(catalog)
     if fingerprint is not None:
         payload["schema_fingerprint"] = fingerprint
+    if profile is not None:
+        payload["profile"] = _profile_to_dict(profile)
     _catalog_sidecar(base_dir, name).write_text(json.dumps(payload), encoding="utf-8")
 
 
@@ -448,7 +535,8 @@ def _load_catalog_sidecar_with_fingerprint(base_dir: object, name: str):  # noqa
         ),
         relationships=tuple(Relationship(**r) for r in data.get("relationships", [])),
     )
-    return entry, data.get("schema_fingerprint")
+    profile = _profile_from_dict(data["profile"]) if data.get("profile") else None
+    return entry, data.get("schema_fingerprint"), profile
 
 
 def _safe_upload_name(file_name: str) -> str:

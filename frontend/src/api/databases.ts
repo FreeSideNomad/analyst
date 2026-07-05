@@ -21,6 +21,7 @@ export interface ConnectedTable {
 export interface DatabaseConnection {
   name: string;
   engine: DatabaseEngine;
+  status: 'connected' | 'unreachable'; // feature 011
   database?: string | null;
   host?: string | null;
   port?: number | null;
@@ -56,6 +57,10 @@ export const databasesApi = {
   connect: (req: ConnectDatabaseRequest) =>
     j<DatabaseConnection>('/api/databases/connect', {
       method: 'POST', headers: JSON_HEADERS, body: JSON.stringify(req),
+    }),
+  reconnect: (name: string) =>
+    j<DatabaseConnection>(`/api/databases/${encodeURIComponent(name)}/reconnect`, {
+      method: 'POST',
     }),
   detach: (name: string) =>
     j<void>(`/api/databases/${encodeURIComponent(name)}`, { method: 'DELETE' }),
