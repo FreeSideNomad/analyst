@@ -53,6 +53,7 @@ export interface Relationship {
   origin: 'declared' | 'inferred';
   joinType: 'required' | 'optional';
   coverage: number;
+  extraColumns?: string[][];   // [[childCol, parentCol], ...] for composite keys
 }
 
 export interface CatalogEntry {

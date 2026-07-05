@@ -139,9 +139,15 @@ def render_plan_prompt(
             key=lambda r: (r.child_table, r.child_column, r.parent_table),
         ):
             join = "INNER" if r.join_type == "required" else "LEFT"
+            # Composite keys append their extra column pairs; a single-column FK
+            # renders byte-identically to before (no re-record needed).
+            extra = "".join(
+                f" AND {r.child_table}.{c} = {r.parent_table}.{p}"
+                for c, p in r.extra_columns
+            )
             lines.append(
                 f"- {r.child_table}.{r.child_column} -> "
-                f"{r.parent_table}.{r.parent_column} "
+                f"{r.parent_table}.{r.parent_column}{extra} "
                 f"({r.join_type} → {join} JOIN, {r.origin})"
             )
     return "\n".join(lines)

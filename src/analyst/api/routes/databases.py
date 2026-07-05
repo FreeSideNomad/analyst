@@ -160,10 +160,10 @@ def _declared_relationships(
         if not table.keys:
             continue
         for fk in table.keys.foreign_keys:
-            if len(fk.columns) != 1 or len(fk.referenced_columns) != 1:
+            if not fk.columns or len(fk.columns) != len(fk.referenced_columns):
                 continue
             child_col = fk.columns[0]
-            has_nulls = null_counts.get((table.name, child_col), 0) > 0
+            has_nulls = any(null_counts.get((table.name, c), 0) > 0 for c in fk.columns)
             out.append(
                 Relationship(
                     child_table=table.name,
@@ -173,6 +173,7 @@ def _declared_relationships(
                     origin=DECLARED,
                     join_type=OPTIONAL if has_nulls else REQUIRED,
                     coverage=1.0,
+                    extra_columns=tuple(zip(fk.columns[1:], fk.referenced_columns[1:])),
                 )
             )
     return tuple(out)

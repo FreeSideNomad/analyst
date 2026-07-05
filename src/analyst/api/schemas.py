@@ -110,7 +110,8 @@ class ClarificationSchema(Camel):
 
 
 class RelationshipSchema(Camel):
-    """A single-column FK relationship (feature 009), origin + join semantics."""
+    """A FK relationship (feature 009), origin + join semantics. Multi-column
+    (composite) keys carry their additional column pairs in ``extraColumns``."""
 
     child_table: str
     child_column: str
@@ -119,6 +120,7 @@ class RelationshipSchema(Camel):
     origin: str  # "declared" | "inferred"
     join_type: str  # "required" | "optional"
     coverage: float = 1.0
+    extra_columns: list[list[str]] = []  # [[childCol, parentCol], ...] for composite
 
     @classmethod
     def from_domain(cls, r: Relationship) -> "RelationshipSchema":
@@ -130,6 +132,7 @@ class RelationshipSchema(Camel):
             origin=r.origin,
             join_type=r.join_type,
             coverage=r.coverage,
+            extra_columns=[[c, p] for c, p in r.extra_columns],
         )
 
 
