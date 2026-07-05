@@ -75,6 +75,14 @@ Feature: FastAPI layer & aligned frontend
     Then an answer appears summarising revenue by region
     And the trust trail reveals assumptions, lineage and SQL
 
+  # AC-8
+  Scenario: A result can be viewed as a table and exported
+    Given the analyst app is open in a browser
+    When the user asks "What is the revenue by region?"
+    And the user chooses the customer region option
+    And the user switches the answer to the table view
+    Then the result table is shown with a CSV download
+
   # AC-9
   Scenario: Uploading a file shows ingestion progressing to completion
     Given the analyst app is open on the ingestion view

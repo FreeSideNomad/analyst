@@ -213,6 +213,15 @@ class StatBlock(Camel):
     sub: str
 
 
+class TableBlock(Camel):
+    """The locally-computed result as a table (feature: result-table view). Rows
+    are already capped by the engine; the browser paginates + can save/download."""
+
+    columns: list[str] = []
+    rows: list[list[Any]] = []
+    truncated: bool = False
+
+
 class ClarificationResult(Camel):
     type: Literal["clarification"] = "clarification"
     query_id: str
@@ -233,6 +242,7 @@ class AnswerResult(Camel):
     tick_step: Optional[float] = None
     chart_data: Optional[list[ChartPoint]] = None
     stat: Optional[StatBlock] = None
+    table: Optional[TableBlock] = None  # the full result for the table view
     trust_trail: Optional[TrustTrailSchema] = None
 
 

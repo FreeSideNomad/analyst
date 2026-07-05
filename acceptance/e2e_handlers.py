@@ -196,6 +196,21 @@ def then_revenue_answer(ctx: ScenarioContext) -> None:
     ).to_be_visible()
 
 
+@step(r"the user switches the answer to the table view")
+def when_switch_to_table(ctx: ScenarioContext) -> None:
+    _expect()(
+        ctx.page.get_by_text("East region generated the most", exact=False)
+    ).to_be_visible()
+    ctx.page.get_by_role("button", name="Table", exact=True).click()
+
+
+@step(r"the result table is shown with a CSV download")
+def then_result_table_shown(ctx: ScenarioContext) -> None:
+    expect = _expect()
+    expect(ctx.page.get_by_role("columnheader", name="region")).to_be_visible()
+    expect(ctx.page.get_by_role("button", name="Download CSV")).to_be_visible()
+
+
 @step(r"the trust trail reveals assumptions, lineage and SQL")
 def then_trust_trail(ctx: ScenarioContext) -> None:
     expect = _expect()
