@@ -233,3 +233,24 @@ class QueryPlanner:
             "Plan the answer using that choice; do not ask again."
         )
         return self.plan(augmented, tables, relationships)
+
+    def refine(
+        self,
+        question: str,
+        tables: Sequence[QueryTable],
+        failed_sql: str,
+        error: str,
+        relationships: Sequence[Relationship] = (),
+    ) -> QueryPlan:
+        """Retry after generated SQL failed validation/execution — feed the exact
+        error back so the model self-corrects (instead of the user seeing an
+        abstain). Same closed-world contract; abstains if it cannot be fixed."""
+        augmented = (
+            f"{question}\n\n"
+            f"Your previous SQL FAILED and was NOT run:\n{failed_sql}\n\n"
+            f"Error: {error}\n\n"
+            "Return a corrected single SELECT that fixes this error, using ONLY "
+            "the listed tables and columns. If it genuinely cannot be answered "
+            "from them, abstain."
+        )
+        return self.plan(augmented, tables, relationships)

@@ -55,6 +55,10 @@ class QAService(Protocol):
 # --------------------------------------------------------------------------- #
 # Real mode — the agentic planner over the local DuckDB store.
 # --------------------------------------------------------------------------- #
+# Bounded planner retries: on a bad-SQL failure, feed the error back and re-plan.
+_MAX_REFINEMENTS = int(os.environ.get("ANALYST_QA_MAX_REFINE", "2"))
+
+
 def _query_id() -> str:
     return f"qry-{uuid.uuid4().hex[:8]}"
 
@@ -300,23 +304,38 @@ class PlannerQAService:
                 "Real Q&A needs the real dataset store; fixtures mode serves "
                 "the canned path instead."
             )
-        # Review #2: validate through DuckDB's real binder (closed-world tables +
-        # columns), not a regex pseudo-parser that false-rejected valid function
-        # SQL. The query is bound, never executed, until it is proven safe + valid.
-        problems = repo.store.validation_problems(plan.sql)
-        if problems:
-            return _abstain_answer(
-                "The generated SQL failed validation and was not executed: "
-                + " ".join(problems)
+        # Refinement loop: validate (review #2: DuckDB's real binder, closed-world,
+        # never executes) + execute; on a bind/execution failure, feed the exact
+        # error back to the planner and retry a bounded number of times before
+        # abstaining — self-heals bad SQL instead of giving up on the first try.
+        current = plan
+        problem = ""
+        for attempt in range(_MAX_REFINEMENTS + 1):
+            assert current.sql is not None
+            problems = repo.store.validation_problems(current.sql)
+            if not problems:
+                try:
+                    result = run_select(repo.store, current.sql)
+                except Exception as exc:  # noqa: BLE001 - surface as a refinable error
+                    problems = [f"execution error: {exc}"]
+                else:
+                    # Trust trail shows friendly dataset ids, not the q_ aliases.
+                    display = dataclasses.replace(
+                        current, sql=_friendly_sql(current.sql, repo)
+                    )
+                    return _shape_answer(display, result)
+            problem = " ".join(problems)
+            if attempt >= _MAX_REFINEMENTS:
+                break
+            current = self.planner.refine(
+                question, tables, current.sql, problem, self._relationships(repo)
             )
-        try:
-            result = run_select(repo.store, plan.sql)
-        except Exception as exc:
-            return _abstain_answer(f"The query could not be executed: {exc}")
-        # The trust trail shows the query in friendly dataset ids, not the
-        # internal q_ SQL aliases (the executed SQL above used the aliases).
-        display = dataclasses.replace(plan, sql=_friendly_sql(plan.sql, repo))
-        return _shape_answer(display, result)
+            if current.action is not PlanAction.ANSWER or current.sql is None:
+                break  # the model abstained/clarified on retry — stop
+        return _abstain_answer(
+            "The generated SQL failed validation and was not executed "
+            f"(after {_MAX_REFINEMENTS} refinement attempt(s)): {problem}"
+        )
 
 
 def build_qa_service(repo: DatasetRepository) -> QAService:

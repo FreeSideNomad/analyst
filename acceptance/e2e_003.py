@@ -96,7 +96,15 @@ def _merged_cassette(tmp_dir: Path) -> Path:
             return INVALID_PLAN_RESPONSE
 
     capture = _Capture()
-    QueryPlanner(LLMGateway(capture)).plan(QUESTION_INVALID, tables)
+    planner = QueryPlanner(LLMGateway(capture))
+    planner.plan(QUESTION_INVALID, tables)
+    records[capture.request.key()] = INVALID_PLAN_RESPONSE
+    # The refinement loop re-plans on the failed SQL; inject the (deterministic)
+    # refine-prompt key so the retry also returns the invalid plan and the
+    # service abstains after exhausting its attempts — the AC-5 contract.
+    invalid_sql = json.loads(INVALID_PLAN_RESPONSE)["sql"]
+    error = " ".join(store.validation_problems(invalid_sql))
+    planner.refine(QUESTION_INVALID, tables, invalid_sql, error, ())
     records[capture.request.key()] = INVALID_PLAN_RESPONSE
 
     path = tmp_dir / "planner_e2e.json"

@@ -32,13 +32,15 @@ needs_cassette = pytest.mark.skipif(
 
 
 class ScriptBackend:
-    """Returns scripted responses in order — for governance-path tests."""
+    """Returns scripted responses in order, repeating the last once exhausted so
+    the refinement loop (which re-calls the planner on bad SQL) keeps getting the
+    same canned response — for governance-path tests."""
 
     def __init__(self, *responses: str):
         self.responses = list(responses)
 
     def complete(self, request):  # noqa: ANN001, ANN201
-        return self.responses.pop(0)
+        return self.responses.pop(0) if len(self.responses) > 1 else self.responses[0]
 
 
 class ExplodingBackend:
@@ -255,3 +257,63 @@ def test_canned_service_keeps_the_feature_002_contract():
     assert answer.trust_trail is not None
     abstain = canned.submit("What will the weather be tomorrow?", repo)
     assert abstain.type == "answer" and abstain.abstain is True
+
+
+def test_refinement_loop_self_heals_bad_sql(tmp_path):
+    """Feature: on a bad-SQL failure the planner retries with the error fed back.
+    First response references an unknown column (fails bind-validation); the
+    refined response is valid → the service answers instead of abstaining."""
+    from analyst.agentic.gateway import LLMGateway
+    from analyst.agentic.planner import QueryPlanner
+    from analyst.api.qa import PlannerQAService
+    from analyst.api.repository import StoreRepository
+
+    repo = StoreRepository(str(tmp_path / "data"))
+    repo.ingest("orders.csv", b"region,amount\nNorth,10\nSouth,20\n")
+
+    def plan(sql):
+        return (
+            '{"action":"answer","confidence":0.9,"sql":"' + sql + '",'
+            '"title":"Total","assumptions":[],"lineage":["orders"],'
+            '"clarification":null,"reason":null}'
+        )
+
+    class Seq:
+        def __init__(self, responses):
+            self.responses, self.i = list(responses), 0
+
+        def complete(self, request):
+            r = self.responses[min(self.i, len(self.responses) - 1)]
+            self.i += 1
+            return r
+
+    seq = Seq(
+        [
+            plan("SELECT SUM(profit) FROM q_orders_csv"),  # bad: unknown column
+            plan("SELECT SUM(amount) AS total FROM q_orders_csv"),  # refined: valid
+        ]
+    )
+    qa = PlannerQAService(QueryPlanner(LLMGateway(seq)))
+    res = qa.submit("total amount?", repo)
+    assert not res.abstain, res.summary
+    assert res.trust_trail and "amount" in res.trust_trail.sql.lower()
+    assert seq.i == 2  # exactly one refinement happened
+
+
+def test_refinement_gives_up_and_abstains_after_the_bound(tmp_path):
+    """If every retry still fails, the service abstains (never executes bad SQL)."""
+    from analyst.agentic.gateway import LLMGateway, StubBackend
+    from analyst.agentic.planner import QueryPlanner
+    from analyst.api.qa import PlannerQAService
+    from analyst.api.repository import StoreRepository
+
+    repo = StoreRepository(str(tmp_path / "data"))
+    repo.ingest("orders.csv", b"region,amount\nNorth,10\n")
+    bad = (
+        '{"action":"answer","confidence":0.9,'
+        '"sql":"SELECT SUM(profit) FROM q_orders_csv","title":"t",'
+        '"assumptions":[],"lineage":["x"],"clarification":null,"reason":null}'
+    )
+    qa = PlannerQAService(QueryPlanner(LLMGateway(StubBackend(bad))))
+    res = qa.submit("profit?", repo)
+    assert res.abstain and "validation" in res.summary.lower()
