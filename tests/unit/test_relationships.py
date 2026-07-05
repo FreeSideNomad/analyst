@@ -238,3 +238,31 @@ def test_base_name_does_not_misclassify_ordinary_words():
     assert _base_name("CustomerID") == "customer"
     for word in ("paid", "valid", "void", "android", "ANDROID", "id"):
         assert _base_name(word) is None, word
+
+
+def test_declared_composite_fk_is_surfaced(tmp_path):
+    """Composite (multi-column) declared FKs are surfaced as one relationship
+    carrying all (child, parent) column pairs."""
+    con = _con()
+    _table(con, "parent", "a INTEGER, b INTEGER, name TEXT", [(1, 1, "x"), (1, 2, "y")])
+    _table(con, "child", "id INTEGER, pa INTEGER, pb INTEGER", [(10, 1, 1), (11, 1, 2)])
+    keys = TableKeys(
+        table="child",
+        primary_key=("id",),
+        foreign_keys=(ForeignKey(("pa", "pb"), "parent", ("a", "b")),),
+    )
+    rels = discover(con, [_dt(con, "child", keys), _dt(con, "parent")])
+    comp = [r for r in rels if r.child_table == "child" and r.parent_table == "parent"]
+    assert comp, rels
+    r = comp[0]
+    assert r.is_composite
+    assert r.column_pairs == (("pa", "a"), ("pb", "b"))
+    assert r.origin == DECLARED and r.join_type == REQUIRED  # no nulls
+
+
+def test_single_column_relationship_is_not_composite():
+    from analyst.domain.relationships import INFERRED, REQUIRED, Relationship
+
+    r = Relationship("orders", "customer_id", "customers", "id", INFERRED, REQUIRED)
+    assert not r.is_composite
+    assert r.column_pairs == (("customer_id", "id"),)

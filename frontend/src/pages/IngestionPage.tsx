@@ -304,6 +304,10 @@ function RelBadges({ r }: { r: Relationship }) {
   );
 }
 
+// Composite keys show all their columns (e.g. "pa, pb"); single-column is unchanged.
+const childCols = (r: Relationship) => [r.childColumn, ...(r.extraColumns ?? []).map((p) => p[0])].join(', ');
+const parentCols = (r: Relationship) => [r.parentColumn, ...(r.extraColumns ?? []).map((p) => p[1])].join(', ');
+
 function RelationshipsBlock({ table, rels }: { table: string; rels: Relationship[] }) {
   const outgoing = rels.filter((r) => r.childTable === table);
   const incoming = rels.filter((r) => r.parentTable === table && r.childTable !== table);
@@ -316,9 +320,9 @@ function RelationshipsBlock({ table, rels }: { table: string; rels: Relationship
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         {outgoing.map((r, i) => (
           <div key={`out-${i}`} aria-label={`Relationship ${r.childColumn} references ${r.parentTable}`} style={row}>
-            <span className="mono" style={monoRef}>{r.childColumn}</span>
+            <span className="mono" style={monoRef}>{childCols(r)}</span>
             <Icon as={ChevronRight} size={13} color="var(--text-muted)" />
-            <span className="mono" style={monoRef}>{r.parentTable}.{r.parentColumn}</span>
+            <span className="mono" style={monoRef}>{r.parentTable}.{parentCols(r)}</span>
             <span style={{ flex: 1 }} />
             <RelBadges r={r} />
           </div>
@@ -326,7 +330,7 @@ function RelationshipsBlock({ table, rels }: { table: string; rels: Relationship
         {incoming.map((r, i) => (
           <div key={`in-${i}`} aria-label={`Referenced by ${r.childTable}`} style={row}>
             <span style={{ font: '500 12px/1 var(--font-sans)', color: 'var(--text-muted)' }}>Referenced by</span>
-            <span className="mono" style={monoRef}>{r.childTable}.{r.childColumn}</span>
+            <span className="mono" style={monoRef}>{r.childTable}.{childCols(r)}</span>
             <span style={{ flex: 1 }} />
             <RelBadges r={r} />
           </div>

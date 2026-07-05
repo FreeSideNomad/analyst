@@ -270,3 +270,63 @@ def test_files_x_db_nl_question_answers_live(tmp_path):
     )
     assert not res.abstain, res.summary
     assert res.trust_trail and "artist_budget.csv" in res.trust_trail.sql
+
+
+def _composite_db(tmp_path):
+    import sqlite3
+
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    db = tmp_path / "crm.sqlite"
+    con = sqlite3.connect(db)
+    con.executescript(
+        "CREATE TABLE region (country TEXT, area TEXT, manager TEXT, "
+        "  PRIMARY KEY(country,area));"
+        "CREATE TABLE sale (id INTEGER PRIMARY KEY, country TEXT, area TEXT, "
+        "  amount INTEGER, FOREIGN KEY(country,area) REFERENCES region(country,area));"
+        "INSERT INTO region VALUES ('US','East','Alice'),('US','West','Bob');"
+        "INSERT INTO sale VALUES (1,'US','East',100),(2,'US','West',50);"
+    )
+    con.commit()
+    con.close()
+    return db
+
+
+def test_connected_composite_fk_surfaces_as_a_relationship(tmp_path):
+    """A connected DB's composite declared FK becomes one relationship carrying
+    both column pairs, ready for the planner's ON clause."""
+    from analyst.api.repository import StoreRepository
+    from analyst.api.routes.databases import DatabaseManager, _declared_relationships
+
+    db = _composite_db(tmp_path / "db")
+    repo = StoreRepository(str(tmp_path / "data"))
+    mgr = DatabaseManager(repo=repo)
+    tables = mgr.service.connect(
+        ConnectionSpec(name="crm", engine=DatabaseEngine.SQLITE, path=str(db))
+    )
+    rels = _declared_relationships(tables)
+    sale = next(r for r in rels if r.child_table == "sale")
+    assert sale.is_composite
+    assert sale.column_pairs == (("country", "country"), ("area", "area"))
+
+
+@pytest.mark.live
+def test_composite_key_join_answers_live(tmp_path):
+    """Real flow (`-m live`): an NL question needing a composite-key join plans a
+    multi-column ON clause and answers."""
+    from analyst.agentic.claude_backend import ClaudeAgentBackend
+    from analyst.agentic.gateway import LLMGateway
+    from analyst.agentic.planner import QueryPlanner
+    from analyst.api.qa import PlannerQAService
+    from analyst.api.repository import StoreRepository
+    from analyst.api.routes.databases import DatabaseManager
+
+    db = _composite_db(tmp_path / "db")
+    repo = StoreRepository(str(tmp_path / "data"))
+    DatabaseManager(repo=repo).connect(
+        ConnectionSpec(name="crm", engine=DatabaseEngine.SQLITE, path=str(db))
+    )
+    qa = PlannerQAService(QueryPlanner(LLMGateway(ClaudeAgentBackend())))
+    res = qa.submit("Total sale amount per region manager.", repo)
+    assert not res.abstain, res.summary
+    sql = res.trust_trail.sql.lower()
+    assert "country" in sql and "area" in sql and " and " in sql  # multi-col join

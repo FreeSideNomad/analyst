@@ -8,7 +8,8 @@ an LLM and no bulk rows leave DuckDB — only aggregate/set queries (AC-15).
 Two sources of relationships:
 
 - **Declared** — lifted from the source's own catalog (`TableKeys`), restricted
-  to single-column foreign keys (AC-1). Coverage is 1.0 by definition.
+  the source's own catalog (`TableKeys`); single- OR multi-column
+  (composite) keys. Coverage is 1.0 by definition.
 - **Inferred** — single-column candidates proposed by a name heuristic
   (``orders.customer_id`` → ``customers.id`` / ``customer.customer_id``),
   constrained to a compatible type, then **validated by referential integrity**:
@@ -188,10 +189,15 @@ def _declared(tables: list[DiscoverTable]) -> list[Relationship]:
         if not table.keys:
             continue
         for fk in table.keys.foreign_keys:
-            if len(fk.columns) != 1 or len(fk.referenced_columns) != 1:
-                continue  # single-column only (AC-2 scope)
+            if not fk.columns or len(fk.columns) != len(fk.referenced_columns):
+                continue
             child_col = fk.columns[0]
-            join_type = OPTIONAL if _null_count(table, child_col) > 0 else REQUIRED
+            # optional if ANY child key column is nullable (a null → no match)
+            join_type = (
+                OPTIONAL
+                if any(_null_count(table, c) > 0 for c in fk.columns)
+                else REQUIRED
+            )
             parent = by_name.get(fk.referenced_table.lower())
             parent_name = parent.name if parent else fk.referenced_table
             out.append(
@@ -203,6 +209,7 @@ def _declared(tables: list[DiscoverTable]) -> list[Relationship]:
                     origin=DECLARED,
                     join_type=join_type,
                     coverage=1.0,
+                    extra_columns=tuple(zip(fk.columns[1:], fk.referenced_columns[1:])),
                 )
             )
     return out
