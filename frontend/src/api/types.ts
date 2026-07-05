@@ -95,6 +95,7 @@ export interface IngestionStatus {
 export interface ChartPoint { label: string; value: number; }
 export interface TrustTrail { assumptions: string[]; lineage: string[]; sql: string; }
 export interface StatBlock { value: string; label: string; sub: string; }
+export interface TableBlock { columns: string[]; rows: unknown[][]; truncated: boolean; }
 
 export interface ClarificationResult {
   type: 'clarification';
@@ -116,6 +117,7 @@ export interface AnswerResult {
   tickStep?: number;
   chartData?: ChartPoint[];
   stat?: StatBlock;
+  table?: TableBlock;
   trustTrail?: TrustTrail;
 }
 

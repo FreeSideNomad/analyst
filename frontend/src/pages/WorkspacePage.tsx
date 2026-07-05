@@ -2,8 +2,9 @@
 import { useState, useEffect, useRef } from 'react';
 import {
   ChevronRight, ChevronDown, Search, Check, Send, Sparkles, Info,
+  Download, ChevronLeft,
 } from 'lucide-react';
-import type { AnswerResult, ChatMessage, ClarificationResult, TrustTrail as TrustTrailT } from '../api/types';
+import type { AnswerResult, ChatMessage, ClarificationResult, TableBlock, TrustTrail as TrustTrailT } from '../api/types';
 import { useQuery } from '../stores';
 import { money } from '../lib/format';
 import { Icon, Card, Button, Tag, SegmentedControl } from '../components/ui';
@@ -127,8 +128,81 @@ function AskQuestion({ msg }: { msg: Extract<ChatMessage, { type: 'clarification
   );
 }
 
+const PAGE_SIZE = 10;
+
+function toCsv(t: TableBlock): string {
+  const esc = (v: unknown) => {
+    const s = v === null || v === undefined ? '' : String(v);
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  return [t.columns.map(esc).join(','), ...t.rows.map((row) => row.map(esc).join(','))].join('\n');
+}
+
+function ResultTableView({ table, title }: { table: TableBlock; title: string }) {
+  const [page, setPage] = useState(0);
+  const pages = Math.max(1, Math.ceil(table.rows.length / PAGE_SIZE));
+  const rows = table.rows.slice(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE);
+  const download = () => {
+    const blob = new Blob([toCsv(table)], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = `${title.replace(/\W+/g, '_') || 'result'}.csv`;
+    a.click(); URL.revokeObjectURL(url);
+  };
+  return (
+    <div style={{ marginTop: 14 }}>
+      <div style={{ overflowX: 'auto', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)' }}>
+        <table style={{ borderCollapse: 'collapse', width: '100%', font: '400 12.5px/1.4 var(--font-mono)' }}>
+          <thead>
+            <tr>
+              {table.columns.map((c) => (
+                <th key={c} style={{ textAlign: 'left', padding: '8px 12px', borderBottom: '1px solid var(--border-default)', background: 'var(--neutral-50)', font: '600 11.5px/1 var(--font-sans)', letterSpacing: '.04em', textTransform: 'uppercase', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{c}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row, i) => (
+              <tr key={i}>
+                {row.map((v, j) => (
+                  <td key={j} style={{ padding: '7px 12px', borderBottom: '1px solid var(--border-subtle)', color: 'var(--text-body)', whiteSpace: 'nowrap' }}>{v === null || v === undefined ? '∅' : String(v)}</td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 10 }}>
+        <span style={{ font: '400 12px/1 var(--font-sans)', color: 'var(--text-muted)', flex: 1 }}>
+          {table.rows.length} row{table.rows.length === 1 ? '' : 's'}{table.truncated ? ' (capped)' : ''} · {table.columns.length} cols
+        </span>
+        {pages > 1 && (
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <button aria-label="Previous page" disabled={page === 0} onClick={() => setPage((p) => Math.max(0, p - 1))}
+              style={{ display: 'inline-flex', border: '1px solid var(--border-default)', background: 'transparent', borderRadius: 'var(--radius-sm)', padding: 3, cursor: page === 0 ? 'default' : 'pointer', opacity: page === 0 ? 0.4 : 1 }}><Icon as={ChevronLeft} size={14} /></button>
+            <span className="mono" style={{ font: '500 12px/1 var(--font-mono)', color: 'var(--text-muted)' }}>{page + 1}/{pages}</span>
+            <button aria-label="Next page" disabled={page + 1 >= pages} onClick={() => setPage((p) => Math.min(pages - 1, p + 1))}
+              style={{ display: 'inline-flex', border: '1px solid var(--border-default)', background: 'transparent', borderRadius: 'var(--radius-sm)', padding: 3, cursor: page + 1 >= pages ? 'default' : 'pointer', opacity: page + 1 >= pages ? 0.4 : 1 }}><Icon as={ChevronRight} size={14} /></button>
+          </span>
+        )}
+        <button aria-label="Download CSV" onClick={download}
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, border: '1px solid var(--border-default)', background: 'transparent', borderRadius: 'var(--radius-md)', padding: '5px 10px', cursor: 'pointer', font: '600 12px/1 var(--font-sans)', color: 'var(--text-body)' }}>
+          <Icon as={Download} size={13} /> CSV
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function ResultMessage({ msg, isLast }: { msg: Extract<ChatMessage, { type: 'result' }>; isLast: boolean }) {
   const r = msg.result;
+  const table = r.table;
+  const dataPoints = table ? table.rows.length * table.columns.length : 0;
+  const hasInterpreted = r.chartType === 'bar' || r.chartType === 'stat';
+  // Table view is the default when the result is more than ~10 data points.
+  const [view, setView] = useState<'view' | 'table'>(
+    table && (dataPoints > 10 || !hasInterpreted) ? 'table' : 'view',
+  );
+  const showToggle = !!table && hasInterpreted;
   return (
     <div style={{ display: 'flex', gap: 12, maxWidth: 680 }} className="ana-in">
       <div style={{ width: 30, height: 30, flex: 'none', borderRadius: '50%', background: r.abstain ? 'var(--amber-100)' : 'var(--brand)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -136,14 +210,21 @@ function ResultMessage({ msg, isLast }: { msg: Extract<ChatMessage, { type: 'res
       </div>
       <Card style={{ padding: 18, flex: 1 }}>
         <p style={{ margin: 0, font: '400 14.5px/1.55 var(--font-sans)', color: 'var(--text-body)', textWrap: 'pretty' }}>{r.summary}</p>
-        {r.chartType === 'bar' && <div style={{ marginTop: 16 }}><BarChart result={r} /></div>}
-        {r.chartType === 'stat' && r.stat && (
+        {showToggle && (
+          <div style={{ marginTop: 14 }}>
+            <SegmentedControl size="sm" value={view} onChange={(v) => setView(v as 'view' | 'table')}
+              options={[{ value: 'view', label: r.chartType === 'stat' ? 'Stat' : 'Chart' }, { value: 'table', label: 'Table' }]} />
+          </div>
+        )}
+        {view === 'view' && r.chartType === 'bar' && <div style={{ marginTop: 16 }}><BarChart result={r} /></div>}
+        {view === 'view' && r.chartType === 'stat' && r.stat && (
           <div style={{ marginTop: 16, padding: '18px 20px', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-lg)', background: 'var(--neutral-50)' }}>
             <div style={{ font: '500 12px/1 var(--font-sans)', letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: 8 }}>{r.stat.label}</div>
             <div className="mono" style={{ font: '700 40px/1 var(--font-mono)', color: 'var(--brand)', letterSpacing: '-.02em' }}>{r.stat.value}</div>
             <div className="mono" style={{ font: '400 12.5px/1 var(--font-mono)', color: 'var(--text-muted)', marginTop: 8 }}>{r.stat.sub}</div>
           </div>
         )}
+        {view === 'table' && table && <ResultTableView table={table} title={r.chartTitle || 'result'} />}
         {r.trustTrail && <TrustTrail trail={r.trustTrail} defaultOpen={isLast} />}
       </Card>
     </div>

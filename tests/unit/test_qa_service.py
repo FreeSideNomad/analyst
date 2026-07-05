@@ -317,3 +317,40 @@ def test_refinement_gives_up_and_abstains_after_the_bound(tmp_path):
     qa = PlannerQAService(QueryPlanner(LLMGateway(StubBackend(bad))))
     res = qa.submit("profit?", repo)
     assert res.abstain and "validation" in res.summary.lower()
+
+
+def test_multi_row_answer_carries_a_result_table(tmp_path):
+    """Result-table view: a multi-row/col answer includes the full (capped)
+    table for the browser to paginate/export; a scalar stat does not."""
+    response = json.dumps(
+        {
+            "action": "answer",
+            "confidence": 0.9,
+            "sql": "SELECT billing_region, SUM(amount) t FROM q_qa_orders_csv "
+            "GROUP BY billing_region ORDER BY t DESC",
+            "title": "By region",
+            "assumptions": [],
+            "lineage": ["qa_orders"],
+        }
+    )
+    client = _real_client(tmp_path, ScriptBackend(response))
+    _ingest_orders(client)
+    answer = client.post("/api/query", json={"question": "by region?"}).json()
+    assert answer["table"] is not None
+    assert answer["table"]["columns"] == ["billing_region", "t"]
+    assert len(answer["table"]["rows"]) >= 2
+    # a scalar answer has no table
+    scalar = json.dumps(
+        {
+            "action": "answer",
+            "confidence": 0.9,
+            "sql": "SELECT SUM(amount) FROM q_qa_orders_csv",
+            "title": "Total",
+            "assumptions": [],
+            "lineage": ["qa_orders"],
+        }
+    )
+    client2 = _real_client(tmp_path, ScriptBackend(scalar))
+    _ingest_orders(client2)
+    a2 = client2.post("/api/query", json={"question": "total?"}).json()
+    assert a2["table"] is None and a2["stat"] is not None

@@ -28,6 +28,7 @@ from analyst.api.schemas import (
     ClarificationResult,
     QueryResult,
     StatBlock,
+    TableBlock,
     TrustTrailSchema,
 )
 from analyst.domain.catalog import Clarification
@@ -110,9 +111,26 @@ def _is_number(value: object) -> bool:
     return isinstance(value, (int, float)) and not isinstance(value, bool)
 
 
+def _jsonable(value: object) -> object:
+    """Basic JSON types pass through; dates/decimals/etc. become strings so the
+    result table serializes cleanly to the browser."""
+    if value is None or isinstance(value, (bool, int, float, str)):
+        return value
+    return str(value)
+
+
+def _table_block(result: ResultTable) -> TableBlock:
+    return TableBlock(
+        columns=list(result.columns),
+        rows=[[_jsonable(v) for v in row] for row in result.rows],
+        truncated=result.truncated,
+    )
+
+
 def _shape_answer(plan: QueryPlan, result: ResultTable) -> AnswerResult:
     """Deterministically shape the locally computed result (no second model
-    call — no result rows need to cross to the model at all)."""
+    call — no result rows need to cross to the model at all). Multi-cell results
+    also carry the full table for the browser's paginated table view / export."""
     assert plan.sql is not None
     trail = TrustTrailSchema(
         assumptions=list(plan.assumptions),
@@ -128,6 +146,13 @@ def _shape_answer(plan: QueryPlan, result: ResultTable) -> AnswerResult:
             chart_type="none",
             trust_trail=trail,
         )
+
+    # A scalar (1x1) is a stat; anything larger also gets the table view.
+    table = (
+        None
+        if len(result.rows) == 1 and len(result.columns) == 1
+        else _table_block(result)
+    )
 
     if len(result.rows) == 1 and len(result.columns) == 1:
         value = _format_value(result.rows[0][0])
@@ -162,6 +187,7 @@ def _shape_answer(plan: QueryPlan, result: ResultTable) -> AnswerResult:
             nice_max=nice_max,
             tick_step=nice_max / 4,
             chart_data=points,
+            table=table,
             trust_trail=trail,
         )
 
@@ -174,6 +200,7 @@ def _shape_answer(plan: QueryPlan, result: ResultTable) -> AnswerResult:
         query_id=_query_id(),
         summary=f"{title}: {len(result.rows)} row(s){more}. First rows: {preview}.",
         chart_type="none",
+        table=table,
         trust_trail=trail,
     )
 
@@ -389,6 +416,15 @@ def _revenue_answer(choice_label: str) -> AnswerResult:
             ChartPoint(label="South", value=2_945_600),
             ChartPoint(label="West", value=1_673_900),
         ],
+        table=TableBlock(
+            columns=["region", "revenue"],
+            rows=[
+                ["East", 4_218_340],
+                ["North", 3_812_150],
+                ["South", 2_945_600],
+                ["West", 1_673_900],
+            ],
+        ),
         trust_trail=TrustTrailSchema(
             assumptions=[
                 "Revenue is calculated as quantity × unit_price.",
