@@ -53,7 +53,7 @@ env $API_ENV uv run uvicorn analyst.api.app:app \
     --port "$API_PORT" --log-level info >>"$LOGDIR/api.log" 2>&1 &
 API_PID=$!
 
-(cd "$ROOT/frontend" && ANALYST_API="http://localhost:$API_PORT" \
+(cd "$ROOT/frontend" && ANALYST_API="http://127.0.0.1:$API_PORT" \
     bun run dev -- --port "$WEB_PORT" --strictPort >>"$LOGDIR/web.log" 2>&1) &
 WEB_PID=$!
 
