@@ -77,6 +77,9 @@ class DatasetStore:
         self._lock = threading.RLock()  # M4: serialize the DuckDB connection
         self._con = duckdb.connect(str(self.base_dir / "catalog.duckdb"))
         self._reader = CsvReader()
+        # Feature 007: names of views backing connected-database tables. They are
+        # queryable (planner SQL runs against them) but are NOT local datasets.
+        self._fed_views: set[str] = set()
 
     @_synchronized
     def materialize_delimited(
@@ -156,7 +159,52 @@ class DatasetStore:
             "WHERE table_schema = 'main' AND table_catalog = current_database() "
             "ORDER BY table_name"
         ).fetchall()
-        return [str(r[0]) for r in rows if not str(r[0]).startswith(("fed_", "__"))]
+        return [
+            str(r[0])
+            for r in rows
+            if not str(r[0]).startswith(("fed_", "__"))
+            and str(r[0]) not in self._fed_views
+        ]
+
+    @_synchronized
+    def attach_database(
+        self, connection: str, spec: object, tables: tuple[str, ...]
+    ) -> None:
+        """Feature 007: ATTACH a connected database (scanner engine) into this
+        connection and register each table as a view named ``<connection>.<table>``
+        — the dataset id the planner uses — so planner SQL executes against it
+        with scanner push-down. Read-only; bulk data stays at the source."""
+        from analyst.domain.connection import DatabaseEngine
+        from analyst.engine.federation import build_attach_sql, source_schema
+
+        alias = f"__fed_{connection}"
+        for ext in ("sqlite", "postgres"):
+            try:
+                self._con.execute(f"INSTALL {ext}; LOAD {ext};")
+            except duckdb.Error:
+                pass  # already present, or offline — ATTACH surfaces a clean error
+        self._con.execute(build_attach_sql(spec, alias))  # type: ignore[arg-type]
+        schema = source_schema(spec.engine)  # type: ignore[attr-defined]
+        _ = DatabaseEngine  # (imported for callers/type context)
+        for table in tables:
+            view = f"{connection}.{table}"
+            self._con.execute(
+                f"CREATE OR REPLACE VIEW {_quote_ident(view)} AS SELECT * FROM "
+                f"{_quote_ident(alias)}.{_quote_ident(schema)}.{_quote_ident(table)}"
+            )
+            self._fed_views.add(view)
+
+    @_synchronized
+    def detach_database(self, connection: str) -> None:
+        """Drop a connected database's views and DETACH it."""
+        alias = f"__fed_{connection}"
+        for view in [v for v in self._fed_views if v.startswith(f"{connection}.")]:
+            self._con.execute(f"DROP VIEW IF EXISTS {_quote_ident(view)}")
+            self._fed_views.discard(view)
+        try:
+            self._con.execute(f"DETACH {_quote_ident(alias)}")
+        except duckdb.Error:
+            pass
 
     @_synchronized
     def _register_parquet(self, dataset: str, select_sql: str) -> None:

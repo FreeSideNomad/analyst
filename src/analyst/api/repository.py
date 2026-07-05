@@ -29,9 +29,11 @@ class DatasetRecord:
     status: IngestionStatus = IngestionStatus.COMPLETE
     ingested_at: str | None = None
     started_at: float | None = None  # monotonic; drives simulated progress
-    # Federated (connected-DB) tables are catalogued + visible, but NOT locally
-    # queryable yet — excluded from Q&A until features 007/008 land.
+    # Federated (connected-DB) tables are catalogued + visible.
     federated: bool = False
+    # Feature 007 — a federated table whose data is ATTACHed into the store's
+    # connection (scanner engine), so within-DB Q&A can run SQL against it.
+    db_queryable: bool = False
     # Feature 009 — async cataloguing lifecycle for connected-DB tables:
     # "complete" | "pending" (background cataloguing) | "failed" (contained).
     catalog_status: str = "complete"

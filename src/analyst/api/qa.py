@@ -20,7 +20,7 @@ from typing import Protocol
 
 from analyst.agentic.gateway import LLMGateway, ReplayBackend
 from analyst.agentic.planner import QueryPlanner
-from analyst.api.repository import DatasetRepository, StoreRepository
+from analyst.api.repository import DatasetRecord, DatasetRepository, StoreRepository
 from analyst.api.schemas import (
     AnswerResult,
     ChartPoint,
@@ -169,14 +169,28 @@ class PlannerQAService:
         self._pending: dict[str, tuple[str, Clarification]] = {}
 
     def _tables(self, repo: DatasetRepository) -> tuple[QueryTable, ...]:
-        # Only locally-queryable datasets go to the planner. Federated
-        # (connected-DB) tables are catalogued but not yet queryable (007/008),
-        # so excluding them prevents the planner from writing un-runnable SQL.
+        # Local file datasets, plus connected-DB tables that are ATTACHed and
+        # therefore runnable (feature 007). Bridge-only federated tables stay
+        # excluded so the planner never writes un-runnable SQL.
+        def queryable(r: DatasetRecord) -> bool:
+            return not getattr(r, "federated", False) or getattr(
+                r, "db_queryable", False
+            )
+
         records = sorted(
-            (r for r in repo.list_datasets() if not getattr(r, "federated", False)),
+            (r for r in repo.list_datasets() if queryable(r)),
             key=lambda r: r.name,
         )
         return tuple(query_table_from_summary(r.summary) for r in records)
+
+    def _relationships(self, repo: DatasetRepository) -> tuple:
+        """Discovered relationships (feature 009) across the queryable tables, so
+        the planner joins on the right keys with the right join type (007)."""
+        out: list = []
+        for r in repo.list_datasets():
+            catalog = getattr(r.summary, "catalog", None)
+            out.extend(getattr(catalog, "relationships", ()) or ())
+        return tuple(out)
 
     def submit(self, question: str, repo: DatasetRepository) -> QueryResult:
         tables = self._tables(repo)
@@ -184,7 +198,7 @@ class PlannerQAService:
             return _abstain_answer(
                 "No datasets are loaded yet — ingest a file first, then ask again."
             )
-        plan = self.planner.plan(question, tables)
+        plan = self.planner.plan(question, tables, self._relationships(repo))
         return self._realize(plan, question, tables, repo)
 
     def respond(
@@ -196,7 +210,9 @@ class PlannerQAService:
         question, clarification = pending
         tables = self._tables(repo)
         choice = selected_options[0] if selected_options else ""
-        plan = self.planner.replan(question, tables, clarification, choice)
+        plan = self.planner.replan(
+            question, tables, clarification, choice, self._relationships(repo)
+        )
         realized = self._realize(plan, question, tables, repo)
         if isinstance(realized, ClarificationResult):
             # The wire contract: respond always yields an answer.

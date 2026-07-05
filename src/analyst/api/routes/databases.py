@@ -54,6 +54,11 @@ from analyst.engine.federation import (
 # A cataloguing strategy: (table, workspace relationships) -> CatalogEntry.
 CatalogFn = Callable[[FederatedTable, tuple[Relationship, ...]], CatalogEntry]
 
+# Feature 007: engines with a DuckDB scanner whose tables can be ATTACHed into
+# the store's connection for within-DB Q&A (push-down). Bridge-only engines
+# (SQL Server / DB2) are visible + catalogued but not yet queryable.
+_QUERYABLE_ENGINES = frozenset({DatabaseEngine.SQLITE, DatabaseEngine.POSTGRES})
+
 router = APIRouter(prefix="/api")
 
 
@@ -221,11 +226,31 @@ class DatabaseManager:
             for table in tables
         ]
         self.repo.add_records(records)
+        # Feature 007: for a scanner engine (sqlite/postgres) on the real store,
+        # register the tables as views in the store's connection so within-DB
+        # Q&A can execute planner SQL against them (push-down, read-only).
+        self._attach_for_query(spec, tables, records)
         # 2) Background cataloguing (bounded concurrency), contained per table.
         pool = self._ensure_pool()
         for table in tables:
             pool.submit(self._catalogue_one, spec.name, table, relationships)
         return self._schema(spec)
+
+    def _attach_for_query(
+        self,
+        spec: ConnectionSpec,
+        tables: tuple[FederatedTable, ...],
+        records: list[DatasetRecord],
+    ) -> None:
+        store = getattr(self.repo, "store", None)
+        if store is None or spec.engine not in _QUERYABLE_ENGINES:
+            return
+        try:
+            store.attach_database(spec.name, spec, tuple(t.name for t in tables))
+        except Exception:  # noqa: BLE001 - within-DB Q&A stays off if attach fails
+            return
+        for record in records:
+            record.db_queryable = True
 
     def _ensure_pool(self) -> ThreadPoolExecutor:
         if self._pool is None:
@@ -264,6 +289,9 @@ class DatabaseManager:
     def detach(self, name: str) -> None:
         tables = self.service.tables(name)  # raises UnknownConnectionError
         self.service.detach(name)
+        store = getattr(self.repo, "store", None)
+        if store is not None:
+            store.detach_database(name)
         self.repo.remove_records([f"{name}.{t.name}" for t in tables])
 
     def close(self) -> None:
