@@ -21,6 +21,10 @@ def _spec() -> ConnectionSpec:
     )
 
 
+def _spec_named(name: str) -> ConnectionSpec:
+    return ConnectionSpec(name=name, engine=DatabaseEngine.SQLITE, path=str(CHINOOK))
+
+
 def test_connected_table_is_queryable_via_run_select(tmp_path):
     store = DatasetStore(base_dir=tmp_path)
     store.attach_database("sales_db", _spec(), ("Album", "Artist"))
@@ -218,3 +222,51 @@ def test_bind_validation_accepts_valid_sql_and_rejects_unknowns(tmp_path):
     assert repo.store.validation_problems(f"SELECT profit FROM {alias}")  # unknown col
     assert repo.store.validation_problems("SELECT * FROM nope")  # unknown table
     assert repo.store.validation_problems(f"DELETE FROM {alias}")  # not a SELECT
+
+
+def test_files_x_db_join_executes_in_one_connection(tmp_path):
+    """Feature 008: a file and a connected DB are both relations in the store's
+    connection, so the planner can join them and DuckDB executes it in-memory."""
+    from analyst.api.qa import PlannerQAService
+    from analyst.api.repository import StoreRepository
+    from analyst.api.routes.databases import DatabaseManager
+
+    repo = StoreRepository(str(tmp_path / "data"))
+    repo.ingest("artist_budget.csv", b"ArtistId,budget\n1,5000\n2,3000\n")
+    DatabaseManager(repo=repo).connect(_spec_named("music"))
+
+    names = {t.name for t in PlannerQAService(planner=None)._tables(repo)}  # type: ignore[arg-type]
+    assert "q_artist_budget_csv" in names and "q_music_Artist" in names  # both offered
+
+    fa = repo.store.alias_for("artist_budget.csv")
+    da = repo.store.alias_for("music.Artist")
+    res = run_select(
+        repo.store,
+        f"SELECT b.budget, a.Name FROM {fa} b JOIN {da} a ON b.ArtistId = a.ArtistId "
+        "ORDER BY b.ArtistId",
+    )
+    assert len(res.rows) == 2 and res.rows[0][1] == "AC/DC"
+
+
+@pytest.mark.live
+def test_files_x_db_nl_question_answers_live(tmp_path):
+    """Feature 008 (real flow, `-m live`): an NL question joining a file with a
+    connected DB plans a cross-source join and answers."""
+    from analyst.agentic.claude_backend import ClaudeAgentBackend
+    from analyst.agentic.gateway import LLMGateway
+    from analyst.agentic.planner import QueryPlanner
+    from analyst.api.qa import PlannerQAService
+    from analyst.api.repository import StoreRepository
+    from analyst.api.routes.databases import DatabaseManager
+
+    repo = StoreRepository(str(tmp_path / "data"))
+    repo.ingest("artist_budget.csv", b"ArtistId,budget\n1,5000\n2,3000\n3,8000\n")
+    DatabaseManager(repo=repo).connect(_spec_named("music"))
+    qa = PlannerQAService(QueryPlanner(LLMGateway(ClaudeAgentBackend())))
+    res = qa.submit(
+        "For each artist in the budget file, show the artist name from the music "
+        "database and their budget.",
+        repo,
+    )
+    assert not res.abstain, res.summary
+    assert res.trust_trail and "artist_budget.csv" in res.trust_trail.sql

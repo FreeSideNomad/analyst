@@ -2,7 +2,8 @@
 slug: files-x-db-qa
 title: NL Q&A across files × one connected database (federation phase 3)
 outcome: A user asks a plain-English question that joins their uploaded files with the tables of ONE connected database. The planner emits a SQL template with provider bindings; the runtime injects the file values (IN-list / VALUES, read-only, capped at N=100k) and runs the finished SELECT on the remote — the file's small side is pushed to the DB so its indexes do the join. Same trust trail (showing the template), result handling, and save-as-dataset as the other phases.
-status: ready
+status: done
+merged_at: 2026-07-05
 autonomy_level: high
 assignee: local
 owner: igormusic
@@ -41,3 +42,14 @@ created: 2026-07-04
 - `features/003-nl-qa/DESIGN.md` — engine choice, "always remotely" federation,
   the template contract, cap/no-write, validation split, result handling.
 - Depends on 007 (within-DB Q&A) + 006 (workbench) + 005 (connections).
+
+
+## Delivery note (2026-07-05)
+
+Delivered by the feature-007 + feature-009 infrastructure: connected-DB tables
+are ATTACHed as views in the SAME DuckDB connection that holds the file (parquet)
+views, so the planner is offered both and a generated file⋈DB join executes
+in-memory (DuckDB) with scanner push-down on the DB side — no new code path.
+Verified live: an NL question joining an uploaded file with a connected SQLite
+answers with a real cross-source join. Cross-*multiple*-DB joins remain out of
+scope (materialize one side to a file first).
