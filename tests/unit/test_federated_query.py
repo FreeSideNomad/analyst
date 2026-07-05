@@ -6,6 +6,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from analyst.domain.connection import ConnectionSpec, DatabaseEngine
 from analyst.engine.query import run_select
 from analyst.engine.store import DatasetStore
@@ -76,8 +78,29 @@ def test_within_db_qa_integration(tmp_path):
         t.name
         for t in PlannerQAService(planner=None)._tables(repo)  # type: ignore[arg-type]
     }
-    assert "sales_db.Album" in names
+    assert "q_sales_db_Album" in names
 
     # ...and planner SQL over them actually runs against the source
     res = run_select(repo.store, 'SELECT COUNT(*) FROM "sales_db.Album"')
     assert res.rows[0][0] > 0
+
+
+@pytest.mark.live
+def test_real_nl_question_over_connected_db_answers_live(tmp_path):
+    """Real flow (feature 007-fix), run on demand with `-m live`: a live NL
+    question over a connected DB plans runnable SQL and answers — the exact path
+    that abstained before the dot-free-alias fix. No cassette (federated sample
+    ordering isn't deterministic enough to key one); this is the honest guard."""
+    from analyst.agentic.claude_backend import ClaudeAgentBackend
+    from analyst.agentic.gateway import LLMGateway
+    from analyst.agentic.planner import QueryPlanner
+    from analyst.api.qa import PlannerQAService
+    from analyst.api.repository import StoreRepository
+    from analyst.api.routes.databases import DatabaseManager
+
+    repo = StoreRepository(str(tmp_path / "data"))
+    DatabaseManager(repo=repo).connect(_spec())
+    qa = PlannerQAService(QueryPlanner(LLMGateway(ClaudeAgentBackend())))
+    res = qa.submit("How many albums does each artist have? Top 5 artists.", repo)
+    assert not res.abstain, res.summary
+    assert res.trust_trail and "q_sales_db_" in res.trust_trail.sql

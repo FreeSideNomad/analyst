@@ -166,7 +166,7 @@ def test_group_by_result_is_shaped_as_a_bar_chart(tmp_path):
             "confidence": 0.9,
             "sql": (
                 "SELECT billing_region, SUM(amount) AS total_amount "
-                'FROM "qa_orders.csv" GROUP BY billing_region '
+                "FROM q_qa_orders_csv GROUP BY billing_region "
                 "ORDER BY total_amount DESC"
             ),
             "title": "Total order amount by billing region",
@@ -190,7 +190,7 @@ def test_empty_result_answers_plainly_with_the_trail(tmp_path):
         {
             "action": "answer",
             "confidence": 0.9,
-            "sql": 'SELECT customer FROM "qa_orders.csv" WHERE amount > 10000',
+            "sql": "SELECT customer FROM q_qa_orders_csv WHERE amount > 10000",
             "title": "Orders over 10000",
             "assumptions": [],
             "lineage": ["qa_orders"],

@@ -35,7 +35,7 @@ QUESTION_INVALID = "What is the total profit by region?"
 INVALID_PLAN_RESPONSE = (
     '{"action": "answer", "confidence": 0.9,'
     ' "sql": "SELECT billing_region, SUM(profit) AS total_profit'
-    ' FROM \\"qa_orders.csv\\" GROUP BY billing_region",'
+    ' FROM q_qa_orders_csv GROUP BY billing_region",'
     ' "title": "Total profit by billing region",'
     ' "assumptions": ["Profit is a column on qa_orders."],'
     ' "lineage": ["qa_orders"], "clarification": null, "reason": null}'

@@ -8,6 +8,7 @@ from __future__ import annotations
 import csv
 import io
 import os
+import re
 import threading
 from collections.abc import Callable, Sequence
 from functools import wraps
@@ -52,6 +53,13 @@ def _sql_str(value: str) -> str:
 
 def _quote_ident(name: str) -> str:
     return '"' + name.replace('"', '""') + '"'
+
+
+def query_alias_name(real: str) -> str:
+    """A dot-free SQL identifier for a dataset id. Dataset ids carry dots
+    (``orders.csv``, ``sales_db.Album``) which an LLM misreads as
+    ``schema.table``; the planner/validator/execution use this alias instead."""
+    return "q_" + re.sub(r"\W", "_", real)
 
 
 def _is_nested_type(duckdb_type: str) -> bool:
@@ -165,6 +173,18 @@ class DatasetStore:
             if not str(r[0]).startswith(("fed_", "__"))
             and str(r[0]) not in self._fed_views
         ]
+
+    @_synchronized
+    def register_query_alias(self, real: str) -> str:
+        """Register (idempotently) a dot-free TEMP view over dataset ``real`` and
+        return its alias. TEMP so it never persists nor leaks into datasets();
+        the planner/validator/execution reference the alias (see query_alias_name)."""
+        alias = query_alias_name(real)
+        self._con.execute(
+            f"CREATE OR REPLACE TEMP VIEW {_quote_ident(alias)} AS "
+            f"SELECT * FROM {_quote_ident(real)}"
+        )
+        return alias
 
     @_synchronized
     def attach_database(
