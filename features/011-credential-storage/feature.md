@@ -2,7 +2,7 @@
 slug: credential-storage
 title: Encrypted-at-rest database credentials with seamless reconnect
 outcome: A connected database's credentials can be persisted ENCRYPTED AT REST so the app reconnects automatically after a restart — without weakening the "raw data never leaves the box, secrets never hit disk in the clear" posture. Credentials are sealed with authenticated encryption under an OPERATOR-SUPPLIED key that lives outside the store (a Docker secret by default); if the key is absent the connections stay inert and the user re-enters. Read-only DB accounts are encouraged (the app only ever runs SELECT). A pluggable backend allows a real secrets manager (Vault / cloud KMS) later; the env/Docker-secret key is the default.
-status: ready
+status: done
 autonomy_level: high
 assignee: local
 owner: igormusic
