@@ -24,6 +24,7 @@ interface CatalogState {
   setDetail: (id: string) => void;
   toggleExpand: (id: string) => void;
   selectColumn: (ds: string, name: string) => void;
+  clearColumn: () => void;
 }
 export const useCatalog = create<CatalogState>((set) => ({
   datasets: [],
@@ -88,5 +89,6 @@ export const useCatalog = create<CatalogState>((set) => ({
   setDetail: (id) => set({ detailDatasetId: id }),
   toggleExpand: (id) => set((s) => ({ expanded: { ...s.expanded, [id]: !s.expanded[id] }, detailDatasetId: id })),
   selectColumn: (ds, name) => set({ selectedColumn: { ds, name }, detailDatasetId: ds }),
+  clearColumn: () => set({ selectedColumn: null }),
 }));
 

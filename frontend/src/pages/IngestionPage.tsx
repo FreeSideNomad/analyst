@@ -313,7 +313,7 @@ function ColumnDrilldown({ d, col }: { d: Dataset; col: ColumnDescription | unde
 
 /* ── table detail (profile + semantic catalog, merged) ────────────── */
 function TableDetail() {
-  const { datasets, catalog, detailDatasetId, selectedColumn, selectColumn } = useCatalog();
+  const { datasets, catalog, detailDatasetId, selectedColumn, selectColumn, clearColumn } = useCatalog();
   const d = datasets.find((x) => x.id === detailDatasetId) || datasets[0];
   if (!d) return null;
   const cat = catalog[d.id];
@@ -353,8 +353,17 @@ function TableDetail() {
         </div>
       </Card>
 
-      {showDrill && <ColumnDrilldown d={d} col={selCol} />}
-
+      {showDrill ? (
+        <>
+          <button onClick={() => clearColumn()} aria-label="Back to all columns"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginBottom: 10, padding: '5px 9px', border: '1px solid var(--border-default)',
+              borderRadius: 'var(--radius-md)', background: 'transparent', cursor: 'pointer', font: '600 12px/1 var(--font-sans)', color: 'var(--text-muted)' }}>
+            <Icon as={ChevronRight} size={13} style={{ transform: 'rotate(180deg)' }} /> All columns
+          </button>
+          <ColumnDrilldown d={d} col={selCol} />
+        </>
+      ) : (
+      <>
       <div style={{ ...EYEBROW, marginBottom: 10 }}>Columns</div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
         {d.profile.columns.map((pc) => {
@@ -378,6 +387,8 @@ function TableDetail() {
           );
         })}
       </div>
+      </>
+      )}
 
       {cat && cat.clarifications.length > 0 && (
         <div style={{ marginTop: 22 }}>
