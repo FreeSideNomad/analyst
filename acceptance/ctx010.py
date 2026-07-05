@@ -204,6 +204,29 @@ def given_broken_retro(ctx: ScenarioContext) -> None:
     _state(ctx)["broken_retro"] = True
 
 
+@step(r"a connected database whose tables are catalogued")
+def given_connected_catalogued(ctx: ScenarioContext) -> None:
+    db_path = _two_table_sqlite(ctx)
+    _state(ctx)["db_path"] = db_path
+    _realize(ctx, "spy")  # empty file workspace, real repo on disk
+    _connect_crm(ctx, db_path)
+    _state(ctx)["snapshot"] = {
+        r.name: r.summary.catalog.table_description
+        for r in _repo(ctx).list_datasets()
+        if r.name.startswith("crm.")
+    }
+
+
+@step(r"the schema of one table changes while the service is down")
+def given_schema_changed(ctx: ScenarioContext) -> None:
+    db_path = _state(ctx)["db_path"]
+    con = sqlite3.connect(db_path)
+    con.execute("ALTER TABLE customers ADD COLUMN tier TEXT")
+    con.execute("UPDATE customers SET tier = 'gold'")
+    con.commit()
+    con.close()
+
+
 # --------------------------------------------------------------------------- #
 # When — realize the workspace and act
 # --------------------------------------------------------------------------- #
@@ -260,6 +283,47 @@ def _customers_sqlite(ctx: ScenarioContext) -> Path:
     con.commit()
     con.close()
     return path
+
+
+def _two_table_sqlite(ctx: ScenarioContext) -> Path:
+    path = ctx.tmp_path / "db" / "crm.sqlite"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    con = sqlite3.connect(path)
+    con.execute("CREATE TABLE customers (customer_id INTEGER PRIMARY KEY, region TEXT)")
+    con.executemany(
+        "INSERT INTO customers VALUES (?, ?)", [(10, "North"), (20, "South")]
+    )
+    con.execute("CREATE TABLE products (sku TEXT PRIMARY KEY, label TEXT)")
+    con.executemany(
+        "INSERT INTO products VALUES (?, ?)", [("A1", "Widget"), ("B2", "Gadget")]
+    )
+    con.commit()
+    con.close()
+    return path
+
+
+def _connect_crm(ctx: ScenarioContext, db_path: Path):  # noqa: ANN202
+    """Connect the crm SQLite through a spy catalog_fn; drain; return manager."""
+    from analyst.api.routes.databases import DatabaseManager, _enrich_catalog_fn
+    from analyst.domain.connection import ConnectionSpec, DatabaseEngine
+
+    repo = _repo(ctx)
+    recorder: dict[str, Any] = {}
+    _state(ctx)["rederived"] = recorder
+
+    def spy_fn(table, relationships, context):  # noqa: ANN001
+        recorder[table.name] = context
+        return _enrich_catalog_fn(table, relationships, context)
+
+    manager = DatabaseManager(repo=repo, catalog_fn=spy_fn)
+    _state(ctx)["manager"] = manager
+    manager.connect(
+        ConnectionSpec(name="crm", engine=DatabaseEngine.SQLITE, path=str(db_path))
+    )
+    if manager._pool is not None:
+        manager._pool.shutdown(wait=True)
+        manager._pool = None
+    return manager
 
 
 @step(r'a database whose table "customers" is keyed by "customer_id" is connected')
@@ -447,6 +511,66 @@ def then_entry_unchanged(ctx: ScenarioContext, table: str) -> None:
 @step(r'the description of "(?P<table>[^"]+)" remains its prior catalog entry')
 def then_entry_remains_prior(ctx: ScenarioContext, table: str) -> None:
     then_entry_unchanged(ctx, table=table)
+
+
+# --------------------------------------------------------------------------- #
+# Connected-database persistence across sessions (AC-6, AC-7)
+# --------------------------------------------------------------------------- #
+@step(r"the service restarts and the database is reconnected")
+def when_restart_and_reconnect(ctx: ScenarioContext) -> None:
+    from analyst.api.repository import StoreRepository
+
+    st = _state(ctx)
+    st["manager"].close()
+    st["repo"] = StoreRepository(str(ctx.tmp_path / "data"))  # fresh session
+    st["restart"] = False
+    _connect_crm(ctx, st["db_path"])  # resets st["rederived"] to this session
+
+
+@step(
+    r"each table of the connected database still has its description after the restart"
+)
+def then_persisted_descriptions_survive(ctx: ScenarioContext) -> None:
+    from analyst.api.repository import StoreRepository
+
+    st = _state(ctx)
+    fresh = StoreRepository(str(ctx.tmp_path / "data"))  # a fresh session's view
+    for name, description in st["snapshot"].items():
+        loaded = fresh.load_persisted_catalog(name)
+        assert loaded is not None, f"no persisted catalog for {name!r}"
+        entry, _fingerprint = loaded
+        assert entry.table_description == description, (
+            f"persisted description for {name!r} drifted"
+        )
+
+
+@step(r"the tables immediately show the same descriptions they had before the restart")
+def then_reconnect_reuses(ctx: ScenarioContext) -> None:
+    st = _state(ctx)
+    assert not st["rederived"], (
+        f"tables were re-derived on reconnect: {sorted(st['rederived'])}"
+    )
+    for name, description in st["snapshot"].items():
+        record = _repo(ctx).get_dataset(name)
+        assert record is not None, f"{name!r} missing after reconnect"
+        assert record.catalog_status == "complete"
+        assert record.summary.catalog.table_description == description
+
+
+@step(r"the changed table is re-catalogued")
+def then_changed_table_rederived(ctx: ScenarioContext) -> None:
+    st = _state(ctx)
+    assert "customers" in st["rederived"], "the changed table was not re-catalogued"
+    entry = _repo(ctx).get_dataset("crm.customers").summary.catalog
+    assert "tier" in {c.name for c in entry.columns}
+
+
+@step(r"the unchanged tables keep their persisted descriptions")
+def then_unchanged_tables_kept(ctx: ScenarioContext) -> None:
+    st = _state(ctx)
+    assert "products" not in st["rederived"], "an unchanged table was re-derived"
+    record = _repo(ctx).get_dataset("crm.products")
+    assert record.summary.catalog.table_description == st["snapshot"]["crm.products"]
 
 
 @step(r'"orders" has a description derived without workspace context')

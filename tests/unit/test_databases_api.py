@@ -244,3 +244,88 @@ def test_connect_recatalogues_the_affected_existing_file(tmp_path):
     manager._pool.shutdown(wait=True)
     after = repo.get_dataset("orders.csv").summary.catalog.table_description
     assert "References crm.customers" in after
+
+
+def _crm_sqlite(tmp_path, extra_column=False):
+    import sqlite3
+
+    db = tmp_path / "crm.sqlite"
+    con = sqlite3.connect(db)
+    cols = "customer_id INTEGER PRIMARY KEY, region TEXT" + (
+        ", tier TEXT" if extra_column else ""
+    )
+    con.execute(f"CREATE TABLE customers ({cols})")
+    rows = (
+        [(10, "North", "gold"), (20, "South", "silver")]
+        if extra_column
+        else [
+            (10, "North"),
+            (20, "South"),
+        ]
+    )
+    marks = "?, ?, ?" if extra_column else "?, ?"
+    con.executemany(f"INSERT INTO customers VALUES ({marks})", rows)
+    con.commit()
+    con.close()
+    return db
+
+
+def test_connected_catalog_persists_and_is_reused_on_reconnect(tmp_path):
+    """AC-6 + AC-7: the derived catalog survives a restart and reconnect uses
+    it immediately — no re-derivation (a poisoned catalog_fn proves it)."""
+    from analyst.api.repository import StoreRepository
+    from analyst.api.routes.databases import DatabaseManager
+    from analyst.domain.connection import ConnectionSpec, DatabaseEngine
+
+    db = _crm_sqlite(tmp_path)
+    spec = ConnectionSpec(name="crm", engine=DatabaseEngine.SQLITE, path=str(db))
+    data = str(tmp_path / "data")
+
+    repo = StoreRepository(data)
+    manager = DatabaseManager(repo=repo)
+    manager.connect(spec)
+    manager._pool.shutdown(wait=True)
+    derived = repo.get_dataset("crm.customers").summary.catalog
+    assert "customer_id" in {c.name for c in derived.columns}
+    manager.close()
+
+    # Fresh session: reconnect must NOT re-derive (catalog_fn would blow up).
+    def poisoned(table, relationships, context):
+        raise AssertionError("re-derived a table whose schema did not change")
+
+    repo2 = StoreRepository(data)
+    manager2 = DatabaseManager(repo=repo2, catalog_fn=poisoned)
+    manager2.connect(spec)
+    if manager2._pool is not None:
+        manager2._pool.shutdown(wait=True)
+    record = repo2.get_dataset("crm.customers")
+    assert record.catalog_status == "complete"
+    assert record.summary.catalog == derived
+
+
+def test_schema_change_on_reconnect_triggers_recataloguing(tmp_path):
+    """AC-7: a changed schema is re-catalogued; the persisted entry is stale."""
+    from analyst.api.repository import StoreRepository
+    from analyst.api.routes.databases import DatabaseManager
+    from analyst.domain.connection import ConnectionSpec, DatabaseEngine
+
+    db = _crm_sqlite(tmp_path)
+    spec = ConnectionSpec(name="crm", engine=DatabaseEngine.SQLITE, path=str(db))
+    data = str(tmp_path / "data")
+
+    repo = StoreRepository(data)
+    manager = DatabaseManager(repo=repo)
+    manager.connect(spec)
+    manager._pool.shutdown(wait=True)
+    manager.close()
+
+    db.unlink()
+    _crm_sqlite(tmp_path, extra_column=True)  # schema changed while down
+
+    repo2 = StoreRepository(data)
+    manager2 = DatabaseManager(repo=repo2)
+    manager2.connect(spec)
+    manager2._pool.shutdown(wait=True)
+    record = repo2.get_dataset("crm.customers")
+    assert record.catalog_status == "complete"
+    assert "tier" in {c.name for c in record.summary.catalog.columns}

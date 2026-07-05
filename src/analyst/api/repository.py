@@ -64,6 +64,16 @@ class DatasetRepository(Protocol):
     # new relationship touches (bounded to the affected set, never O(workspace)).
     def recatalogue_affected(self, new_names: list[str]) -> None: ...
 
+    # Feature 010 hooks — connected-DB catalog persistence (AC-6/AC-7). Keyed
+    # naturally by the record name ``<connection>.<table>``; the fingerprint
+    # detects a schema change while the service was down.
+    def persist_catalog(
+        self, name: str, entry: object, fingerprint: str | None = None
+    ) -> None: ...
+    def load_persisted_catalog(
+        self, name: str
+    ) -> "tuple[object, str | None] | None": ...
+
 
 # --------------------------------------------------------------------------- #
 # Fixtures — the mock, in Python.
@@ -111,6 +121,14 @@ class FixtureRepository:
 
     def recatalogue_affected(self, new_names: list[str]) -> None:
         """No-op: fixture catalogs are static seed data (feature 010)."""
+
+    def persist_catalog(
+        self, name: str, entry: object, fingerprint: str | None = None
+    ) -> None:
+        """No-op: the fixture workspace has no disk (feature 010)."""
+
+    def load_persisted_catalog(self, name: str) -> tuple[object, str | None] | None:
+        return None
 
     def ingest(self, file_name: str, content: bytes) -> list[DatasetRecord]:
         # Mirror the real engine's validation so the mock can't hide the
@@ -303,7 +321,28 @@ class StoreRepository:
                 _LOG.warning("re-cataloguing %r failed; keeping prior entry", name)
                 continue
             record.summary = dataclasses.replace(record.summary, catalog=entry)
-            _save_catalog_sidecar(self.store.base_dir, name, entry)
+            # A federated record keeps its schema fingerprint (AC-7) so the
+            # retroactive refresh doesn't force a re-derive on next reconnect.
+            fingerprint = (
+                _schema_fingerprint(record.summary.profile)
+                if record.federated
+                else None
+            )
+            _save_catalog_sidecar(self.store.base_dir, name, entry, fingerprint)
+
+    def persist_catalog(
+        self, name: str, entry: object, fingerprint: str | None = None
+    ) -> None:
+        """Persist a connected-DB table's catalog (feature 010, AC-6)."""
+        _save_catalog_sidecar(self.store.base_dir, name, entry, fingerprint)
+
+    def load_persisted_catalog(self, name: str) -> tuple[object, str | None] | None:
+        """The persisted (entry, fingerprint) for a record name, or None."""
+        try:
+            return _load_catalog_sidecar_with_fingerprint(self.store.base_dir, name)
+        except Exception:  # noqa: BLE001 - a corrupt sidecar just re-derives
+            _LOG.warning("ignoring unreadable catalog sidecar for %r", name)
+            return None
 
     def _derive_entry(self, name: str, profile, rels, catalogs):  # noqa: ANN001
         """One table's catalog entry, via the same path that catalogued it:
@@ -352,19 +391,37 @@ def _catalog_sidecar(base_dir: object, name: str):  # noqa: ANN001
     return Path(str(base_dir)) / f"{name}.catalog.json"
 
 
-def _save_catalog_sidecar(base_dir: object, name: str, catalog: object) -> None:
-    """Persist a catalog entry so it survives a restart (HIGH H2 + cataloguer)."""
+def _schema_fingerprint(profile: object) -> str:
+    """A stable schema id (feature 010, AC-7): sorted column name:type pairs.
+    A table whose fingerprint changed while the service was down is
+    re-catalogued on reconnect; an unchanged one reuses its persisted entry."""
+    columns = getattr(profile, "columns", ())
+    return "|".join(sorted(f"{c.name}:{c.inferred_type.value}" for c in columns))
+
+
+def _save_catalog_sidecar(
+    base_dir: object, name: str, catalog: object, fingerprint: str | None = None
+) -> None:
+    """Persist a catalog entry so it survives a restart (HIGH H2 + cataloguer).
+    ``fingerprint`` (feature 010) rides along for connected-DB tables; loaders
+    that don't know the key simply ignore it."""
     import dataclasses
     import json
 
     if not dataclasses.is_dataclass(catalog) or isinstance(catalog, type):
         return
-    _catalog_sidecar(base_dir, name).write_text(
-        json.dumps(dataclasses.asdict(catalog)), encoding="utf-8"
-    )
+    payload = dataclasses.asdict(catalog)
+    if fingerprint is not None:
+        payload["schema_fingerprint"] = fingerprint
+    _catalog_sidecar(base_dir, name).write_text(json.dumps(payload), encoding="utf-8")
 
 
 def _load_catalog_sidecar(base_dir: object, name: str):  # noqa: ANN001
+    loaded = _load_catalog_sidecar_with_fingerprint(base_dir, name)
+    return loaded[0] if loaded is not None else None
+
+
+def _load_catalog_sidecar_with_fingerprint(base_dir: object, name: str):  # noqa: ANN001
     path = _catalog_sidecar(base_dir, name)
     if not path.exists():
         return None
@@ -378,7 +435,7 @@ def _load_catalog_sidecar(base_dir: object, name: str):  # noqa: ANN001
     from analyst.domain.relationships import Relationship
 
     data = json.loads(path.read_text(encoding="utf-8"))
-    return CatalogEntry(
+    entry = CatalogEntry(
         table_description=data["table_description"],
         columns=tuple(ColumnDescription(**c) for c in data["columns"]),
         clarifications=tuple(
@@ -391,6 +448,7 @@ def _load_catalog_sidecar(base_dir: object, name: str):  # noqa: ANN001
         ),
         relationships=tuple(Relationship(**r) for r in data.get("relationships", [])),
     )
+    return entry, data.get("schema_fingerprint")
 
 
 def _safe_upload_name(file_name: str) -> str:
