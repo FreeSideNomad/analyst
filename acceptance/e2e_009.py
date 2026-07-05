@@ -11,9 +11,15 @@ no live model calls in the board.
 
 from __future__ import annotations
 
+import os
+import shutil
 from typing import Any
 
 import httpx
+
+# A small per-table cataloguing delay so the async "Cataloguing…" state is
+# observable in the browser (AC-11). Set before the fixtures app boots.
+os.environ.setdefault("ANALYST_CATALOG_DELAY", "1.2")
 
 from acceptance.e2e_base import (  # noqa: F401 (re-exported for the generated board)
     REPO_ROOT,
@@ -151,7 +157,12 @@ def given_products_regions(ctx: ScenarioContext) -> None:
 
 @step(r"relationships are discovered")
 def when_discover(ctx: ScenarioContext) -> None:
-    _discover(ctx)
+    st = _state(ctx)
+    if "xsrc" in st:  # AC-6: attach the DB and discover across both sources
+        extra = st["store"].attach_sqlite(*st["xsrc"])
+        st["rels"] = st["store"].discover_relationships(extra=extra)
+    else:
+        _discover(ctx)
 
 
 @step(
@@ -496,5 +507,105 @@ def then_others_ok(ctx: ScenarioContext) -> None:
 
 
 # --------------------------------------------------------------------------- #
-# (Cross-source AC-6 / async-browser AC-10/11 bindings added next.)
+# AC-6 — cross-source (a file column → a connected-database table).
 # --------------------------------------------------------------------------- #
+@step(r'a connected database table "customer" keyed by "customer_id"')
+def given_db_customer(ctx: ScenarioContext) -> None:
+    import sqlite3
+
+    db = ctx.tmp_path / "xsrc.sqlite"
+    con = sqlite3.connect(db)
+    con.executescript(
+        "CREATE TABLE customer (customer_id INTEGER PRIMARY KEY, region TEXT);"
+        "INSERT INTO customer VALUES (10,'North'),(20,'South'),(30,'East');"
+    )
+    con.commit()
+    con.close()
+    _store(ctx)
+    _state(ctx)["xsrc"] = ("xsrc", str(db), ("customer",))
+
+
+@step(r'a file "orders\.csv" whose "customer_id" all match "customer\.customer_id"')
+def given_orders_match_db(ctx: ScenarioContext) -> None:
+    _ingest(ctx, "orders.csv", _ORDERS_MATCH)
+
+
+@step(
+    r'an inferred relationship from "orders\.customer_id" to the database table '
+    r'"customer" is proposed'
+)
+def then_xsrc_proposed(ctx: ScenarioContext) -> None:
+    r = _rel(ctx, "orders", "customer_id", "customer")
+    assert r is not None, f"no cross-source rel in {_state(ctx).get('rels')}"
+    assert r.origin == "inferred" and r.parent_table == "customer"
+
+
+# --------------------------------------------------------------------------- #
+# AC-10 / AC-11 — async DB cataloguing (Playwright, deterministic enrich path).
+# --------------------------------------------------------------------------- #
+def _sales_db_path(ctx: ScenarioContext) -> str:
+    dest = ctx.tmp_path / "sales_db.sqlite"
+    if not dest.exists():
+        shutil.copy(CHINOOK, dest)
+    return str(dest)
+
+
+@step(r"the app is open on the Ingest & Profile view")
+def given_app_on_ingest(ctx: ScenarioContext) -> None:
+    _open_workbench(ctx)
+
+
+@step(r'the user connects the fixture database "(?P<name>[^"]+)"')
+def when_connect_fixture_db(ctx: ScenarioContext, name: str) -> None:
+    resp = httpx.post(
+        f"{ctx.api}/api/databases/connect",
+        json={"name": name, "engine": "sqlite", "path": _sales_db_path(ctx)},
+        timeout=30.0,
+    )
+    assert resp.status_code == 201, resp.text
+    ctx.page.reload()  # the workbench picks up the pending tables and polls
+
+
+@step(r"the connection appears immediately with its tables marked as cataloguing")
+def then_tables_cataloguing(ctx: ScenarioContext) -> None:
+    expect = _expect()
+    expect(ctx.page.get_by_role("button", name="Toggle source sales_db")).to_be_visible(
+        timeout=20_000
+    )
+    # while the background pool works, at least one table shows the pending badge
+    expect(ctx.page.get_by_text("Cataloguing…").first).to_be_visible(timeout=10_000)
+
+
+@step(r"each table refreshes to its semantic description without a manual reload")
+def then_tables_refresh(ctx: ScenarioContext) -> None:
+    import time
+
+    # the background pool finishes (drive it deterministically via the API)...
+    for _ in range(60):
+        rows = httpx.get(f"{ctx.api}/api/datasets", timeout=30.0).json()
+        if rows and not any(d.get("catalogStatus") == "pending" for d in rows):
+            break
+        time.sleep(1.0)
+    # ...and the workbench's own 600 ms poll refreshes the badges away — no reload.
+    _expect()(ctx.page.get_by_text("Cataloguing…")).to_have_count(0, timeout=15_000)
+
+
+@step(r"cataloguing completes")
+def when_cataloguing_completes(ctx: ScenarioContext) -> None:
+    import time
+
+    # poll the API until no table is still pending
+    for _ in range(60):
+        rows = httpx.get(f"{ctx.api}/api/datasets", timeout=30.0).json()
+        if rows and not any(d.get("catalogStatus") == "pending" for d in rows):
+            return
+        time.sleep(1.0)
+    raise AssertionError("cataloguing did not complete")
+
+
+@step(r'the table "(?P<name>[^"]+)" shows a real semantic description')
+def then_real_description(ctx: ScenarioContext, name: str) -> None:
+    rows = httpx.get(f"{ctx.api}/api/datasets", timeout=30.0).json()
+    rec = next(d for d in rows if d["name"] == name)
+    desc = rec["catalog"]["tableDescription"]
+    assert desc and "federated table" not in desc.lower(), desc

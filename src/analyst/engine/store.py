@@ -148,9 +148,13 @@ class DatasetStore:
     def datasets(self) -> list[str]:
         """Persisted dataset (view) names — the source of truth across restarts
         (HIGH H2). Excludes transient/internal relations."""
+        # Scope to the PRIMARY database's catalog — an ATTACHed cross-source DB
+        # (feature 009) also exposes its tables under table_schema='main' but a
+        # different table_catalog, and those must not be treated as datasets.
         rows = self._con.execute(
             "SELECT table_name FROM information_schema.tables "
-            "WHERE table_schema = 'main' ORDER BY table_name"
+            "WHERE table_schema = 'main' AND table_catalog = current_database() "
+            "ORDER BY table_name"
         ).fetchall()
         return [str(r[0]) for r in rows if not str(r[0]).startswith(("fed_", "__"))]
 

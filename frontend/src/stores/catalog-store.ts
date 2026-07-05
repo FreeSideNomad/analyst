@@ -6,6 +6,26 @@ import { databasesApi } from '../api/databases';
 import type { ConnectDatabaseRequest, DatabaseConnection } from '../api/databases';
 import type { Dataset, CatalogEntry } from '../api/types';
 
+// Feature 009: poll while any table is still cataloguing so descriptions refresh
+// with no manual reload. Shared by hydrate() (resume on load) and connectDatabase().
+let _catalogPoll: ReturnType<typeof setInterval> | null = null;
+function startCatalogPoll(set: (partial: Partial<CatalogState>) => void): void {
+  if (_catalogPoll) clearInterval(_catalogPoll);
+  _catalogPoll = setInterval(async () => {
+    try {
+      const [ds, cat] = await Promise.all([api.listDatasets(), api.getCatalog()]);
+      set({ datasets: ds, catalog: cat });
+      if (!ds.some((d) => d.catalogStatus === 'pending')) {
+        if (_catalogPoll) clearInterval(_catalogPoll);
+        _catalogPoll = null;
+      }
+    } catch {
+      if (_catalogPoll) clearInterval(_catalogPoll);
+      _catalogPoll = null;
+    }
+  }, 600);
+}
+
 interface CatalogState {
   datasets: Dataset[];
   catalog: Record<string, CatalogEntry>;
@@ -47,6 +67,9 @@ export const useCatalog = create<CatalogState>((set) => ({
       detailDatasetId: s.detailDatasetId ?? first,
       expanded: Object.keys(s.expanded).length ? s.expanded : (first ? { [first]: true } : {}),
     }));
+    // Feature 009: if we arrived (or reloaded) mid-cataloguing, resume polling
+    // so pending tables refresh to their descriptions with no manual reload.
+    if (datasets.some((d) => d.catalogStatus === 'pending')) startCatalogPoll(set);
   },
   refresh: async () => {
     const [datasets, catalog, connections] = await Promise.all([
@@ -62,15 +85,7 @@ export const useCatalog = create<CatalogState>((set) => ({
     set({ datasets, catalog, connections });
     // Feature 009: cataloguing runs in the background; poll until every table
     // has finished (complete or failed) so descriptions refresh with no reload.
-    const poll = setInterval(async () => {
-      try {
-        const [ds, cat] = await Promise.all([api.listDatasets(), api.getCatalog()]);
-        set({ datasets: ds, catalog: cat });
-        if (!ds.some((d) => d.catalogStatus === 'pending')) clearInterval(poll);
-      } catch {
-        clearInterval(poll);
-      }
-    }, 600);
+    startCatalogPoll(set);
   },
   detachDatabase: async (name) => {
     await databasesApi.detach(name);
