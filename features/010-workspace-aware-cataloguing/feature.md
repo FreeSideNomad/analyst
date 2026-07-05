@@ -2,7 +2,7 @@
 slug: workspace-aware-cataloguing
 title: Workspace-aware cataloguing — derive a table's meaning in the context of the whole workspace
 outcome: When a table is catalogued (a file ingested, a result saved, a database connected), its meaning is derived KNOWING the rest of the workspace — the other tables' names + descriptions and the relationship graph — instead of in isolation. So a new "orders" table is understood in light of the "customers" it references. The workspace's semantic context is loaded once and reused; it survives a session (persisted + rehydrated) for files today, and this feature extends that to connected databases. Only metadata (names, descriptions, relationships) ever crosses to the model — never bulk rows.
-status: ready
+status: done
 autonomy_level: high
 assignee: local
 owner: igormusic
