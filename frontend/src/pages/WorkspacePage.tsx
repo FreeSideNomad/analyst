@@ -5,9 +5,44 @@ import {
   Download, ChevronLeft, Save,
 } from 'lucide-react';
 import type { AnswerResult, ChatMessage, ClarificationResult, TableBlock, TrustTrail as TrustTrailT } from '../api/types';
-import { useQuery, useIngestion } from '../stores';
+import { useQuery, useIngestion, useCatalog } from '../stores';
 import { money } from '../lib/format';
 import { Icon, Card, Button, Tag, SegmentedControl } from '../components/ui';
+
+/* ── save-a-result-as-a-dataset modal (validates a unique name) ─────── */
+function SaveDatasetModal({ defaultStem, existing, onSave, onCancel }: {
+  defaultStem: string; existing: string[]; onSave: (name: string) => void; onCancel: () => void;
+}) {
+  const [name, setName] = useState(defaultStem);
+  const stem = name.trim().replace(/\W+/g, '_').toLowerCase().replace(/^_+|_+$/g, '');
+  const finalName = `${stem}.csv`;
+  const error = !name.trim() ? 'Enter a name.'
+    : !stem ? 'Use letters, numbers or underscores.'
+    : existing.includes(finalName) ? `A dataset named “${finalName}” already exists — pick another.`
+    : null;
+  const submit = () => { if (!error) onSave(finalName); };
+  return (
+    <div role="dialog" aria-label="Save result as dataset" onClick={onCancel}
+      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.28)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 }}>
+      <div onClick={(e) => e.stopPropagation()}
+        style={{ width: 380, background: 'var(--surface-card)', borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-lg)', padding: 20 }}>
+        <div style={{ font: '700 15px/1.3 var(--font-sans)', color: 'var(--text-strong)', marginBottom: 4 }}>Save result as a dataset</div>
+        <div style={{ font: '400 12.5px/1.45 var(--font-sans)', color: 'var(--text-muted)', marginBottom: 14 }}>It becomes a profiled, queryable dataset in Ingest &amp; Profile.</div>
+        <label htmlFor="save-ds-name" style={{ display: 'block', font: '600 11px/1 var(--font-sans)', letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: 6 }}>Dataset name</label>
+        <input id="save-ds-name" aria-label="Dataset name" autoFocus value={name}
+          onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && submit()}
+          style={{ width: '100%', boxSizing: 'border-box', padding: '9px 11px', font: '500 13.5px/1.2 var(--font-sans)', color: 'var(--text-strong)', border: `1px solid ${error ? 'var(--red-400, #e07a6a)' : 'var(--border-default)'}`, borderRadius: 'var(--radius-md)' }} />
+        <div style={{ marginTop: 6, minHeight: 16, font: '400 11.5px/1.3 var(--font-sans)', color: error ? 'var(--red-600, #b03a2e)' : 'var(--text-subtle)' }}>
+          {error ? <span role="alert">{error}</span> : <>Saved as <span className="mono">{finalName}</span></>}
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 14 }}>
+          <Button variant="secondary" size="sm" onClick={onCancel}>Cancel</Button>
+          <Button size="sm" onClick={submit} disabled={!!error}>Save dataset</Button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 /* ── Q&A chat ─────────────────────────────────────────────────────── */
 function BarChart({ result }: { result: AnswerResult }) {
@@ -141,7 +176,9 @@ function toCsv(t: TableBlock): string {
 function ResultTableView({ table, title }: { table: TableBlock; title: string }) {
   const [page, setPage] = useState(0);
   const [saved, setSaved] = useState(false);
+  const [saving, setSaving] = useState(false);
   const startIngestion = useIngestion((s) => s.startIngestion);
+  const existing = useCatalog((s) => s.datasets.map((d) => d.id));
   const pages = Math.max(1, Math.ceil(table.rows.length / PAGE_SIZE));
   const rows = table.rows.slice(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE);
   const fileStem = title.replace(/\W+/g, '_').toLowerCase() || 'result';
@@ -152,10 +189,11 @@ function ResultTableView({ table, title }: { table: TableBlock; title: string })
     a.href = url; a.download = `${fileStem}.csv`;
     a.click(); URL.revokeObjectURL(url);
   };
-  const saveAsDataset = () => {
+  const saveAsDataset = (datasetName: string) => {
     // Reuse the ingest path: the result becomes a first-class profiled dataset.
-    const file = new File([toCsv(table)], `${fileStem}.csv`, { type: 'text/csv' });
+    const file = new File([toCsv(table)], datasetName, { type: 'text/csv' });
     void startIngestion(file);
+    setSaving(false);
     setSaved(true);
   };
   return (
@@ -193,7 +231,7 @@ function ResultTableView({ table, title }: { table: TableBlock; title: string })
               style={{ display: 'inline-flex', border: '1px solid var(--border-default)', background: 'transparent', borderRadius: 'var(--radius-sm)', padding: 3, cursor: page + 1 >= pages ? 'default' : 'pointer', opacity: page + 1 >= pages ? 0.4 : 1 }}><Icon as={ChevronRight} size={14} /></button>
           </span>
         )}
-        <button aria-label="Save as dataset" onClick={saveAsDataset} disabled={saved}
+        <button aria-label="Save as dataset" onClick={() => setSaving(true)} disabled={saved}
           style={{ display: 'inline-flex', alignItems: 'center', gap: 6, border: '1px solid var(--border-default)', background: 'transparent', borderRadius: 'var(--radius-md)', padding: '5px 10px', cursor: saved ? 'default' : 'pointer', font: '600 12px/1 var(--font-sans)', color: saved ? 'var(--green-600)' : 'var(--text-body)', opacity: saved ? 0.8 : 1 }}>
           <Icon as={saved ? Check : Save} size={13} /> {saved ? 'Saved to Ingest & Profile' : 'Save as dataset'}
         </button>
@@ -202,6 +240,7 @@ function ResultTableView({ table, title }: { table: TableBlock; title: string })
           <Icon as={Download} size={13} /> CSV
         </button>
       </div>
+      {saving && <SaveDatasetModal defaultStem={fileStem} existing={existing} onCancel={() => setSaving(false)} onSave={saveAsDataset} />}
     </div>
   );
 }

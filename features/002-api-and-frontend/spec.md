@@ -82,7 +82,9 @@ Feature: FastAPI layer & aligned frontend
     And the user chooses the customer region option
     And the user switches the answer to the table view
     Then the result table is shown with a CSV download
-    When the user saves the result as a dataset
+    When the user opens the save-as-dataset dialog
+    Then an empty name is rejected
+    When the user confirms a valid dataset name
     Then the result is confirmed saved to Ingest & Profile
 
   # AC-9

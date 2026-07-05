@@ -321,3 +321,21 @@ def test_corrupt_catalog_sidecar_does_not_brick_the_workspace(tmp_path):
     reopened = StoreRepository(data)  # simulate a restart — must not raise
     names = {r.name for r in reopened.list_datasets()}
     assert {"good1.csv", "good2.csv"} <= names  # both survive
+
+
+def test_files_get_semantic_analysis_by_default(tmp_path):
+    """Parity with DB import: an ingested file gets a data-grounded semantic
+    catalog (descriptions + roles) with NO LLM / env flag — not profile-only."""
+    from analyst.api.repository import StoreRepository
+
+    repo = StoreRepository(str(tmp_path / "data"))
+    rec = repo.ingest("address.csv", b"address_id,district\n1,California\n2,Texas\n")[0]
+    cat = rec.summary.catalog
+    assert cat is not None
+    assert cat.table_description
+    district = next(c for c in cat.columns if c.name == "district")
+    assert (
+        district.description
+        and district.description != "Text column from the source table."
+    )
+    assert district.role  # a role was inferred

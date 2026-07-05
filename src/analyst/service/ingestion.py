@@ -127,15 +127,22 @@ class IngestionService:
         )
 
     def _catalog(self, dataset: str, profile: DatasetProfile) -> CatalogEntry | None:
-        if self.cataloguer is None:
-            return None
-        from analyst.agentic.cataloguer import CatalogingError
+        if self.cataloguer is not None:
+            from analyst.agentic.cataloguer import CatalogingError
 
-        try:
-            return self.cataloguer.catalog(payload_from_profile(dataset, profile))
-        except CatalogingError:
-            self.store.delete(dataset)  # rollback — no partial dataset (AC-17)
-            raise
+            try:
+                return self.cataloguer.catalog(payload_from_profile(dataset, profile))
+            except CatalogingError:
+                self.store.delete(dataset)  # rollback — no partial dataset (AC-17)
+                raise
+        # Default: offline, data-grounded semantic analysis — the SAME treatment
+        # connected-database tables get (feature 009 enrich), so imported/generated
+        # files are catalogued too (descriptions, roles, discovered relationships),
+        # not left profile-only. No LLM, no env flag.
+        from analyst.agentic import enrich
+
+        rels = tuple(self.store.discover_relationships())
+        return enrich.catalog_entry(dataset, profile, rels)
 
     def ingest(self, source: str | os.PathLike[str]) -> IngestionResult:
         path = Path(source)
