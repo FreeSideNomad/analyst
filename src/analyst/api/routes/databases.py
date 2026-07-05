@@ -13,6 +13,7 @@ holder follows the repository instance, so the test-only ``/api/_reset``
 from __future__ import annotations
 
 import dataclasses
+import logging
 import os
 import threading
 import time
@@ -49,7 +50,10 @@ from analyst.engine.federation import (
     FederationError,
     FederationService,
     UnknownConnectionError,
+    _redact_secrets,
 )
+
+_LOG = logging.getLogger(__name__)
 
 # A cataloguing strategy: (table, workspace relationships) -> CatalogEntry.
 CatalogFn = Callable[[FederatedTable, tuple[Relationship, ...]], CatalogEntry]
@@ -247,7 +251,17 @@ class DatabaseManager:
             return
         try:
             store.attach_database(spec.name, spec, tuple(t.name for t in tables))
-        except Exception:  # noqa: BLE001 - within-DB Q&A stays off if attach fails
+        except Exception as exc:  # noqa: BLE001 - degrade gracefully, but LOUDLY
+            # The connection stays catalogued + visible, but its tables are not
+            # Q&A-queryable. Never silent: the operator needs to see WHY (a
+            # missing DuckDB scanner extension, an unreachable host, etc.).
+            _LOG.warning(
+                "within-DB Q&A disabled for connection %r (%s): could not attach "
+                "for query execution: %s",
+                spec.name,
+                spec.engine.value,
+                _redact_secrets(str(exc), spec),
+            )
             return
         for record in records:
             record.db_queryable = True
