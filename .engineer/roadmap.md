@@ -26,7 +26,7 @@
       Tableau-like: agent assembles a multi-widget dashboard from an NL request, then fully interactive (filters, cross-filtering, chart-type switching, drill-down). Built/refined via the agentic AskQuestion workflow. Each widget keeps its trust trail; queries run locally in DuckDB.
 - [ ] **Charts & data exports** `id:charts-and-exports` priority:3 status:planned area:output → feature:—
       Save answers as charts (type inferred, overridable); export result sets to CSV/Parquet/Excel.
-- [x] **React/Tailwind/shadcn frontend app shell** `id:react-tailwind-shadcn-frontend-app-shell` priority:4 status:shipped area:frontend → feature:api-and-frontend
+- [x] **React/Tailwind/shadcn frontend app shell** `id:react-tailwind-shadcn-frontend-app-shell` priority:4 status:shipped area:frontend → feature:data-workbench-ux
       Swiss International Design System UI; zustand state; renders the AskQuestion primitive, trust trail, and interactive dashboards; consumes FastAPI backend.
 
 <!-- /DAE-ROADMAP -->

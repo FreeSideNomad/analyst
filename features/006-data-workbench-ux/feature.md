@@ -2,7 +2,8 @@
 slug: data-workbench-ux
 title: Two-surface UX — data workbench (Ingest & Profile) + pure Query
 outcome: The app collapses to two surfaces. "Ingest & Profile" becomes the data workbench — add data (upload files AND connect databases), then browse everything as a source-grouped tree (Files / Databases → tables → columns) showing profile stats + the semantic catalog (descriptions, roles, needs-review) + per-column drilldown. "Query" is renamed from "Catalog & Q&A" and stripped to the chat only. Datasets get a unified source.entity.ext naming scheme grouped by source.
-status: ready
+status: done
+merged_at: 2026-07-04
 autonomy_level: high
 assignee: local
 owner: igormusic
