@@ -13,8 +13,8 @@ so one scenario never needs two repositories open at once. The spy cataloguer
 records the exact ``WorkspaceContext`` each table's cataloguing received while
 producing byte-identical output to the offline path.
 
-Binding status: slice 1 bound (context cataloguing). Retroactive (slice 2)
-and DB persistence (slice 3) steps intentionally fail NOT YET IMPLEMENTED.
+Binding status: fully bound — context cataloguing (slice 1), retroactive
+re-cataloguing (slice 2), and connected-DB catalog persistence (slice 3).
 """
 
 from __future__ import annotations
