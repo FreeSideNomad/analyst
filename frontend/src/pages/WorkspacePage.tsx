@@ -2,10 +2,10 @@
 import { useState, useEffect, useRef } from 'react';
 import {
   ChevronRight, ChevronDown, Search, Check, Send, Sparkles, Info,
-  Download, ChevronLeft,
+  Download, ChevronLeft, Save,
 } from 'lucide-react';
 import type { AnswerResult, ChatMessage, ClarificationResult, TableBlock, TrustTrail as TrustTrailT } from '../api/types';
-import { useQuery } from '../stores';
+import { useQuery, useIngestion } from '../stores';
 import { money } from '../lib/format';
 import { Icon, Card, Button, Tag, SegmentedControl } from '../components/ui';
 
@@ -140,14 +140,23 @@ function toCsv(t: TableBlock): string {
 
 function ResultTableView({ table, title }: { table: TableBlock; title: string }) {
   const [page, setPage] = useState(0);
+  const [saved, setSaved] = useState(false);
+  const startIngestion = useIngestion((s) => s.startIngestion);
   const pages = Math.max(1, Math.ceil(table.rows.length / PAGE_SIZE));
   const rows = table.rows.slice(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE);
+  const fileStem = title.replace(/\W+/g, '_').toLowerCase() || 'result';
   const download = () => {
     const blob = new Blob([toCsv(table)], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.href = url; a.download = `${title.replace(/\W+/g, '_') || 'result'}.csv`;
+    a.href = url; a.download = `${fileStem}.csv`;
     a.click(); URL.revokeObjectURL(url);
+  };
+  const saveAsDataset = () => {
+    // Reuse the ingest path: the result becomes a first-class profiled dataset.
+    const file = new File([toCsv(table)], `${fileStem}.csv`, { type: 'text/csv' });
+    void startIngestion(file);
+    setSaved(true);
   };
   return (
     <div style={{ marginTop: 14 }}>
@@ -184,6 +193,10 @@ function ResultTableView({ table, title }: { table: TableBlock; title: string })
               style={{ display: 'inline-flex', border: '1px solid var(--border-default)', background: 'transparent', borderRadius: 'var(--radius-sm)', padding: 3, cursor: page + 1 >= pages ? 'default' : 'pointer', opacity: page + 1 >= pages ? 0.4 : 1 }}><Icon as={ChevronRight} size={14} /></button>
           </span>
         )}
+        <button aria-label="Save as dataset" onClick={saveAsDataset} disabled={saved}
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, border: '1px solid var(--border-default)', background: 'transparent', borderRadius: 'var(--radius-md)', padding: '5px 10px', cursor: saved ? 'default' : 'pointer', font: '600 12px/1 var(--font-sans)', color: saved ? 'var(--green-600)' : 'var(--text-body)', opacity: saved ? 0.8 : 1 }}>
+          <Icon as={saved ? Check : Save} size={13} /> {saved ? 'Saved to Ingest & Profile' : 'Save as dataset'}
+        </button>
         <button aria-label="Download CSV" onClick={download}
           style={{ display: 'inline-flex', alignItems: 'center', gap: 6, border: '1px solid var(--border-default)', background: 'transparent', borderRadius: 'var(--radius-md)', padding: '5px 10px', cursor: 'pointer', font: '600 12px/1 var(--font-sans)', color: 'var(--text-body)' }}>
           <Icon as={Download} size={13} /> CSV

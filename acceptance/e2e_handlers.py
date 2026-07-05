@@ -211,6 +211,18 @@ def then_result_table_shown(ctx: ScenarioContext) -> None:
     expect(ctx.page.get_by_role("button", name="Download CSV")).to_be_visible()
 
 
+@step(r"the user saves the result as a dataset")
+def when_save_result(ctx: ScenarioContext) -> None:
+    ctx.page.get_by_role("button", name="Save as dataset").click()
+
+
+@step(r"the result is confirmed saved to Ingest & Profile")
+def then_result_saved(ctx: ScenarioContext) -> None:
+    _expect()(ctx.page.get_by_text("Saved to Ingest & Profile")).to_be_visible(
+        timeout=15_000
+    )
+
+
 @step(r"the trust trail reveals assumptions, lineage and SQL")
 def then_trust_trail(ctx: ScenarioContext) -> None:
     expect = _expect()
