@@ -2,7 +2,8 @@
 slug: within-db-qa
 title: NL Q&A within a single connected database (federation phase 2)
 outcome: A user asks a plain-English question about the tables of ONE connected database and gets a confidence-gated answer — the generated SELECT runs entirely on that remote (read-only), with the same trust trail as file Q&A. Small results are interpreted; larger results return as a paginated table that can be saved as a dataset or downloaded. No file×DB joins yet (that is phase 3 / feature 008).
-status: ready
+status: done
+merged_at: 2026-07-05
 autonomy_level: high
 assignee: local
 owner: igormusic

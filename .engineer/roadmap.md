@@ -14,7 +14,7 @@
 ## next
 - [x] **Relational database federation** `id:relational-database-ingestion` priority:1 status:shipped area:ingestion → feature:db-federation
       Attach relational DBs and query through (federated, DuckDB attaches Postgres/MySQL/etc.) — nothing copied. Profile via the live connection.
-- [ ] **PK/FK relationship discovery & validation** `id:pk-fk-relationship-discovery-validation` priority:2 status:planned area:profiling → feature:—
+- [x] **PK/FK relationship discovery & validation** `id:pk-fk-relationship-discovery-validation` priority:2 status:shipped area:profiling → feature:semantic-depth
       Discover candidate PK/FK relationships not formally declared; validate via tests.
 - [ ] **Data normalization detection** `id:data-normalization-detection` priority:3 status:planned area:profiling → feature:—
       Detect normalization needs (case standardization upper/lower/proper, etc.) and propose rules.
