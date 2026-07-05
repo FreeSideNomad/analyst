@@ -342,17 +342,35 @@ class DatasetStore:
 
     @_synchronized
     def discover_relationships(
-        self, extra: Sequence[DiscoverTable] | None = None
+        self,
+        extra: Sequence[DiscoverTable] | None = None,
+        include_federated: bool = False,
     ) -> list[Relationship]:
         """Discover relationships across all datasets (parquet views) in this
         store's connection — plus any ``extra`` DiscoverTable relations already
-        registered in it (e.g. an attached DB, for cross-source). Local only."""
+        registered in it (e.g. an attached DB, for cross-source). Local only.
+
+        ``include_federated`` (feature 010) also scans the connection-backed
+        ``<connection>.<table>`` views ATTACHed for query, so file↔DB
+        relationships are discovered under record-matching names. Profiling
+        those views reads through the scanner (remote for Postgres) — hot-path
+        callers should run it in the background.
+        """
         from analyst.engine.relationships import DiscoverTable
 
         tables = [
             DiscoverTable(name=name, profile=profile_relation(self._con, name))
             for name in self.datasets()
         ]
+        if include_federated:
+            tables += [
+                DiscoverTable(
+                    name=view,
+                    profile=profile_relation(self._con, view),
+                    relation=_quote_ident(view),
+                )
+                for view in sorted(self._fed_views)
+            ]
         if extra:
             tables += list(extra)
         return discover(self._con, tables)

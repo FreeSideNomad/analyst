@@ -365,3 +365,43 @@ def test_workspace_context_survives_a_restart(tmp_path):
     (orders,) = reopened.ingest("orders.csv", _ORDERS_010)
     fk = next(c for c in orders.summary.catalog.columns if c.name == "customer_id")
     assert "customers.csv: 2 rows, 2 columns" in fk.description
+
+
+def test_new_relationship_recatalogues_the_affected_existing_table(tmp_path):
+    """AC-4: an existing table learns it is now referenced by the new one."""
+    repo = StoreRepository(str(tmp_path / "data"))
+    repo.ingest("customers.csv", _CUSTOMERS_010)
+    before = repo.get_dataset("customers.csv").summary.catalog.table_description
+    assert "orders" not in before
+    repo.ingest("orders.csv", _ORDERS_010)
+    after = repo.get_dataset("customers.csv").summary.catalog
+    assert "Referenced by orders.csv" in after.table_description
+    # …and the refreshed meaning is persisted for the next session.
+    reopened = StoreRepository(str(tmp_path / "data"))
+    persisted = reopened.get_dataset("customers.csv").summary.catalog
+    assert "Referenced by orders.csv" in persisted.table_description
+
+
+def test_recataloguing_is_bounded_to_the_affected_tables(tmp_path):
+    """AC-5: an unrelated table's entry is not re-derived (same object)."""
+    repo = StoreRepository(str(tmp_path / "data"))
+    repo.ingest("customers.csv", _CUSTOMERS_010)
+    repo.ingest("products.csv", b"sku,label\nA1,Widget\nB2,Gadget\n")
+    products_before = repo.get_dataset("products.csv").summary.catalog
+    repo.ingest("orders.csv", _ORDERS_010)
+    assert repo.get_dataset("products.csv").summary.catalog is products_before
+
+
+def test_recataloguing_failure_keeps_the_prior_entry(tmp_path):
+    """AC-10: a re-derivation failure is contained — ingest still succeeds."""
+    repo = StoreRepository(str(tmp_path / "data"))
+    repo.ingest("customers.csv", _CUSTOMERS_010)
+    prior = repo.get_dataset("customers.csv").summary.catalog
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("re-derivation failed")
+
+    repo._derive_entry = boom
+    (orders,) = repo.ingest("orders.csv", _ORDERS_010)  # must not raise
+    assert orders.summary.catalog is not None
+    assert repo.get_dataset("customers.csv").summary.catalog is prior

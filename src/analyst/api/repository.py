@@ -60,6 +60,10 @@ class DatasetRepository(Protocol):
     def add_records(self, records: list[DatasetRecord]) -> None: ...
     def remove_records(self, names: list[str]) -> None: ...
 
+    # Feature 010 hook — retroactive re-cataloguing of the existing tables a
+    # new relationship touches (bounded to the affected set, never O(workspace)).
+    def recatalogue_affected(self, new_names: list[str]) -> None: ...
+
 
 # --------------------------------------------------------------------------- #
 # Fixtures — the mock, in Python.
@@ -104,6 +108,9 @@ class FixtureRepository:
     def remove_records(self, names: list[str]) -> None:
         for name in names:
             self._records.pop(name, None)
+
+    def recatalogue_affected(self, new_names: list[str]) -> None:
+        """No-op: fixture catalogs are static seed data (feature 010)."""
 
     def ingest(self, file_name: str, content: bytes) -> list[DatasetRecord]:
         # Mirror the real engine's validation so the mock can't hide the
@@ -261,7 +268,60 @@ class StoreRepository:
             )
             self._records[summary.name] = rec
             out.append(rec)
+        # Feature 010 (AC-4): the new datasets may have created relationships
+        # to existing tables — refresh those tables' meanings, and only those.
+        self.recatalogue_affected([r.name for r in out])
         return out
+
+    def recatalogue_affected(self, new_names: list[str]) -> None:
+        """Re-catalogue ONLY the existing tables a new relationship touches
+        (feature 010, AC-4/AC-5). Any failure is contained: the affected table
+        keeps its prior entry and the ingest/connect is never broken (AC-10).
+        """
+        import dataclasses
+
+        try:
+            rels = tuple(self.store.discover_relationships(include_federated=True))
+        except Exception:  # noqa: BLE001 - discovery failure never breaks ingest
+            return
+        new = set(new_names)
+        affected: set[str] = set()
+        for r in rels:
+            if r.child_table in new and r.parent_table not in new:
+                affected.add(r.parent_table)
+            elif r.parent_table in new and r.child_table not in new:
+                affected.add(r.child_table)
+        affected &= set(self._records) - new
+        if not affected:
+            return
+        catalogs = {n: rec.summary.catalog for n, rec in self._records.items()}
+        for name in sorted(affected):
+            record = self._records[name]
+            try:
+                entry = self._derive_entry(name, record.summary.profile, rels, catalogs)
+            except Exception:  # noqa: BLE001 - AC-10: keep the prior entry
+                _LOG.warning("re-cataloguing %r failed; keeping prior entry", name)
+                continue
+            record.summary = dataclasses.replace(record.summary, catalog=entry)
+            _save_catalog_sidecar(self.store.base_dir, name, entry)
+
+    def _derive_entry(self, name: str, profile, rels, catalogs):  # noqa: ANN001
+        """One table's catalog entry, via the same path that catalogued it:
+        the configured cataloguer when present, else offline enrich — always
+        in the context of the current workspace (feature 010)."""
+        from analyst.domain.workspace_context import build_workspace_context
+
+        context = build_workspace_context(catalogs, rels).for_table(name)
+        cataloguer = self.service.cataloguer
+        if cataloguer is not None:
+            from analyst.domain.catalog import payload_from_profile
+
+            return cataloguer.catalog(
+                payload_from_profile(name, profile), rels, context=context
+            )
+        from analyst.agentic import enrich
+
+        return enrich.catalog_entry(name, profile, rels, context=context)
 
     def status(self, name: str) -> tuple[IngestionStatus, str | None, int | None]:
         record = self._records.get(name)

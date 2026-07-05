@@ -211,3 +211,36 @@ def test_connect_catalogues_with_workspace_context(db_path):
     # The pre-existing workspace tables, with their descriptions, are in view.
     assert "sales" in names
     assert context.describe("sales")
+
+
+def test_connect_recatalogues_the_affected_existing_file(tmp_path):
+    """AC-4 (connect path): an existing file learns it references a DB table."""
+    import sqlite3
+
+    from analyst.api.repository import StoreRepository
+    from analyst.api.routes.databases import DatabaseManager
+    from analyst.domain.connection import ConnectionSpec, DatabaseEngine
+
+    repo = StoreRepository(str(tmp_path / "data"))
+    repo.ingest(
+        "orders.csv", b"order_id,customer_id,quantity\n1,10,2\n2,20,1\n3,10,3\n"
+    )
+    before = repo.get_dataset("orders.csv").summary.catalog.table_description
+    assert "customers" not in before
+
+    db = tmp_path / "crm.sqlite"
+    con = sqlite3.connect(db)
+    con.execute("CREATE TABLE customers (customer_id INTEGER PRIMARY KEY, region TEXT)")
+    con.executemany(
+        "INSERT INTO customers VALUES (?, ?)", [(10, "North"), (20, "South")]
+    )
+    con.commit()
+    con.close()
+
+    manager = DatabaseManager(repo=repo)
+    manager.connect(
+        ConnectionSpec(name="crm", engine=DatabaseEngine.SQLITE, path=str(db))
+    )
+    manager._pool.shutdown(wait=True)
+    after = repo.get_dataset("orders.csv").summary.catalog.table_description
+    assert "References crm.customers" in after

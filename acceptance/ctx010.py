@@ -98,6 +98,12 @@ def _build_repo(ctx: ScenarioContext, flavor: str, data_dir: Path):  # noqa: ANN
             raise RuntimeError("catalog registry unavailable")
 
         repo.service.catalog_source = _broken
+    if st.get("broken_retro"):
+
+        def _boom(*args, **kwargs):  # noqa: ANN002, ANN003
+            raise RuntimeError("re-derivation failed")
+
+        repo._derive_entry = _boom
     return repo
 
 
@@ -109,6 +115,8 @@ def _realize(ctx: ScenarioContext, flavor: str = "spy"):  # noqa: ANN202
     for name, content in st["pending"]:
         repo.ingest(name, content.encode("utf-8"))
     st["pending"] = []
+    # Snapshot the Given-time entries, for "unchanged"/"prior" assertions.
+    st["prior"] = {n: r.summary.catalog for n, r in repo._records.items()}
     if st["restart"]:
         repo = _build_repo(ctx, flavor, data_dir)  # fresh session, same disk
         st["restart"] = False
@@ -189,6 +197,11 @@ def given_restart(ctx: ScenarioContext) -> None:
 @step(r"the workspace context cannot be built")
 def given_broken_context(ctx: ScenarioContext) -> None:
     _state(ctx)["broken_context"] = True
+
+
+@step(r"re-cataloguing of existing tables is failing")
+def given_broken_retro(ctx: ScenarioContext) -> None:
+    _state(ctx)["broken_retro"] = True
 
 
 # --------------------------------------------------------------------------- #
@@ -392,6 +405,48 @@ def then_runs_identical(ctx: ScenarioContext) -> None:
 @step(r'the ingestion of "orders" succeeds')
 def then_ingestion_succeeded(ctx: ScenarioContext) -> None:
     assert _entry(ctx, "orders") is not None
+
+
+# --------------------------------------------------------------------------- #
+# Then — retroactive re-cataloguing (AC-4, AC-5, AC-10)
+# --------------------------------------------------------------------------- #
+@step(
+    r'the description of "(?P<table>[^"]+)" states it is referenced by "(?P<child>[^"]+)"'
+)
+def then_table_referenced_by(ctx: ScenarioContext, table: str, child: str) -> None:
+    description = _entry(ctx, table).table_description
+    assert f"Referenced by {child}" in description or (
+        f"Referenced by {child}.csv" in description
+    ), f"{table!r} does not state it is referenced by {child!r}: {description!r}"
+
+
+@step(r'the description of "(?P<table>[^"]+)" states it references "(?P<parent>[^"]+)"')
+def then_table_states_references(ctx: ScenarioContext, table: str, parent: str) -> None:
+    description = _entry(ctx, table).table_description
+    assert "References" in description and parent in description, (
+        f"{table!r} does not state it references {parent!r}: {description!r}"
+    )
+
+
+@step(
+    r'the description of "(?P<table>[^"]+)" reflects its new relationship to "(?P<child>[^"]+)"'
+)
+def then_table_reflects_new_relationship(
+    ctx: ScenarioContext, table: str, child: str
+) -> None:
+    then_table_referenced_by(ctx, table=table, child=child)
+
+
+@step(r'the catalog entry of "(?P<table>[^"]+)" is unchanged from before the ingestion')
+def then_entry_unchanged(ctx: ScenarioContext, table: str) -> None:
+    prior = _state(ctx)["prior"].get(f"{table}.csv") or _state(ctx)["prior"].get(table)
+    assert prior is not None, f"no prior entry snapshot for {table!r}"
+    assert _entry(ctx, table) == prior, f"{table!r} was re-derived"
+
+
+@step(r'the description of "(?P<table>[^"]+)" remains its prior catalog entry')
+def then_entry_remains_prior(ctx: ScenarioContext, table: str) -> None:
+    then_entry_unchanged(ctx, table=table)
 
 
 @step(r'"orders" has a description derived without workspace context')

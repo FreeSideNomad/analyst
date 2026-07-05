@@ -266,3 +266,14 @@ def test_single_column_relationship_is_not_composite():
     r = Relationship("orders", "customer_id", "customers", "id", INFERRED, REQUIRED)
     assert not r.is_composite
     assert r.column_pairs == (("customer_id", "id"),)
+
+
+def test_connection_qualified_parent_name_matches():
+    """Feature 010: a connected table 'crm.customers' is a valid name match
+    for a child column 'customer_id' — the connection prefix is not part of
+    the entity name."""
+    from analyst.engine.relationships import _name_matches_table
+
+    assert _name_matches_table("customer", "crm.customers")
+    assert _name_matches_table("customer", "customers.csv")
+    assert not _name_matches_table("product", "crm.customers")

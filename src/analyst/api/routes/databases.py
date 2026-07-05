@@ -255,7 +255,17 @@ class DatabaseManager:
         pool = self._ensure_pool()
         for table in tables:
             pool.submit(self._catalogue_one, spec.name, table, relationships, context)
+        # Feature 010 (AC-4): connecting may have created file↔DB relationships
+        # — refresh the affected EXISTING tables' meanings in the background
+        # (cross-source discovery reads through the scanner; keep connect prompt).
+        pool.submit(self._recatalogue_neighbors, [r.name for r in records])
         return self._schema(spec)
+
+    def _recatalogue_neighbors(self, new_names: list[str]) -> None:
+        try:
+            self.repo.recatalogue_affected(new_names)
+        except Exception:  # noqa: BLE001 - contained (AC-10): connect is done
+            _LOG.warning("retroactive re-cataloguing failed for %s", new_names)
 
     def _workspace_context(
         self, relationships: tuple[Relationship, ...]
