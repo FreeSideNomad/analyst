@@ -13,6 +13,8 @@ from __future__ import annotations
 
 from typing import Any
 
+import httpx
+
 from acceptance.e2e_base import (  # noqa: F401 (re-exported for the generated board)
     REPO_ROOT,
     ScenarioContext,
@@ -245,5 +247,117 @@ def then_left_join(ctx: ScenarioContext) -> None:
 
 
 # --------------------------------------------------------------------------- #
-# (Declared / cross-source / cataloguing / browser bindings added next.)
+# AC-12 / AC-13 — focus surfacing (Playwright, fixtures seed the relationships).
+# --------------------------------------------------------------------------- #
+def _open_workbench(ctx: ScenarioContext) -> None:
+    ctx.page.goto(ctx.web)
+    _expect()(ctx.page.get_by_text("Catalog", exact=True).first).to_be_visible()
+
+
+@step(r"the app is open on the Ingest & Profile view with related tables")
+def given_workbench_related(ctx: ScenarioContext) -> None:
+    _open_workbench(ctx)
+
+
+@step(r'the user selects the table "(?P<name>[^"]+)"')
+def when_select_table(ctx: ScenarioContext, name: str) -> None:
+    ctx.page.get_by_role("button", name=f"Open table {name}").first.click()
+
+
+@step(r"its description is shown")
+def then_table_description(ctx: ScenarioContext) -> None:
+    desc = httpx.get(f"{ctx.api}/api/catalog").json()["sales"]["tableDescription"]
+    _expect()(ctx.page.get_by_text(desc[:40]).first).to_be_visible()
+
+
+@step(
+    r'its relationships to "customers" and "products" are listed with '
+    r"declared-or-inferred and required-or-optional"
+)
+def then_relationships_listed(ctx: ScenarioContext) -> None:
+    expect = _expect()
+    expect(
+        ctx.page.get_by_label("Relationship customer_id references customers")
+    ).to_be_visible()
+    expect(
+        ctx.page.get_by_label("Relationship product_id references products")
+    ).to_be_visible()
+    # the origin + join-type badges are present in the block
+    expect(ctx.page.get_by_text("inferred").first).to_be_visible()
+    expect(ctx.page.get_by_text("required").first).to_be_visible()
+
+
+@step(r'the user selects the column "(?P<col>[^"]+)" of "(?P<name>[^"]+)"')
+def when_select_column(ctx: ScenarioContext, col: str, name: str) -> None:
+    ctx.page.get_by_role("button", name=f"Open table {name}").first.click()
+    ctx.page.get_by_role("button", name=f"Column {col}").first.click()
+
+
+@step(r"its description and role are shown")
+def then_column_desc_role(ctx: ScenarioContext) -> None:
+    _expect()(ctx.page.get_by_text("Column drilldown").first).to_be_visible()
+
+
+@step(r'it shows a relationship referencing "customers"')
+def then_column_relationship(ctx: ScenarioContext) -> None:
+    _expect()(
+        ctx.page.get_by_label("Column relationship referencing customers")
+    ).to_be_visible()
+
+
+# --------------------------------------------------------------------------- #
+# AC-1 — declared keys from a database are surfaced (in-process, sqlite).
+# --------------------------------------------------------------------------- #
+@step(
+    r'a database with a declared foreign key from "(?P<child>[^"]+)\.(?P<ccol>[^"]+)" '
+    r'to "(?P<parent>[^"]+)\.(?P<pcol>[^"]+)"'
+)
+def given_declared_db(
+    ctx: ScenarioContext, child: str, ccol: str, parent: str, pcol: str
+) -> None:
+    import sqlite3
+
+    db = ctx.tmp_path / "declared.sqlite"
+    con = sqlite3.connect(db)
+    con.executescript(
+        f"CREATE TABLE {parent} ({pcol} INTEGER PRIMARY KEY, name TEXT);"
+        f"CREATE TABLE {child} (id INTEGER PRIMARY KEY, {ccol} INTEGER, "
+        f"  FOREIGN KEY ({ccol}) REFERENCES {parent}({pcol}));"
+        f"INSERT INTO {parent} VALUES (1,'a'),(2,'b');"
+        f"INSERT INTO {child} VALUES (1,1),(2,2);"
+    )
+    con.commit()
+    con.close()
+    _state(ctx).update(
+        db_path=str(db), child=child, ccol=ccol, parent=parent, pcol=pcol
+    )
+
+
+@step(r"the database is connected and profiled")
+def when_connect_db(ctx: ScenarioContext) -> None:
+    from analyst.domain.connection import ConnectionSpec, DatabaseEngine
+    from analyst.engine.federation import create_connector
+
+    st = _state(ctx)
+    spec = ConnectionSpec(name="db", engine=DatabaseEngine.SQLITE, path=st["db_path"])
+    st["declared_keys"] = create_connector(spec).declared_keys()
+
+
+@step(
+    r'the table "(?P<child>[^"]+)" carries a declared relationship to '
+    r'"(?P<parent>[^"]+)" on "(?P<col>[^"]+)"'
+)
+def then_declared_relationship(
+    ctx: ScenarioContext, child: str, parent: str, col: str
+) -> None:
+    keys = _state(ctx)["declared_keys"]
+    tk = keys.get(child)
+    assert tk is not None, f"no keys for {child} in {keys}"
+    fks = [fk for fk in tk.foreign_keys if col in fk.columns]
+    assert fks, f"no declared FK on {child}.{col}: {tk.foreign_keys}"
+    assert fks[0].referenced_table == parent
+
+
+# --------------------------------------------------------------------------- #
+# (Cross-source / cataloguing / async-browser bindings added next.)
 # --------------------------------------------------------------------------- #
