@@ -13,6 +13,7 @@ Two implementations of one seam, on the UNCHANGED wire contract:
 
 from __future__ import annotations
 
+import dataclasses
 import math
 import os
 import uuid
@@ -39,6 +40,7 @@ from analyst.domain.query import (
 )
 from analyst.domain.query_validation import validate_sql
 from analyst.engine.query import run_select
+from analyst.engine.store import query_alias_name
 
 
 class QAService(Protocol):
@@ -181,15 +183,43 @@ class PlannerQAService:
             (r for r in repo.list_datasets() if queryable(r)),
             key=lambda r: r.name,
         )
-        return tuple(query_table_from_summary(r.summary) for r in records)
+        # Dataset ids carry dots (orders.csv, sales_db.Album) which an LLM
+        # misreads as schema.table — present the planner a dot-free alias, backed
+        # by a TEMP view it can actually execute against (feature 007-fix).
+        store = getattr(repo, "store", None)
+        tables: list[QueryTable] = []
+        for r in records:
+            qt = query_table_from_summary(r.summary)
+            if store is not None:
+                qt = dataclasses.replace(qt, name=store.register_query_alias(r.name))
+            tables.append(qt)
+        return tuple(tables)
 
     def _relationships(self, repo: DatasetRepository) -> tuple:
-        """Discovered relationships (feature 009) across the queryable tables, so
-        the planner joins on the right keys with the right join type (007)."""
+        """Discovered relationships (feature 009) across the queryable tables,
+        rewritten to the SQL aliases, so the planner joins on the right keys with
+        the right join type (007). Only relationships between two queryable
+        tables are kept (an un-runnable join would just abstain)."""
+        queryable_names = {
+            r.name
+            for r in repo.list_datasets()
+            if not getattr(r, "federated", False) or getattr(r, "db_queryable", False)
+        }
         out: list = []
         for r in repo.list_datasets():
             catalog = getattr(r.summary, "catalog", None)
-            out.extend(getattr(catalog, "relationships", ()) or ())
+            for rel in getattr(catalog, "relationships", ()) or ():
+                if (
+                    rel.child_table in queryable_names
+                    and rel.parent_table in queryable_names
+                ):
+                    out.append(
+                        dataclasses.replace(
+                            rel,
+                            child_table=query_alias_name(rel.child_table),
+                            parent_table=query_alias_name(rel.parent_table),
+                        )
+                    )
         return tuple(out)
 
     def submit(self, question: str, repo: DatasetRepository) -> QueryResult:

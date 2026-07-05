@@ -29,10 +29,19 @@ from analyst.service.ingestion import IngestionService
 
 def _tables(tmp_path: Path) -> tuple[QueryTable, ...]:
     """Ingest the shared QA fixture CSV — identical for recording and replay."""
+    import dataclasses
+
     csv = tmp_path / "qa_orders.csv"
     csv.write_text(QA_ORDERS_CSV, encoding="utf-8")
-    result = IngestionService(DatasetStore(tmp_path / "store")).ingest(csv)
-    return tuple(query_table_from_summary(s) for s in result.datasets)
+    store = DatasetStore(tmp_path / "store")
+    result = IngestionService(store).ingest(csv)
+    # Feature 007-fix: the planner is called with dot-free SQL aliases.
+    return tuple(
+        dataclasses.replace(
+            query_table_from_summary(s), name=store.register_query_alias(s.name)
+        )
+        for s in result.datasets
+    )
 
 
 def _schema(tables: tuple[QueryTable, ...]) -> dict[str, tuple[str, ...]]:

@@ -65,6 +65,8 @@ _REAL: dict[str, Any] = {}
 def _merged_cassette(tmp_dir: Path) -> Path:
     """The committed recorded-real cassette + the synthetic AC-5 entry,
     keyed through the exact code path the server will use."""
+    import dataclasses
+
     from analyst.agentic.gateway import LLMGateway
     from analyst.agentic.planner import QueryPlanner
     from analyst.domain.query import query_table_from_summary
@@ -75,8 +77,16 @@ def _merged_cassette(tmp_dir: Path) -> Path:
 
     csv = tmp_dir / "qa_orders.csv"
     csv.write_text(QA_ORDERS_CSV, encoding="utf-8")
-    result = IngestionService(DatasetStore(tmp_dir / "probe-store")).ingest(csv)
-    tables = tuple(query_table_from_summary(s) for s in result.datasets)
+    store = DatasetStore(tmp_dir / "probe-store")
+    result = IngestionService(store).ingest(csv)
+    # Key through the SAME aliased path the server uses (feature 007-fix), so the
+    # synthetic AC-5 entry matches the request the server produces.
+    tables = tuple(
+        dataclasses.replace(
+            query_table_from_summary(s), name=store.register_query_alias(s.name)
+        )
+        for s in result.datasets
+    )
 
     class _Capture:
         request: Any = None

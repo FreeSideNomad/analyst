@@ -49,8 +49,11 @@ def then_marked_queryable(ctx: ScenarioContext, dataset: str) -> None:
 def then_planner_includes(ctx: ScenarioContext, dataset: str) -> None:
     from analyst.api.qa import PlannerQAService
 
+    from analyst.engine.store import query_alias_name
+
     tables = PlannerQAService(planner=None)._tables(_state(ctx)["repo"])  # type: ignore[arg-type]
-    assert dataset in {t.name for t in tables}
+    # the planner sees the dot-free SQL alias for the dotted dataset id
+    assert query_alias_name(dataset) in {t.name for t in tables}
 
 
 @step(r"the query '(?P<sql>.+)' is executed")

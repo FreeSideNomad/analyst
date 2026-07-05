@@ -178,6 +178,9 @@ def test_federated_tables_are_excluded_from_qa(tmp_path):
         federated=True,
     )
     repo.add_records([fed])
+    # _tables presents dot-free SQL aliases (feature 007-fix); the not-yet-
+    # queryable federated table (db_queryable=False, e.g. a bridge engine) is
+    # still excluded so the planner never writes un-runnable SQL.
     names = {t.name for t in PlannerQAService.__new__(PlannerQAService)._tables(repo)}
-    assert "orders.csv" in names
-    assert "pgsql.film" not in names
+    assert "q_orders_csv" in names
+    assert "q_pgsql_film" not in names
