@@ -48,6 +48,12 @@ from analyst.domain.workspace_context import (
     WorkspaceContext,
     build_workspace_context,
 )
+from analyst.engine.credentials import (
+    CredentialVault,
+    VaultError,
+    VaultStore,
+    load_operator_key,
+)
 from analyst.engine.federation import (
     DuplicateConnectionError,
     FederatedTable,
@@ -145,6 +151,7 @@ class ConnectedTableSchema(Camel):
 class DatabaseSchema(Camel):
     name: str
     engine: str
+    status: str = "connected"  # feature 011: "connected" | "unreachable"
     database: Optional[str] = None
     host: Optional[str] = None
     port: Optional[int] = None
@@ -213,6 +220,10 @@ class DatabaseManager:
     catalog_fn: CatalogFn = _enrich_catalog_fn
     max_workers: int = 4
     catalog_delay: float = 0.0
+    # Feature 011 — sealed credential persistence. No vault (no operator key)
+    # means connections stay session-only, exactly the pre-011 behavior.
+    vault: CredentialVault | None = None
+    _unreachable: "dict[str, ConnectionSpec]" = field(default_factory=dict, repr=False)
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
     _pool: ThreadPoolExecutor | None = field(default=None, repr=False)
 
@@ -268,7 +279,107 @@ class DatabaseManager:
         # — refresh the affected EXISTING tables' meanings in the background
         # (cross-source discovery reads through the scanner; keep connect prompt).
         pool.submit(self._recatalogue_neighbors, [r.name for r in records])
+        # Feature 011 (AC-1): remember the connection, sealed, for next session.
+        self._persist_credentials(spec)
+        self._unreachable.pop(spec.name, None)
         return self._schema(spec)
+
+    # ------------------------------------------------------------------ #
+    # Feature 011 — sealed persistence + reconnect
+    # ------------------------------------------------------------------ #
+    def _vault_store(self) -> VaultStore | None:
+        store = getattr(self.repo, "store", None)
+        if store is None:  # fixtures — no disk, no persistence
+            return None
+        return VaultStore(store.base_dir)
+
+    def _persist_credentials(self, spec: ConnectionSpec) -> None:
+        if self.vault is None:
+            return
+        vault_store = self._vault_store()
+        if vault_store is None:
+            return
+        try:
+            vault_store.put(spec.name, self.vault.seal(spec))
+        except Exception:  # noqa: BLE001 - persistence failure never fails connect
+            _LOG.warning("could not persist credentials for %r", spec.name)
+
+    def restore_persisted(self) -> None:
+        """Reconnect this workspace's remembered databases (feature 011).
+
+        Runs once when the manager is created. Fail-safe by construction: a
+        record that cannot be opened (absent/changed key, tampered ciphertext)
+        is ignored this session — kept on disk so restoring the right key
+        later revives it — and the user simply re-enters. A reachable
+        database reconnects through the normal path, so its persisted catalog
+        (feature 010) is shown immediately; an unreachable one stays listed
+        as retryable.
+        """
+        vault_store = self._vault_store()
+        if vault_store is None or self.vault is None:
+            return
+        for name, token in sorted(vault_store.all().items()):
+            try:
+                spec = self.vault.open(token)
+            except VaultError:
+                _LOG.warning(
+                    "stored credentials for %r could not be opened with the "
+                    "configured key; re-entry required",
+                    name,
+                )
+                continue
+            try:
+                self.connect(spec)
+            except FederationError as exc:
+                self._register_unreachable(spec, exc)
+            except Exception as exc:  # noqa: BLE001 - one bad record is contained
+                _LOG.warning(
+                    "could not restore connection %r: %s",
+                    name,
+                    _redact_secrets(str(exc), spec),
+                )
+
+    def _register_unreachable(self, spec: ConnectionSpec, exc: Exception) -> None:
+        """The remembered database didn't answer (feature 011, AC-4): keep it
+        visible — listed as unreachable, its persisted meaning (feature 010)
+        shown from the sidecars — and retryable without re-entry."""
+        _LOG.warning(
+            "remembered database %r is unreachable: %s",
+            spec.name,
+            _redact_secrets(str(exc), spec),
+        )
+        self._unreachable[spec.name] = spec
+        loader = getattr(self.repo, "load_persisted_catalog", None)
+        lister = getattr(self.repo, "persisted_connection_tables", None)
+        if loader is None or lister is None:
+            return
+        records = []
+        for name in lister(spec.name):
+            loaded = loader(name)
+            if loaded is None:
+                continue
+            entry, _fingerprint, profile = loaded
+            if profile is None:
+                continue
+            records.append(
+                DatasetRecord(
+                    summary=DatasetSummary(name=name, profile=profile, catalog=entry),
+                    file_name=name,
+                    status=IngestionStatus.COMPLETE,
+                    federated=True,
+                    db_queryable=False,  # no live data until it reconnects
+                    catalog_status="complete",
+                )
+            )
+        self.repo.add_records(records)
+
+    def reconnect(self, name: str) -> DatabaseSchema:
+        """Retry an unreachable remembered connection (feature 011, AC-4) —
+        with the sealed spec, so the user never re-enters credentials."""
+        spec = self._unreachable.get(name)
+        if spec is None:
+            raise UnknownConnectionError(f"No unreachable connection named '{name}'.")
+        return self.connect(spec)
 
     def _recatalogue_neighbors(self, new_names: list[str]) -> None:
         try:
@@ -289,7 +400,7 @@ class DatabaseManager:
         loaded = loader(f"{connection}.{table.name}")
         if loaded is None:
             return None
-        entry, fingerprint = loaded
+        entry, fingerprint, _profile = loaded
         if fingerprint != _schema_fingerprint(table.profile):
             return None
         return entry
@@ -364,7 +475,7 @@ class DatabaseManager:
         from analyst.api.repository import _schema_fingerprint
 
         try:
-            saver(name, entry, _schema_fingerprint(table.profile))
+            saver(name, entry, _schema_fingerprint(table.profile), table.profile)
         except Exception:  # noqa: BLE001 - persistence failure never fails cataloguing
             _LOG.warning("could not persist catalog for %r", name)
 
@@ -378,7 +489,23 @@ class DatabaseManager:
             record.catalog_status = status
 
     def list(self) -> list[DatabaseSchema]:
-        return [self._schema(spec) for spec in self.service.list()]
+        out = [self._schema(spec) for spec in self.service.list()]
+        for _name, spec in sorted(self._unreachable.items()):
+            summary = spec.summary()
+            out.append(
+                DatabaseSchema(
+                    name=summary.name,
+                    engine=summary.engine.value,
+                    status="unreachable",
+                    database=summary.database,
+                    host=summary.host,
+                    port=summary.port,
+                    user=summary.user,
+                    path=summary.path,
+                    tables=[],
+                )
+            )
+        return out
 
     def detach(self, name: str) -> None:
         tables = self.service.tables(name)  # raises UnknownConnectionError
@@ -387,6 +514,10 @@ class DatabaseManager:
         if store is not None:
             store.detach_database(name)
         self.repo.remove_records([f"{name}.{t.name}" for t in tables])
+        # Feature 011 (AC-5): detaching forgets the stored credentials.
+        vault_store = self._vault_store()
+        if vault_store is not None:
+            vault_store.remove(name)
 
     def close(self) -> None:
         if self._pool is not None:
@@ -429,11 +560,17 @@ def get_manager(request: Request) -> DatabaseManager:
     managers = request.app.state.__dict__.setdefault("database_managers", {})
     key = id(repo)
     if key not in managers:
-        managers[key] = DatabaseManager(
+        operator_key = load_operator_key()
+        manager = DatabaseManager(
             repo=repo,
             catalog_fn=_configured_catalog_fn(),
             catalog_delay=_catalog_delay(),
+            vault=CredentialVault(operator_key) if operator_key else None,
         )
+        managers[key] = manager
+        # Feature 011 (AC-2): the workspace's remembered databases come back
+        # before its first request is answered — no re-entry.
+        manager.restore_persisted()
     return managers[key]
 
 
@@ -501,3 +638,16 @@ def detach_database(name: str, manager: DatabaseManager = Depends(get_manager)) 
         manager.detach(name)
     except UnknownConnectionError as exc:
         raise HTTPException(404, str(exc)) from exc
+
+
+@router.post("/databases/{name}/reconnect")
+def reconnect_database(
+    name: str, manager: DatabaseManager = Depends(get_manager)
+) -> dict:
+    """Retry an unreachable remembered connection (feature 011, AC-4)."""
+    try:
+        return manager.reconnect(name).dump()
+    except UnknownConnectionError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    except FederationError as exc:
+        raise HTTPException(502, str(exc)) from exc

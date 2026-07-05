@@ -538,7 +538,7 @@ def then_persisted_descriptions_survive(ctx: ScenarioContext) -> None:
     for name, description in st["snapshot"].items():
         loaded = fresh.load_persisted_catalog(name)
         assert loaded is not None, f"no persisted catalog for {name!r}"
-        entry, _fingerprint = loaded
+        entry, _fingerprint, _profile = loaded
         assert entry.table_description == description, (
             f"persisted description for {name!r} drifted"
         )

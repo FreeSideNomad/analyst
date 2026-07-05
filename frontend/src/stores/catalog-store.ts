@@ -40,6 +40,7 @@ interface CatalogState {
   remove: (id: string) => Promise<void>;
   connectDatabase: (req: ConnectDatabaseRequest) => Promise<void>;
   detachDatabase: (name: string) => Promise<void>;
+  reconnectDatabase: (name: string) => Promise<void>; // feature 011: retry unreachable
   setActiveProfile: (id: string) => void;
   setDetail: (id: string) => void;
   toggleExpand: (id: string) => void;
@@ -86,6 +87,13 @@ export const useCatalog = create<CatalogState>((set) => ({
     // Feature 009: cataloguing runs in the background; poll until every table
     // has finished (complete or failed) so descriptions refresh with no reload.
     startCatalogPoll(set);
+  },
+  reconnectDatabase: async (name) => {
+    await databasesApi.reconnect(name);
+    const [datasets, catalog, connections] = await Promise.all([
+      api.listDatasets(), api.getCatalog(), databasesApi.list(),
+    ]);
+    set({ datasets, catalog, connections });
   },
   detachDatabase: async (name) => {
     await databasesApi.detach(name);

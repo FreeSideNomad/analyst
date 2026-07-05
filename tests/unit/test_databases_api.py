@@ -329,3 +329,130 @@ def test_schema_change_on_reconnect_triggers_recataloguing(tmp_path):
     record = repo2.get_dataset("crm.customers")
     assert record.catalog_status == "complete"
     assert "tier" in {c.name for c in record.summary.catalog.columns}
+
+
+# --------------------------------------------------------------------------- #
+# Feature 011 — sealed persistence + reconnect on restart
+# --------------------------------------------------------------------------- #
+def _spec_011(db):
+    from analyst.domain.connection import ConnectionSpec, DatabaseEngine
+
+    return ConnectionSpec(
+        name="crm",
+        engine=DatabaseEngine.SQLITE,
+        path=str(db),
+        user="reader",
+        password="s3cret-pw",
+    )
+
+
+def _manager_011(tmp_path, passphrase):
+    from analyst.api.repository import StoreRepository
+    from analyst.api.routes.databases import DatabaseManager
+    from analyst.engine.credentials import CredentialVault
+
+    repo = StoreRepository(str(tmp_path / "data"))
+    vault = CredentialVault(passphrase) if passphrase else None
+    return repo, DatabaseManager(repo=repo, vault=vault)
+
+
+def _drain(manager):
+    if manager._pool is not None:
+        manager._pool.shutdown(wait=True)
+        manager._pool = None
+
+
+def test_connect_with_vault_persists_and_restart_reconnects(tmp_path):
+    """AC-1 + AC-2: remembered automatically; back after restart with its
+    catalog immediately (010 reuse)."""
+    db = _crm_sqlite(tmp_path)
+    repo, manager = _manager_011(tmp_path, "k1")
+    manager.connect(_spec_011(db))
+    _drain(manager)
+    manager.close()
+
+    repo2, manager2 = _manager_011(tmp_path, "k1")
+    manager2.restore_persisted()
+    _drain(manager2)
+    assert [s.name for s in manager2.list()] == ["crm"]
+    record = repo2.get_dataset("crm.customers")
+    assert record is not None
+    assert record.catalog_status == "complete"  # persisted meaning, not re-derived
+
+
+def test_detach_forgets_the_stored_credentials(tmp_path):
+    """AC-5: after detach + restart, the connection does not reappear."""
+    db = _crm_sqlite(tmp_path)
+    _repo, manager = _manager_011(tmp_path, "k1")
+    manager.connect(_spec_011(db))
+    _drain(manager)
+    manager.detach("crm")
+    manager.close()
+
+    _repo2, manager2 = _manager_011(tmp_path, "k1")
+    manager2.restore_persisted()
+    assert manager2.list() == []
+
+
+def test_without_vault_nothing_persists(tmp_path):
+    """AC-6: no key -> session-only, no vault file, nothing after restart."""
+    db = _crm_sqlite(tmp_path)
+    _repo, manager = _manager_011(tmp_path, None)
+    manager.connect(_spec_011(db))
+    _drain(manager)
+    assert [s.name for s in manager.list()] == ["crm"]  # works for the session
+    assert list((tmp_path / "data").glob("*.vault.json")) == []
+    manager.close()
+
+    _repo2, manager2 = _manager_011(tmp_path, None)
+    manager2.restore_persisted()
+    assert manager2.list() == []
+
+
+def test_changed_key_requires_reentry_and_keeps_the_record(tmp_path):
+    """AC-7: a different key -> no reconnect, no crash; the sealed record
+    stays on disk so restoring the right key later revives it."""
+    db = _crm_sqlite(tmp_path)
+    _repo, manager = _manager_011(tmp_path, "k1")
+    manager.connect(_spec_011(db))
+    _drain(manager)
+    manager.close()
+
+    _repo2, manager2 = _manager_011(tmp_path, "k2")
+    manager2.restore_persisted()  # must not raise
+    assert manager2.list() == []
+    manager2.close()
+
+    _repo3, manager3 = _manager_011(tmp_path, "k1")  # right key restored
+    manager3.restore_persisted()
+    _drain(manager3)
+    assert [s.name for s in manager3.list()] == ["crm"]
+
+
+def test_unreachable_database_stays_visible_and_retryable(tmp_path):
+    """AC-4: DB down at restart -> listed unreachable with its persisted
+    catalog; retry re-attaches without re-entry once reachable."""
+    db = _crm_sqlite(tmp_path)
+    _repo, manager = _manager_011(tmp_path, "k1")
+    manager.connect(_spec_011(db))
+    _drain(manager)
+    manager.close()
+
+    hidden = tmp_path / "crm.hidden"
+    db.rename(hidden)  # the database is unreachable while the service is down
+    repo2, manager2 = _manager_011(tmp_path, "k1")
+    manager2.restore_persisted()
+    (schema,) = manager2.list()
+    assert schema.name == "crm"
+    assert schema.status == "unreachable"
+    record = repo2.get_dataset("crm.customers")
+    assert record is not None  # persisted meaning still visible
+    assert record.summary.catalog is not None
+    assert "customer_id" in {c.name for c in record.summary.catalog.columns}
+
+    hidden.rename(db)  # reachable again
+    manager2.reconnect("crm")
+    _drain(manager2)
+    (schema2,) = manager2.list()
+    assert schema2.status == "connected"
+    assert repo2.get_dataset("crm.customers").summary.profile.row_count == 2

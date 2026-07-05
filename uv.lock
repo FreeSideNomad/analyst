@@ -13,6 +13,7 @@ source = { editable = "." }
 dependencies = [
     { name = "anthropic" },
     { name = "claude-agent-sdk" },
+    { name = "cryptography" },
     { name = "duckdb" },
     { name = "fastapi" },
     { name = "httpx" },
@@ -43,6 +44,7 @@ dev = [
 requires-dist = [
     { name = "anthropic", specifier = ">=0.115.0" },
     { name = "claude-agent-sdk", specifier = ">=0.2.110" },
+    { name = "cryptography", specifier = ">=49.0.0" },
     { name = "duckdb", specifier = ">=1.5.4" },
     { name = "fastapi", specifier = ">=0.115.0" },
     { name = "httpx", specifier = ">=0.28.1" },
