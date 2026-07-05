@@ -8,6 +8,18 @@ from analyst.domain.types import ColumnType
 
 
 @dataclass(frozen=True)
+class DistributionBin:
+    """One bar of a column's value distribution (real, computed counts).
+
+    For numeric columns these are histogram buckets (label = range); for
+    low-cardinality/text columns, top-K value frequencies (label = the value).
+    """
+
+    label: str
+    count: int
+
+
+@dataclass(frozen=True)
 class ColumnProfile:
     """Deterministic profile of a single column."""
 
@@ -19,6 +31,8 @@ class ColumnProfile:
     minimum: object | None = None
     maximum: object | None = None
     quantiles: tuple[object, ...] = ()
+    # Real value distribution (histogram buckets or top-K frequencies).
+    distribution: tuple[DistributionBin, ...] = ()
     # Mixed-type facts (AC-9): a text column whose values mostly fit a narrower
     # type but not entirely — widened to text, with the mixture recorded.
     is_mixed: bool = False

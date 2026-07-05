@@ -64,12 +64,30 @@ def to_dataset_schema(rec: DatasetRecord) -> DatasetSchema:
             if rec.summary.catalog
             else None
         ),
-        # Feature 006 — source grouping + the not-yet-queryable marking for
-        # connected-database tables (federated records).
-        group=rec.name.split(".", 1)[0],
+        # Feature 006 — source grouping (file/connection → table) + the
+        # not-yet-queryable marking for connected-database tables.
+        group=_group_and_entity(rec.name, rec.federated)[0],
+        entity=_group_and_entity(rec.name, rec.federated)[1],
         source_kind="database" if rec.federated else "file",
         queryable=not rec.federated,
     )
+
+
+def _group_and_entity(name: str, federated: bool) -> tuple[str, str]:
+    """Split a dataset name into (group, entity) for the workbench tree.
+
+    File  `company.employees.xlsx` → ("company.xlsx", "employees")  [file+sheet]
+    File  `orders.csv`             → ("orders.csv", "orders")       [single table]
+    DB    `sales_db.orders`        → ("sales_db", "orders")         [conn+table]
+    """
+    parts = name.split(".")
+    if federated:
+        return parts[0], ".".join(parts[1:]) or parts[0]
+    if len(parts) >= 3:  # <stem>.<sheet>.<ext>
+        return f"{parts[0]}.{parts[-1]}", ".".join(parts[1:-1])
+    if len(parts) == 2:  # <stem>.<ext>
+        return name, parts[0]
+    return name, name
 
 
 def _require(repo: DatasetRepository, name: str) -> DatasetRecord:
