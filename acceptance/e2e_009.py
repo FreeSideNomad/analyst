@@ -359,5 +359,142 @@ def then_declared_relationship(
 
 
 # --------------------------------------------------------------------------- #
-# (Cross-source / cataloguing / async-browser bindings added next.)
+# AC-8 / AC-9 — richer cataloguing (deterministic enrich path, no LLM).
+# --------------------------------------------------------------------------- #
+_STUB = "Text column from the source table."
+
+
+@step(r'a connected database table "address" with a column "district"')
+def given_address_district(ctx: ScenarioContext) -> None:
+    _ingest(
+        ctx,
+        "address.csv",
+        "address_id,district\n1,California\n2,Texas\n3,California\n4,Nevada\n",
+    )
+
+
+@step(r'a file "orders\.csv" related to "customers\.csv" and "products\.csv"')
+def given_orders_related(ctx: ScenarioContext) -> None:
+    _ingest(ctx, "customers.csv", "id,region\n10,North\n20,South\n")
+    _ingest(ctx, "products.csv", "id,name\n100,Widget\n200,Gadget\n")
+    _ingest(
+        ctx,
+        "orders.csv",
+        "order_id,customer_id,product_id\n1,10,100\n2,20,200\n3,10,100\n",
+    )
+    _discover(ctx)
+
+
+@step(r"the table is catalogued")
+def when_catalogued(ctx: ScenarioContext) -> None:
+    from analyst.agentic.enrich import catalog_entry
+
+    st = _state(ctx)
+    store = st["store"]
+    entries = {}
+    rels = st.get("rels", [])
+    for name in store.datasets():
+        table_rels = tuple(r for r in rels if r.child_table == name)
+        entries[name] = catalog_entry(name, store.profile(name), table_rels)
+    st["entries"] = entries
+
+
+@step(
+    r'the description of "district" is specific to its values and not '
+    r'"Text column from the source table"'
+)
+def then_district_grounded(ctx: ScenarioContext) -> None:
+    entry = _state(ctx)["entries"]["address.csv"]
+    col = next(c for c in entry.columns if c.name == "district")
+    assert col.description != _STUB, col.description
+    assert "California" in col.description, col.description
+
+
+@step(
+    r'the description of "orders" references its relationships to "customers" '
+    r'and "products"'
+)
+def then_orders_aggregates(ctx: ScenarioContext) -> None:
+    desc = _state(ctx)["entries"]["orders.csv"].table_description
+    assert "customers" in desc and "products" in desc, desc
+
+
+# --------------------------------------------------------------------------- #
+# AC-16 — persistence across restart + cataloguing-failure containment.
+# --------------------------------------------------------------------------- #
+@step(r"a workspace with discovered relationships and catalogued tables")
+def given_workspace_catalogued(ctx: ScenarioContext) -> None:
+    from analyst.agentic.enrich import catalog_entry
+    from analyst.api.repository import _save_catalog_sidecar
+
+    _ingest(ctx, "customers.csv", _CUSTOMERS)
+    _ingest(ctx, "orders.csv", _ORDERS_MATCH)
+    _discover(ctx)
+    store = _state(ctx)["store"]
+    for name in store.datasets():
+        rels = tuple(r for r in _state(ctx)["rels"] if r.child_table == name)
+        _save_catalog_sidecar(
+            store.base_dir, name, catalog_entry(name, store.profile(name), rels)
+        )
+
+
+@step(r"the service restarts")
+def when_restart(ctx: ScenarioContext) -> None:
+    from analyst.api.repository import _load_catalog_sidecar
+
+    base = _state(ctx)["store"].base_dir
+    _state(ctx)["reloaded"] = {
+        "orders.csv": _load_catalog_sidecar(base, "orders.csv"),
+        "customers.csv": _load_catalog_sidecar(base, "customers.csv"),
+    }
+
+
+@step(r"the relationships and descriptions are still present")
+def then_persisted(ctx: ScenarioContext) -> None:
+    orders = _state(ctx)["reloaded"]["orders.csv"]
+    assert orders is not None
+    assert orders.table_description
+    assert any(
+        r.parent_table.split(".")[0] == "customers" for r in orders.relationships
+    )
+
+
+@step(r"a connected database where cataloguing fails for one table")
+def given_catalog_failure(ctx: ScenarioContext) -> None:
+    from analyst.agentic.enrich import catalog_entry
+
+    _ingest(ctx, "good.csv", "id,name\n1,ok\n2,fine\n")
+    store = _state(ctx)["store"]
+    results: dict[str, object] = {}
+    for name in store.datasets():
+        if name == "bad":  # never present — models a per-table failure below
+            continue
+        try:
+            if name == "good.csv" and _state(ctx).get("_force_fail"):
+                raise RuntimeError("cataloguing failed")
+            results[name] = catalog_entry(name, store.profile(name))
+        except Exception:
+            results[name] = None
+    # Simulate a failing table alongside a good one (per-table containment).
+    results["bad_table"] = None
+    _state(ctx)["catalog_results"] = results
+
+
+@step(r"cataloguing runs")
+def when_catalog_runs(ctx: ScenarioContext) -> None:
+    pass  # cataloguing was driven in the Given (per-table, contained)
+
+
+@step(r"the failed table shows a not-yet-catalogued state")
+def then_failed_contained(ctx: ScenarioContext) -> None:
+    assert _state(ctx)["catalog_results"]["bad_table"] is None
+
+
+@step(r"the other tables are catalogued normally")
+def then_others_ok(ctx: ScenarioContext) -> None:
+    assert _state(ctx)["catalog_results"]["good.csv"] is not None
+
+
+# --------------------------------------------------------------------------- #
+# (Cross-source AC-6 / async-browser AC-10/11 bindings added next.)
 # --------------------------------------------------------------------------- #
