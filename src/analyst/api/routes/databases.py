@@ -44,6 +44,10 @@ from analyst.domain.relationships import (
     Relationship,
 )
 from analyst.domain.status import IngestionStatus
+from analyst.domain.workspace_context import (
+    WorkspaceContext,
+    build_workspace_context,
+)
 from analyst.engine.federation import (
     DuplicateConnectionError,
     FederatedTable,
@@ -55,8 +59,12 @@ from analyst.engine.federation import (
 
 _LOG = logging.getLogger(__name__)
 
-# A cataloguing strategy: (table, workspace relationships) -> CatalogEntry.
-CatalogFn = Callable[[FederatedTable, tuple[Relationship, ...]], CatalogEntry]
+# A cataloguing strategy: (table, workspace relationships, workspace context)
+# -> CatalogEntry (feature 010: the context carries the other tables' meanings).
+CatalogFn = Callable[
+    [FederatedTable, tuple[Relationship, ...], "WorkspaceContext | None"],
+    CatalogEntry,
+]
 
 # Feature 007: engines with a DuckDB scanner whose tables can be ATTACHed into
 # the store's connection for within-DB Q&A (push-down). Bridge-only engines
@@ -180,11 +188,15 @@ def _declared_relationships(
 
 
 def _enrich_catalog_fn(
-    table: FederatedTable, relationships: tuple[Relationship, ...]
+    table: FederatedTable,
+    relationships: tuple[Relationship, ...],
+    context: WorkspaceContext | None = None,
 ) -> CatalogEntry:
     """Default LLM-free, data-grounded cataloguing (deterministic, offline)."""
     keys = table.keys.primary_key if table.keys else ()
-    return enrich.catalog_entry(table.name, table.profile, relationships, keys=keys)
+    return enrich.catalog_entry(
+        table.name, table.profile, relationships, keys=keys, context=context
+    )
 
 
 @dataclass
@@ -208,13 +220,22 @@ class DatabaseManager:
         spec.validate()
         tables = self.service.connect(spec)
         relationships = _declared_relationships(tables)
-        # 1) Immediate records: stub catalog + pending status; return promptly.
+        # Feature 010: snapshot the pre-existing workspace's meanings BEFORE
+        # registering this connection's records, so each table is catalogued
+        # knowing its neighbours. A failure degrades to isolation (AC-10).
+        context = self._workspace_context(relationships)
+        # 1) Immediate records; return promptly. A table whose catalog was
+        # persisted in a previous session — and whose schema is unchanged —
+        # comes back complete at once (feature 010, AC-7); the rest start as
+        # a stub catalog + pending status.
+        persisted = {t.name: self._persisted_entry(spec.name, t) for t in tables}
         records = [
             DatasetRecord(
                 summary=DatasetSummary(
                     name=f"{spec.name}.{table.name}",
                     profile=table.profile,
-                    catalog=catalog_for_table(
+                    catalog=persisted[table.name]
+                    or catalog_for_table(
                         table.name,
                         spec.engine.label,
                         spec.name,
@@ -226,7 +247,7 @@ class DatabaseManager:
                 status=IngestionStatus.COMPLETE,
                 ingested_at=time.strftime("%Y-%m-%d"),
                 federated=True,  # catalogued + visible, but not Q&A-queryable yet
-                catalog_status="pending",
+                catalog_status="complete" if persisted[table.name] else "pending",
             )
             for table in tables
         ]
@@ -236,10 +257,53 @@ class DatabaseManager:
         # Q&A can execute planner SQL against them (push-down, read-only).
         self._attach_for_query(spec, tables, records)
         # 2) Background cataloguing (bounded concurrency), contained per table.
+        # Tables restored from a persisted catalog are already complete.
         pool = self._ensure_pool()
         for table in tables:
-            pool.submit(self._catalogue_one, spec.name, table, relationships)
+            if persisted[table.name] is None:
+                pool.submit(
+                    self._catalogue_one, spec.name, table, relationships, context
+                )
+        # Feature 010 (AC-4): connecting may have created file↔DB relationships
+        # — refresh the affected EXISTING tables' meanings in the background
+        # (cross-source discovery reads through the scanner; keep connect prompt).
+        pool.submit(self._recatalogue_neighbors, [r.name for r in records])
         return self._schema(spec)
+
+    def _recatalogue_neighbors(self, new_names: list[str]) -> None:
+        try:
+            self.repo.recatalogue_affected(new_names)
+        except Exception:  # noqa: BLE001 - contained (AC-10): connect is done
+            _LOG.warning("retroactive re-cataloguing failed for %s", new_names)
+
+    def _persisted_entry(
+        self, connection: str, table: FederatedTable
+    ) -> CatalogEntry | None:
+        """A previous session's catalog for this table, iff the schema is
+        unchanged (feature 010, AC-7). Anything else → derive afresh."""
+        from analyst.api.repository import _schema_fingerprint
+
+        loader = getattr(self.repo, "load_persisted_catalog", None)
+        if loader is None:
+            return None
+        loaded = loader(f"{connection}.{table.name}")
+        if loaded is None:
+            return None
+        entry, fingerprint = loaded
+        if fingerprint != _schema_fingerprint(table.profile):
+            return None
+        return entry
+
+    def _workspace_context(
+        self, relationships: tuple[Relationship, ...]
+    ) -> WorkspaceContext | None:
+        try:
+            return build_workspace_context(
+                {r.name: r.summary.catalog for r in self.repo.list_datasets()},
+                relationships,
+            )
+        except Exception:  # noqa: BLE001 - degrade to isolation, never fail connect
+            return None
 
     def _attach_for_query(
         self,
@@ -279,15 +343,30 @@ class DatabaseManager:
         connection: str,
         table: FederatedTable,
         relationships: tuple[Relationship, ...],
+        context: WorkspaceContext | None = None,
     ) -> None:
         name = f"{connection}.{table.name}"
         try:
             if self.catalog_delay:
                 time.sleep(self.catalog_delay)
-            entry = self.catalog_fn(table, relationships)
+            trimmed = context.for_table(table.name) if context is not None else None
+            entry = self.catalog_fn(table, relationships, trimmed)
             self._apply(name, entry, "complete")
+            self._persist(name, entry, table)
         except Exception:  # noqa: BLE001 - failure is contained to this table
             self._apply(name, None, "failed")
+
+    def _persist(self, name: str, entry: CatalogEntry, table: FederatedTable) -> None:
+        """Persist the derived catalog for the next session (feature 010, AC-6)."""
+        saver = getattr(self.repo, "persist_catalog", None)
+        if saver is None:
+            return
+        from analyst.api.repository import _schema_fingerprint
+
+        try:
+            saver(name, entry, _schema_fingerprint(table.profile))
+        except Exception:  # noqa: BLE001 - persistence failure never fails cataloguing
+            _LOG.warning("could not persist catalog for %r", name)
 
     def _apply(self, name: str, entry: CatalogEntry | None, status: str) -> None:
         with self._lock:
@@ -368,11 +447,13 @@ def _configured_catalog_fn() -> CatalogFn:
         return _enrich_catalog_fn
 
     def fn(
-        table: FederatedTable, relationships: tuple[Relationship, ...]
+        table: FederatedTable,
+        relationships: tuple[Relationship, ...],
+        context: WorkspaceContext | None = None,
     ) -> CatalogEntry:
         mine = tuple(r for r in relationships if r.child_table == table.name)
         payload = payload_from_profile(table.name, table.profile)
-        return cataloguer.catalog(payload, mine)  # type: ignore[attr-defined]
+        return cataloguer.catalog(payload, mine, context=context)  # type: ignore[attr-defined]
 
     return fn
 

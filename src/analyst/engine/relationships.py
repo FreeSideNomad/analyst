@@ -98,13 +98,16 @@ _FILE_EXTS = (".csv", ".tsv", ".json", ".xlsx", ".xls", ".parquet")
 
 
 def _stem(name: str) -> str:
-    """Drop a trailing file extension so a dataset id (``customers.csv``) matches
-    an entity-derived base (``customer``)."""
+    """The entity part of a dataset id: drop a trailing file extension
+    (``customers.csv`` → ``customers``) and a connection qualifier
+    (``crm.customers`` → ``customers``, feature 010) so either kind of id
+    matches an entity-derived base (``customer``)."""
     low = name.lower()
     for ext in _FILE_EXTS:
         if low.endswith(ext):
-            return low[: -len(ext)]
-    return low
+            low = low[: -len(ext)]
+            break
+    return low.rsplit(".", 1)[-1]
 
 
 def _name_matches_table(base: str, table: str) -> bool:

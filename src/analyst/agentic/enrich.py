@@ -18,6 +18,7 @@ from analyst.domain.catalog import CatalogEntry, ColumnDescription
 from analyst.domain.profile import ColumnProfile, DatasetProfile
 from analyst.domain.relationships import Relationship
 from analyst.domain.types import ColumnType
+from analyst.domain.workspace_context import WorkspaceContext
 
 _NUMERIC = {ColumnType.INTEGER, ColumnType.DECIMAL}
 _LOW_CARD = 25
@@ -44,6 +45,15 @@ def _sample_phrase(col: ColumnProfile, limit: int = 3) -> str:
     return ", ".join(values[:limit])
 
 
+def _labeled_short(table: str, description: str) -> str:
+    """The first sentence of a sibling's meaning, attributed to its table
+    (feature 010) — truncation keeps woven descriptions from chaining."""
+    head = description.split(". ", 1)[0].strip()
+    if not head.endswith("."):
+        head += "."
+    return head if head.lower().startswith(table.lower()) else f"{table}: {head}"
+
+
 def _null_note(col: ColumnProfile, row_count: int) -> str:
     if col.null_count <= 0 or row_count <= 0:
         return ""
@@ -56,13 +66,20 @@ def _column_description(
     row_count: int,
     fk: Relationship | None,
     is_key: bool,
+    context: WorkspaceContext | None = None,
 ) -> str:
     name = col.name
     if fk is not None:
         opt = "optional" if fk.optional else "required"
+        parent_meaning = context.describe(fk.parent_table) if context else None
+        woven = (
+            f" {_labeled_short(fk.parent_table, parent_meaning)}"
+            if parent_meaning
+            else ""
+        )
         return (
             f"Foreign key: each {name} references {fk.parent_table}."
-            f"{fk.parent_column} ({opt}).{_null_note(col, row_count)}"
+            f"{fk.parent_column} ({opt}).{woven}{_null_note(col, row_count)}"
         )
     if is_key:
         return (
@@ -94,7 +111,10 @@ def _column_description(
 
 
 def _table_description(
-    name: str, profile: DatasetProfile, relationships: tuple[Relationship, ...]
+    name: str,
+    profile: DatasetProfile,
+    relationships: tuple[Relationship, ...],
+    context: WorkspaceContext | None = None,
 ) -> str:
     n_cols = len(profile.columns)
     parts = [f"{name}: {profile.row_count} rows, {n_cols} columns."]
@@ -110,6 +130,13 @@ def _table_description(
         parts.append(f"References {refs}.")
     if children:
         parts.append(f"Referenced by {', '.join(children)}.")
+    if context is not None:
+        # Situate the table among the ones it links to (feature 010): weave in
+        # each known linked table's meaning, first sentence only.
+        for linked in sorted({*parents, *children}):
+            meaning = context.describe(linked)
+            if meaning:
+                parts.append(_labeled_short(linked, meaning))
     return " ".join(parts)
 
 
@@ -118,8 +145,15 @@ def catalog_entry(
     profile: DatasetProfile,
     relationships: tuple[Relationship, ...] = (),
     keys: tuple[str, ...] = (),
+    context: WorkspaceContext | None = None,
 ) -> CatalogEntry:
-    """Build a data-grounded CatalogEntry for one table (deterministic)."""
+    """Build a data-grounded CatalogEntry for one table (deterministic).
+
+    With a workspace ``context`` (feature 010) the descriptions weave in the
+    meaning of directly-linked tables; an empty/absent context produces output
+    byte-identical to the pre-010 behavior (AC-9 compatibility rule).
+    """
+    ctx = context.for_table(table) if context is not None else None
     mine = tuple(r for r in relationships if table in (r.child_table, r.parent_table))
     child_fk = {r.child_column: r for r in mine if r.child_table == table}
     key_set = set(keys)
@@ -131,13 +165,14 @@ def catalog_entry(
                 profile.row_count,
                 child_fk.get(col.name),
                 col.name in key_set,
+                ctx,
             ),
             role=_role(col, col.name in child_fk, col.name in key_set),
         )
         for col in profile.columns
     )
     return CatalogEntry(
-        table_description=_table_description(table, profile, mine),
+        table_description=_table_description(table, profile, mine, ctx),
         columns=columns,
         clarifications=(),
         relationships=mine,

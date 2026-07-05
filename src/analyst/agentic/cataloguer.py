@@ -20,6 +20,7 @@ from analyst.domain.catalog import (
     ColumnDescription,
 )
 from analyst.domain.relationships import Relationship
+from analyst.domain.workspace_context import WorkspaceContext
 
 
 class CatalogingError(RuntimeError):
@@ -59,7 +60,9 @@ class _CatalogOut(BaseModel):
 
 
 def render_prompt(
-    payload: CatalogPayload, relationships: tuple[Relationship, ...] = ()
+    payload: CatalogPayload,
+    relationships: tuple[Relationship, ...] = (),
+    context: WorkspaceContext | None = None,
 ) -> str:
     lines = [
         f"Dataset: {payload.dataset}",
@@ -81,6 +84,22 @@ def render_prompt(
                 f"- {r.child_column} -> {r.parent_table}.{r.parent_column} "
                 f"({r.join_type}, {r.origin})"
             )
+    # Feature 010: the rest of the workspace, metadata only — emitted ONLY when
+    # non-empty so single-table prompts (and their cassette keys) are unchanged.
+    ctx = context.for_table(payload.dataset) if context is not None else None
+    if ctx is not None and ctx.tables:
+        lines.append("Workspace context (already-catalogued tables):")
+        for t in ctx.tables:
+            lines.append(f"- {t.name}: {t.description}")
+            for c in t.columns:  # populated only for directly-linked tables
+                lines.append(f"  - {c.name} ({c.role}): {c.description}")
+        if ctx.relationships:
+            lines.append("Workspace relationships:")
+            for r in ctx.relationships:
+                lines.append(
+                    f"- {r.child_table}.{r.child_column} -> "
+                    f"{r.parent_table}.{r.parent_column} ({r.join_type}, {r.origin})"
+                )
     return "\n".join(lines)
 
 
@@ -102,11 +121,12 @@ class Cataloguer:
         self,
         payload: CatalogPayload,
         relationships: tuple[Relationship, ...] = (),
+        context: WorkspaceContext | None = None,
     ) -> CatalogEntry:
         raw = self.gateway.run(
             payload,
             SYSTEM_PROMPT,
-            lambda capped: render_prompt(capped, relationships),
+            lambda capped: render_prompt(capped, relationships, context),
         )
         try:
             parsed = _CatalogOut.model_validate_json(_extract_json(raw))

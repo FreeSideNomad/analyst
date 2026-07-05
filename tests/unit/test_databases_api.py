@@ -184,3 +184,148 @@ def test_federated_tables_are_excluded_from_qa(tmp_path):
     names = {t.name for t in PlannerQAService.__new__(PlannerQAService)._tables(repo)}
     assert "q_orders_csv" in names
     assert "q_pgsql_film" not in names
+
+
+# --------------------------------------------------------------------------- #
+# Feature 010 — connect catalogues each table knowing the workspace (AC-1)
+# --------------------------------------------------------------------------- #
+def test_connect_catalogues_with_workspace_context(db_path):
+    from analyst.api.routes.databases import DatabaseManager, _enrich_catalog_fn
+    from analyst.domain.connection import ConnectionSpec, DatabaseEngine
+
+    repo = FixtureRepository()  # seeded workspace: sales / customers / products
+    seen = {}
+
+    def spy(table, relationships, context):
+        seen[table.name] = context
+        return _enrich_catalog_fn(table, relationships, context)
+
+    manager = DatabaseManager(repo=repo, catalog_fn=spy)
+    manager.connect(
+        ConnectionSpec(name="chinook", engine=DatabaseEngine.SQLITE, path=str(db_path))
+    )
+    manager._pool.shutdown(wait=True)  # drain the background cataloguing
+    context = seen["Album"]
+    assert context is not None
+    names = {t.name for t in context.tables}
+    # The pre-existing workspace tables, with their descriptions, are in view.
+    assert "sales" in names
+    assert context.describe("sales")
+
+
+def test_connect_recatalogues_the_affected_existing_file(tmp_path):
+    """AC-4 (connect path): an existing file learns it references a DB table."""
+    import sqlite3
+
+    from analyst.api.repository import StoreRepository
+    from analyst.api.routes.databases import DatabaseManager
+    from analyst.domain.connection import ConnectionSpec, DatabaseEngine
+
+    repo = StoreRepository(str(tmp_path / "data"))
+    repo.ingest(
+        "orders.csv", b"order_id,customer_id,quantity\n1,10,2\n2,20,1\n3,10,3\n"
+    )
+    before = repo.get_dataset("orders.csv").summary.catalog.table_description
+    assert "customers" not in before
+
+    db = tmp_path / "crm.sqlite"
+    con = sqlite3.connect(db)
+    con.execute("CREATE TABLE customers (customer_id INTEGER PRIMARY KEY, region TEXT)")
+    con.executemany(
+        "INSERT INTO customers VALUES (?, ?)", [(10, "North"), (20, "South")]
+    )
+    con.commit()
+    con.close()
+
+    manager = DatabaseManager(repo=repo)
+    manager.connect(
+        ConnectionSpec(name="crm", engine=DatabaseEngine.SQLITE, path=str(db))
+    )
+    manager._pool.shutdown(wait=True)
+    after = repo.get_dataset("orders.csv").summary.catalog.table_description
+    assert "References crm.customers" in after
+
+
+def _crm_sqlite(tmp_path, extra_column=False):
+    import sqlite3
+
+    db = tmp_path / "crm.sqlite"
+    con = sqlite3.connect(db)
+    cols = "customer_id INTEGER PRIMARY KEY, region TEXT" + (
+        ", tier TEXT" if extra_column else ""
+    )
+    con.execute(f"CREATE TABLE customers ({cols})")
+    rows = (
+        [(10, "North", "gold"), (20, "South", "silver")]
+        if extra_column
+        else [
+            (10, "North"),
+            (20, "South"),
+        ]
+    )
+    marks = "?, ?, ?" if extra_column else "?, ?"
+    con.executemany(f"INSERT INTO customers VALUES ({marks})", rows)
+    con.commit()
+    con.close()
+    return db
+
+
+def test_connected_catalog_persists_and_is_reused_on_reconnect(tmp_path):
+    """AC-6 + AC-7: the derived catalog survives a restart and reconnect uses
+    it immediately — no re-derivation (a poisoned catalog_fn proves it)."""
+    from analyst.api.repository import StoreRepository
+    from analyst.api.routes.databases import DatabaseManager
+    from analyst.domain.connection import ConnectionSpec, DatabaseEngine
+
+    db = _crm_sqlite(tmp_path)
+    spec = ConnectionSpec(name="crm", engine=DatabaseEngine.SQLITE, path=str(db))
+    data = str(tmp_path / "data")
+
+    repo = StoreRepository(data)
+    manager = DatabaseManager(repo=repo)
+    manager.connect(spec)
+    manager._pool.shutdown(wait=True)
+    derived = repo.get_dataset("crm.customers").summary.catalog
+    assert "customer_id" in {c.name for c in derived.columns}
+    manager.close()
+
+    # Fresh session: reconnect must NOT re-derive (catalog_fn would blow up).
+    def poisoned(table, relationships, context):
+        raise AssertionError("re-derived a table whose schema did not change")
+
+    repo2 = StoreRepository(data)
+    manager2 = DatabaseManager(repo=repo2, catalog_fn=poisoned)
+    manager2.connect(spec)
+    if manager2._pool is not None:
+        manager2._pool.shutdown(wait=True)
+    record = repo2.get_dataset("crm.customers")
+    assert record.catalog_status == "complete"
+    assert record.summary.catalog == derived
+
+
+def test_schema_change_on_reconnect_triggers_recataloguing(tmp_path):
+    """AC-7: a changed schema is re-catalogued; the persisted entry is stale."""
+    from analyst.api.repository import StoreRepository
+    from analyst.api.routes.databases import DatabaseManager
+    from analyst.domain.connection import ConnectionSpec, DatabaseEngine
+
+    db = _crm_sqlite(tmp_path)
+    spec = ConnectionSpec(name="crm", engine=DatabaseEngine.SQLITE, path=str(db))
+    data = str(tmp_path / "data")
+
+    repo = StoreRepository(data)
+    manager = DatabaseManager(repo=repo)
+    manager.connect(spec)
+    manager._pool.shutdown(wait=True)
+    manager.close()
+
+    db.unlink()
+    _crm_sqlite(tmp_path, extra_column=True)  # schema changed while down
+
+    repo2 = StoreRepository(data)
+    manager2 = DatabaseManager(repo=repo2)
+    manager2.connect(spec)
+    manager2._pool.shutdown(wait=True)
+    record = repo2.get_dataset("crm.customers")
+    assert record.catalog_status == "complete"
+    assert "tier" in {c.name for c in record.summary.catalog.columns}

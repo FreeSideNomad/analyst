@@ -147,3 +147,64 @@ def test_record_ambiguous_ingestion(tmp_path):
         len(entry.clarifications),
         [(c.column, c.question[:40]) for c in entry.clarifications],
     )
+
+
+# --------------------------------------------------------------------------- #
+# Feature 010 — the LLM cataloguer receives the workspace context (AC-3)
+# --------------------------------------------------------------------------- #
+def _ctx010():
+    from analyst.domain.catalog import CatalogEntry, ColumnDescription
+    from analyst.domain.relationships import INFERRED, REQUIRED, Relationship
+    from analyst.domain.workspace_context import build_workspace_context
+
+    rel = Relationship(
+        "orders.csv", "customer_id", "customers.csv", "id", INFERRED, REQUIRED, 1.0
+    )
+    return build_workspace_context(
+        {
+            "customers.csv": CatalogEntry(
+                table_description="The customer master.",
+                columns=(
+                    ColumnDescription("id", "Primary key.", "identifier"),
+                    ColumnDescription("region", "Sales region.", "category"),
+                ),
+            ),
+            "products.csv": CatalogEntry(
+                table_description="The product list.", columns=()
+            ),
+        },
+        (rel,),
+    )
+
+
+def _orders_payload():
+    from analyst.domain.catalog import ColumnMetadata, CatalogPayload
+    from analyst.domain.types import ColumnType
+
+    return CatalogPayload(
+        dataset="orders.csv",
+        row_count=4,
+        columns=(ColumnMetadata("customer_id", ColumnType.INTEGER, 0.0, 2, (10, 20)),),
+    )
+
+
+def test_prompt_carries_workspace_context_when_present():
+    from analyst.agentic.cataloguer import render_prompt
+
+    prompt = render_prompt(_orders_payload(), (), context=_ctx010())
+    assert "Workspace context" in prompt
+    assert "The customer master." in prompt
+    # Directly-linked table's columns are included…
+    assert "region" in prompt
+    # …unrelated tables carry name + description only.
+    assert "The product list." in prompt
+
+
+def test_prompt_without_context_is_unchanged():
+    from analyst.agentic.cataloguer import render_prompt
+    from analyst.domain.workspace_context import WorkspaceContext
+
+    bare = render_prompt(_orders_payload(), ())
+    empty = render_prompt(_orders_payload(), (), context=WorkspaceContext())
+    assert bare == empty
+    assert "Workspace context" not in bare
