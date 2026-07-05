@@ -5,7 +5,9 @@ Two connector paths behind one protocol:
 - `DuckDBAttachConnector` — engines with a solid DuckDB scanner (SQLite,
   PostgreSQL): `ATTACH … (TYPE <engine>, READ_ONLY)` into a private in-memory
   DuckDB; profiling reuses the feature-001 `profile_relation` over the
-  attached relation (a temp view), so the scanner pushes work to the source.
+  attached relation (a temp view). NOTE: the scanner pushes down projection +
+#   filters, but aggregation/joins run in DuckDB (rows stream into the box); see
+#   ANALYST_MAX_MEMORY (review #5).
 - `BridgeConnector` — engines without one (SQL Server via `pymssql`, IBM DB2
   via `ibm_db`): a thin DB-API seam pushes profiling SQL down to the source;
   only aggregates, capped samples and small result sets come back. A stdlib-

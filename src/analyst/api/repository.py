@@ -11,6 +11,7 @@ repository owns only the *envelope* metadata the domain doesn't carry
 
 from __future__ import annotations
 
+import logging
 import time
 from dataclasses import dataclass
 from typing import Protocol
@@ -18,6 +19,8 @@ from typing import Protocol
 from analyst.api import fixtures
 from analyst.domain.dataset import DatasetSummary, RefreshResult
 from analyst.domain.status import IngestionStatus
+
+_LOG = logging.getLogger(__name__)
 
 
 @dataclass
@@ -187,7 +190,14 @@ class StoreRepository:
                 profile = self.store.profile(name)
             except Exception:  # noqa: BLE001 - a broken relation shouldn't abort boot
                 continue
-            catalog = _load_catalog_sidecar(self.store.base_dir, name)
+            try:
+                # Review #3: a corrupt/schema-drifted sidecar must NOT abort boot
+                # and lose every healthy dataset — that table just loses its
+                # cached catalog (it re-catalogues on demand).
+                catalog = _load_catalog_sidecar(self.store.base_dir, name)
+            except Exception:  # noqa: BLE001
+                _LOG.warning("ignoring unreadable catalog sidecar for %r", name)
+                catalog = None
             self._records[name] = DatasetRecord(
                 summary=DatasetSummary(name=name, profile=profile, catalog=catalog),
                 file_name=f"{name}.csv",

@@ -184,3 +184,57 @@ def test_chinook_album_references_artist():
     link = [r for r in rels if r.child_table == "Album" and r.parent_table == "Artist"]
     assert link, "Album.ArtistId → Artist should be inferred by RI"
     assert link[0].child_column == "ArtistId"
+
+
+def _discover_two(
+    tmp_path, child_csv, parent_csv, child="orders.csv", parent="customer.csv"
+):
+    from pathlib import Path
+
+    from analyst.engine.store import DatasetStore
+    from analyst.service.ingestion import IngestionService
+
+    store = DatasetStore(tmp_path)
+    svc = IngestionService(store)
+    for name, content in ((child, child_csv), (parent, parent_csv)):
+        p = Path(tmp_path) / name
+        p.write_text(content)
+        svc.ingest(p)
+    return store.discover_relationships()
+
+
+def test_inferred_fk_requires_a_unique_parent_key(tmp_path):
+    """Review #4 (MED-HIGH): an inferred FK must target a UNIQUE parent column;
+    a many-valued parent is not a key and must not be linked (would fan out joins)."""
+    rels = _discover_two(
+        tmp_path,
+        "order_id,customer_id\n10,1\n11,2\n",
+        "customer_id,name\n1,alice\n1,alice2\n2,bob\n",  # customer_id NOT unique
+    )
+    assert not any(
+        r.child_column == "customer_id" and r.parent_table.startswith("customer")
+        for r in rels
+    ), rels
+
+
+def test_inferred_fk_accepted_when_parent_is_unique(tmp_path):
+    rels = _discover_two(
+        tmp_path,
+        "order_id,customer_id\n10,1\n11,2\n",
+        "customer_id,name\n1,alice\n2,bob\n",  # unique
+    )
+    assert any(
+        r.child_column == "customer_id" and r.parent_table.startswith("customer")
+        for r in rels
+    ), rels
+
+
+def test_base_name_does_not_misclassify_ordinary_words():
+    """Review #7: words ending in 'id' are not foreign keys; camelCase Id is."""
+    from analyst.engine.relationships import _base_name
+
+    assert _base_name("customer_id") == "customer"
+    assert _base_name("ArtistId") == "artist"
+    assert _base_name("CustomerID") == "customer"
+    for word in ("paid", "valid", "void", "android", "ANDROID", "id"):
+        assert _base_name(word) is None, word

@@ -76,15 +76,20 @@ def _types_compatible(a: ColumnType, b: ColumnType) -> bool:
 def _base_name(column: str) -> str | None:
     """The referenced-entity stem of a plausible FK column, or None.
 
-    ``customer_id`` → ``customer``; ``customerid`` → ``customer``. A bare
-    ``id`` (or anything with no stem) is a primary-key name, never an FK child
-    — so unrelated ``id`` columns are never linked (AC-7).
+    ``customer_id`` → ``customer``; ``ArtistId`` → ``artist``. A bare ``id`` is a
+    primary-key name, never an FK child. Review #7: an FK suffix is either the
+    ``_id`` separator OR a capitalized ``Id``/``ID`` on a camelCase word — so
+    ordinary lowercase words ending in ``id`` (``paid``, ``valid``, ``void``,
+    ``android``) are NOT misread as foreign keys.
     """
-    low = column.lower()
-    if low.endswith("_id") and len(low) > 3:
-        return low[:-3]
-    if low.endswith("id") and len(low) > 2:
-        return low[:-2]
+    if column.lower().endswith("_id") and len(column) > 3:
+        return column[:-3].lower()
+    if (
+        len(column) > 2
+        and column[-2:] in ("Id", "ID")
+        and column[-3].islower()  # camelCase boundary: artistId, not ANDROID
+    ):
+        return column[:-2].lower()
     return None
 
 
@@ -103,7 +108,10 @@ def _stem(name: str) -> str:
 
 def _name_matches_table(base: str, table: str) -> bool:
     t = _stem(table)
-    return t in {base, base + "s", base + "es"} or t.rstrip("s") == base
+    # review #7: rstrip("s") stripped ALL trailing s ("class"->"clas"); depluralize
+    # a single trailing 's' only.
+    singular = t[:-1] if t.endswith("s") else t
+    return t in {base, base + "s", base + "es"} or singular == base
 
 
 def _candidate_parent_columns(
@@ -131,6 +139,21 @@ def _null_count(table: DiscoverTable, column: str) -> int:
         if c.name == column:
             return c.null_count
     return 0
+
+
+def _parent_is_unique_key(
+    con: duckdb.DuckDBPyConnection, parent: DiscoverTable, parent_column: str
+) -> bool:
+    """A valid FK target must be a KEY — every non-null value unique (review #4).
+    A many-valued parent column is not a key; linking to it would fan out joins
+    and double-count aggregates."""
+    pc = _quote(parent_column)
+    row = con.execute(
+        f"SELECT count({pc}), count(DISTINCT {pc}) FROM {parent.sql()}"
+    ).fetchone()
+    if not row:
+        return False
+    return int(row[0]) == int(row[1])
 
 
 def _ri_holds(
@@ -213,6 +236,8 @@ def discover(
                 ):
                     if not _types_compatible(child_type, parent.columns[parent_column]):
                         continue
+                    if not _parent_is_unique_key(con, parent, parent_column):
+                        continue  # review #4: FK target must be a unique key
                     accepted, coverage = _ri_holds(
                         con, child, child_column, parent, parent_column
                     )

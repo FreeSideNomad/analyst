@@ -312,6 +312,13 @@ class DatabaseManager:
         if self._pool is not None:
             self._pool.shutdown(wait=False, cancel_futures=True)
             self._pool = None
+        # Review #6: symmetric with detach() — drop the store-side ATTACH + views
+        # for every live connection, else a new manager on the same store fails to
+        # re-ATTACH and the tables come back silently not-queryable.
+        store = getattr(self.repo, "store", None)
+        if store is not None:
+            for schema in self.service.list():
+                store.detach_database(schema.name)
         self.service.close()
 
     def _schema(self, spec: ConnectionSpec) -> DatabaseSchema:
