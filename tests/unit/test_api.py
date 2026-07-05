@@ -157,7 +157,8 @@ def test_store_mode_real_ingest_and_query(store_client):
     ).json()
     ds = result["datasets"][0]
     assert ds["name"] == "numbers.csv" and ds["status"] == "complete"
-    assert ds["group"] == "numbers" and ds["sourceKind"] == "file" and ds["queryable"]
+    assert ds["group"] == "numbers.csv" and ds["entity"] == "numbers"
+    assert ds["sourceKind"] == "file" and ds["queryable"]
     assert ds["rowCount"] == 3
     types = {c["name"]: c["inferredType"] for c in ds["profile"]["columns"]}
     assert types == {"id": "integer", "amount": "integer"}
@@ -291,3 +292,14 @@ def test_H3_oversize_upload_is_rejected_before_full_buffering(tmp_path, monkeypa
     resp = client.post("/api/datasets/ingest", files={"file": ("big.csv", big)})
     assert resp.status_code == 413
     assert "limit" in resp.json()["detail"].lower()
+
+
+def test_group_and_entity_split():
+    from analyst.api.routes.datasets import _group_and_entity
+
+    assert _group_and_entity("company.employees.xlsx", False) == (
+        "company.xlsx",
+        "employees",
+    )
+    assert _group_and_entity("orders.csv", False) == ("orders.csv", "orders")
+    assert _group_and_entity("sales_db.orders", True) == ("sales_db", "orders")

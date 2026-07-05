@@ -105,3 +105,40 @@ def test_pure_numeric_column_is_not_mixed():
     prof = profile_relation(_con_with_table(), "t")
     ident = next(c for c in prof.columns if c.name == "id")
     assert ident.is_mixed is False
+
+
+def test_real_distribution_numeric_histogram_and_categorical_topk(tmp_path):
+    """Fix 5: distribution is REAL — numeric → histogram buckets summing to the
+    non-null count; low-cardinality/text → top-K value frequencies."""
+    import duckdb
+
+    from analyst.engine.profiler import profile_relation
+
+    con = duckdb.connect()
+    con.execute(
+        "CREATE TABLE t AS SELECT * FROM (VALUES "
+        + ",".join(f"({i}, '{'gold' if i % 3 else 'silver'}')" for i in range(1, 61))
+        + ") AS v(amount, tier)"
+    )
+    prof = profile_relation(con, "t")
+    by = {c.name: c for c in prof.columns}
+    # numeric 'amount' (60 distinct) → a histogram
+    amt = by["amount"].distribution
+    assert len(amt) >= 2
+    assert sum(b.count for b in amt) == 60  # every non-null row is bucketed
+    assert "–" in amt[0].label  # range label
+    # low-cardinality 'tier' → value frequencies
+    tier = {b.label: b.count for b in by["tier"].distribution}
+    assert set(tier) == {"gold", "silver"}
+    assert tier["gold"] + tier["silver"] == 60
+
+
+def test_empty_column_has_no_distribution(tmp_path):
+    import duckdb
+
+    from analyst.engine.profiler import profile_relation
+
+    con = duckdb.connect()
+    con.execute("CREATE TABLE t AS SELECT NULL::INT AS x WHERE 1=0")
+    prof = profile_relation(con, "t")
+    assert prof.columns[0].distribution == ()

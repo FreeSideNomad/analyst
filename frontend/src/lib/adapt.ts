@@ -4,10 +4,6 @@
 import type { ColumnProfile } from '../api/types';
 import { TYPE_LABEL } from './format';
 
-// Illustrative distribution shape for the numeric sparkline (the wire carries
-// no histogram yet; a later profiler slice can add real bins).
-const SKEW = [4, 11, 20, 28, 23, 16, 10, 7, 4, 2];
-
 export interface ColumnVM {
   name: string;
   typeLabel: string;
@@ -22,7 +18,8 @@ export interface ColumnVM {
   q25: unknown;
   q50: unknown;
   q75: unknown;
-  hist?: number[];
+  hist?: number[];        // REAL distribution counts (histogram or top-K)
+  histLabels?: string[];  // the bucket range / value each bar represents
   isMixed: boolean;
   dominantLabel: string;
   isNested: boolean;
@@ -43,7 +40,8 @@ export function columnVM(col: ColumnProfile, rowCount: number): ColumnVM {
     minimum: col.minimum,
     maximum: col.maximum,
     q25: q[0], q50: q[1], q75: q[2],
-    hist: isNumeric ? SKEW : undefined,
+    hist: col.distribution.length ? col.distribution.map((b) => b.count) : undefined,
+    histLabels: col.distribution.length ? col.distribution.map((b) => b.label) : undefined,
     isMixed: col.isMixed,
     dominantLabel: col.dominantType ? (TYPE_LABEL[col.dominantType] || col.dominantType) : '',
     isNested: col.isNested,

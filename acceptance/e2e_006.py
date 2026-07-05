@@ -189,7 +189,7 @@ def _connect_sales_db_http(ctx: ScenarioContext) -> None:
 
 def _open_workbench(ctx: ScenarioContext) -> None:
     ctx.page.goto(ctx.web)
-    _expect()(ctx.page.get_by_text("Semantic catalog").first).to_be_visible()
+    _expect()(ctx.page.get_by_text("Catalog", exact=True).first).to_be_visible()
 
 
 # --------------------------------------------------------------------------- #
@@ -223,16 +223,19 @@ def given_app_on_query(ctx: ScenarioContext) -> None:
 # --------------------------------------------------------------------------- #
 @step(r"the view invites the user to upload a file")
 def then_upload_invite(ctx: ScenarioContext) -> None:
-    _expect()(ctx.page.get_by_text("Drop a file, or click to upload")).to_be_visible()
+    ctx.page.get_by_role("button", name="Add data").click()
+    _expect()(ctx.page.get_by_role("button", name="Upload a file")).to_be_visible()
 
 
 @step(r"the view offers to connect a database")
 def then_connect_offer(ctx: ScenarioContext) -> None:
+    # The add-data menu is already open from the previous step; both options show.
     _expect()(ctx.page.get_by_role("button", name="Connect a database")).to_be_visible()
 
 
 @step(r'the user connects the fixture database "(?P<name>[^"]+)"')
 def when_connect_fixture_db(ctx: ScenarioContext, name: str) -> None:
+    ctx.page.get_by_role("button", name="Add data").click()
     ctx.page.get_by_role("button", name="Connect a database").click()
     ctx.page.get_by_label("Connection name").fill(name)
     ctx.page.get_by_label("Database engine").select_option("sqlite")
@@ -243,7 +246,7 @@ def when_connect_fixture_db(ctx: ScenarioContext, name: str) -> None:
 @step(r'"(?P<name>[^"]+)" appears in the Databases section')
 def then_db_in_section(ctx: ScenarioContext, name: str) -> None:
     _expect()(
-        ctx.page.get_by_role("button", name=f"Detach database {name}")
+        ctx.page.get_by_role("button", name=f"Toggle source {name}")
     ).to_be_visible(timeout=20_000)
 
 
@@ -261,9 +264,11 @@ def then_two_sections(ctx: ScenarioContext) -> None:
 def then_expandable(ctx: ScenarioContext) -> None:
     expect = _expect()
     # A file table is listed (source -> table) ...
-    expect(ctx.page.get_by_text("sales.csv").first).to_be_visible()
+    expect(
+        ctx.page.get_by_role("button", name="Open table sales").first
+    ).to_be_visible()
     # ... and expands to its columns.
-    ctx.page.get_by_role("button", name="Toggle columns of sales.csv").first.click()
+    ctx.page.get_by_role("button", name="Toggle columns of sales").first.click()
     expect(ctx.page.get_by_text("order_id").first).to_be_visible()
 
 
@@ -332,16 +337,18 @@ def then_read_only(ctx: ScenarioContext) -> None:
 @step(r'the user expands the database "(?P<name>[^"]+)"')
 def when_expand_database(ctx: ScenarioContext, name: str) -> None:
     # Groups render open; open a connected table's detail to reveal its profile.
-    _expect()(
-        ctx.page.get_by_role("button", name=f"Open table {name}.Album")
-    ).to_be_visible(timeout=20_000)
-    ctx.page.get_by_role("button", name=f"Open table {name}.Album").first.click()
+    _expect()(ctx.page.get_by_role("button", name="Open table Album")).to_be_visible(
+        timeout=20_000
+    )
+    ctx.page.get_by_role("button", name="Open table Album").first.click()
 
 
 @step(r"its tables are listed with profiles")
 def then_db_tables_profiled(ctx: ScenarioContext) -> None:
     expect = _expect()
-    expect(ctx.page.get_by_text("sales_db.Album").first).to_be_visible()
+    expect(
+        ctx.page.get_by_role("button", name="Open table Album").first
+    ).to_be_visible()
     # the opened detail reports a profile (row/column count line)
     expect(ctx.page.get_by_text("columns", exact=False).first).to_be_visible()
 
@@ -353,16 +360,18 @@ def then_not_answerable(ctx: ScenarioContext) -> None:
 
 @step(r'the user disconnects the database "(?P<name>[^"]+)"')
 def when_disconnect_db(ctx: ScenarioContext, name: str) -> None:
-    ctx.page.get_by_role("button", name=f"Detach database {name}").click()
+    # open a connected table, then disconnect from its detail pane
+    ctx.page.get_by_role("button", name="Open table Album").first.click()
+    ctx.page.get_by_role("button", name=f"Disconnect database {name}").click()
+    ctx.page.get_by_role("button", name=f"Confirm disconnect {name}").click()
 
 
 @step(r'"(?P<name>[^"]+)" no longer appears in the Databases section')
 def then_db_gone(ctx: ScenarioContext, name: str) -> None:
     expect = _expect()
-    expect(
-        ctx.page.get_by_role("button", name=f"Detach database {name}")
-    ).to_have_count(0)
-    expect(ctx.page.get_by_text(f"{name}.Album")).to_have_count(0)
+    expect(ctx.page.get_by_role("button", name=f"Toggle source {name}")).to_have_count(
+        0
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -383,8 +392,8 @@ def then_no_catalog(ctx: ScenarioContext) -> None:
     # The source-grouped catalog tree (its table rows) and the connect-a-database
     # metadata affordance live only on the workbench — never on Query.
     expect = _expect()
-    expect(ctx.page.get_by_text("sales.csv")).to_have_count(0)
-    expect(ctx.page.get_by_role("button", name="Connect a database")).to_have_count(0)
+    expect(ctx.page.get_by_role("button", name="Open table sales")).to_have_count(0)
+    expect(ctx.page.get_by_role("button", name="Add data")).to_have_count(0)
 
 
 @step(r"the user opens the Ingest & Profile view")
@@ -392,9 +401,9 @@ def when_open_ingest(ctx: ScenarioContext) -> None:
     ctx.page.get_by_role("button", name="Ingest & profile").click()
 
 
-@step(r"the upload zone is shown")
-def then_upload_zone(ctx: ScenarioContext) -> None:
-    _expect()(ctx.page.get_by_text("Drop a file, or click to upload")).to_be_visible()
+@step(r"the workbench is shown")
+def then_workbench_shown(ctx: ScenarioContext) -> None:
+    _expect()(ctx.page.get_by_role("button", name="Add data")).to_be_visible()
 
 
 @step(r'the user asks "(?P<question>[^"]+)"')

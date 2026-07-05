@@ -395,7 +395,7 @@ def when_visitor_signs_in(ctx: ScenarioContext, name: str) -> None:
 @step(r'the workspace app appears with "(?P<name>[^"]+)" shown in the header')
 def then_app_with_user(ctx: ScenarioContext, name: str) -> None:
     expect = _expect()
-    expect(ctx.page.get_by_text("Semantic catalog").first).to_be_visible()
+    expect(ctx.page.get_by_text("Catalog", exact=True).first).to_be_visible()
     expect(ctx.page.get_by_text(name, exact=True).first).to_be_visible()
 
 
@@ -410,7 +410,7 @@ def given_signed_in_app(ctx: ScenarioContext, name: str) -> None:
     given_app_open(ctx)
     then_login_page_shown(ctx)
     when_visitor_signs_in(ctx, name)
-    _expect()(ctx.page.get_by_text("Semantic catalog").first).to_be_visible()
+    _expect()(ctx.page.get_by_text("Catalog", exact=True).first).to_be_visible()
 
 
 @step(r'she deletes the dataset "(?P<dataset>[^"]+)"')

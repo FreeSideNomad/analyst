@@ -43,6 +43,7 @@ class ColumnProfileSchema(Camel):
     dominant_type: Optional[str] = None
     off_type_examples: list[Any] = []
     is_nested: bool = False
+    distribution: list[dict] = []  # [{label, count}] — real value distribution
 
     @classmethod
     def from_domain(cls, col: ColumnProfile, null_rate: float) -> "ColumnProfileSchema":
@@ -60,6 +61,9 @@ class ColumnProfileSchema(Camel):
             dominant_type=col.dominant_type.value if col.dominant_type else None,
             off_type_examples=list(col.off_type_examples),
             is_nested=col.is_nested,
+            distribution=[
+                {"label": b.label, "count": b.count} for b in col.distribution
+            ],
         )
 
 
@@ -132,8 +136,11 @@ class DatasetSchema(Camel):
     column_count: int
     profile: DatasetProfileSchema
     catalog: Optional[CatalogEntrySchema] = None
-    # Feature 006 — source-grouped workbench:
-    group: str  # first dot-segment of the name (source grouping)
+    # Feature 006 — source-grouped workbench (file/connection → table → columns):
+    group: (
+        str  # the FILE with extension ("company.xlsx") or the connection ("sales_db")
+    )
+    entity: str  # the sheet/table/stem shown as the table node ("employees", "orders")
     source_kind: str  # "file" | "database" (from DatasetRecord.federated)
     queryable: bool  # False for connected-DB tables (not yet Q&A-answerable)
 

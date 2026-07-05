@@ -38,7 +38,7 @@ function Field({ id, label, type = 'text', value, onChange }: {
   );
 }
 
-function ConnectForm({ onDone }: { onDone: () => void }) {
+export function ConnectForm({ onDone }: { onDone: () => void }) {
   const connectDatabase = useCatalog((s) => s.connectDatabase);
   const [engine, setEngine] = useState<DatabaseEngine>('sqlite');
   const [name, setName] = useState('');

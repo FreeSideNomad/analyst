@@ -4,95 +4,17 @@
 // profile stats + the semantic catalog + a per-column drilldown.
 import { useState, useRef } from 'react';
 import {
-  UploadCloud, FileText, Check, CircleCheck, Table2, TriangleAlert,
+  UploadCloud, FileText, CircleCheck, Table2, TriangleAlert,
   ChevronRight, ChevronDown, Braces, HelpCircle, Database, Trash2, Lock,
+  Plus, Upload, Plug, Unplug,
 } from 'lucide-react';
 import { useCatalog, useIngestion } from '../stores';
 import type { Dataset, CatalogEntry, ColumnDescription } from '../api/types';
 import { columnVM, type ColumnVM } from '../lib/adapt';
 import { nfmt, roleBadge } from '../lib/format';
 import { Icon, IconButton, Card, Badge, StatusPill, ProgressBar, Sparkline, EYEBROW } from '../components/ui';
-import { DatabasePanel } from '../components/DatabasePanel';
+import { ConnectForm } from '../components/DatabasePanel';
 
-// Backend ingestion phases (repository._PHASES) → stepper labels.
-const STEPS = ['Materializing to Parquet', 'Profiling columns', 'Generating catalog'];
-const PHASE_IDX: Record<string, number> = { materializing: 0, profiling: 1, cataloguing: 2 };
-
-/* ── upload zone ──────────────────────────────────────────────────── */
-function FileDropZone({ onUpload }: { onUpload: (file: File) => void }) {
-  const [over, setOver] = useState(false);
-  const input = useRef<HTMLInputElement>(null);
-  const pick = (files: FileList | null) => { const f = files?.[0]; if (f) onUpload(f); };
-  return (
-    <div onClick={() => input.current?.click()}
-      onDragOver={(e) => { e.preventDefault(); setOver(true); }} onDragLeave={() => setOver(false)}
-      onDrop={(e) => { e.preventDefault(); setOver(false); pick(e.dataTransfer.files); }}
-      style={{ border: `1.5px dashed ${over ? 'var(--brand)' : 'var(--border-strong)'}`, borderRadius: 'var(--radius-lg)',
-        background: over ? 'var(--brand-subtle)' : 'var(--surface-card)', padding: '34px 24px', textAlign: 'center',
-        cursor: 'pointer', transition: 'all var(--dur-fast)' }}>
-      <input ref={input} type="file" accept=".csv,.tsv,.xlsx,.xls,.json" style={{ display: 'none' }}
-        aria-label="Choose a file to upload"
-        onChange={(e) => { pick(e.target.files); e.target.value = ''; }} />
-      <Icon as={UploadCloud} size={26} color="var(--text-muted)" style={{ margin: '0 auto 10px' }} />
-      <div style={{ font: '700 16px/1.2 var(--font-sans)', color: 'var(--text-strong)' }}>Drop a file, or click to upload</div>
-      <div style={{ font: '400 13px/1.4 var(--font-sans)', color: 'var(--text-muted)', marginTop: 5 }}>CSV · TSV · XLSX · JSON — profiling starts automatically</div>
-    </div>
-  );
-}
-
-function UploadCard({ up }: { up: { fileName: string; status: string; phase: string | null; progress: number; error?: string | null } }) {
-  const done = up.status === 'complete';
-  const ci = done ? STEPS.length : (up.phase ? PHASE_IDX[up.phase] ?? 0 : 0);
-  if (up.status === 'failed') {
-    return (
-      <Card style={{ padding: 18, borderColor: 'var(--amber-100)' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
-          <Icon as={TriangleAlert} size={18} color="var(--amber-600)" />
-          <span className="mono" style={{ font: '600 14px/1 var(--font-mono)', color: 'var(--text-strong)', flex: 1 }}>{up.fileName}</span>
-          <span style={{ font: '600 12px/1 var(--font-sans)', color: 'var(--amber-600)' }}>Failed</span>
-        </div>
-        <p style={{ margin: 0, font: '400 13px/1.5 var(--font-sans)', color: 'var(--text-body)' }}>
-          {up.error || 'The file could not be ingested.'}
-        </p>
-      </Card>
-    );
-  }
-  return (
-    <Card style={{ padding: 18 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
-        <Icon as={FileText} size={18} color="var(--text-muted)" />
-        <span className="mono" style={{ font: '600 14px/1 var(--font-mono)', color: 'var(--text-strong)', flex: 1 }}>{up.fileName}</span>
-        <span style={{ font: '600 12px/1 var(--font-sans)', color: done ? 'var(--green-600)' : 'var(--text-muted)' }}>
-          {done ? 'Complete' : (STEPS[ci] || 'In progress')}
-        </span>
-      </div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
-        <div style={{ flex: 1 }}><ProgressBar value={done ? 100 : up.progress} tone={done ? 'success' : 'brand'} /></div>
-        <span className="mono" style={{ font: '600 13px/1 var(--font-mono)', color: 'var(--text-strong)', width: 40, textAlign: 'right' }}>{done ? 100 : Math.round(up.progress)}%</span>
-      </div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        {STEPS.map((label, i) => {
-          const stepDone = i < ci || done;
-          const active = i === ci && !done;
-          return (
-            <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
-              <span style={{ width: 16, height: 16, borderRadius: '50%', flex: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                background: stepDone ? 'var(--brand)' : (active ? 'var(--brand-subtle)' : 'var(--surface-sunken)'),
-                border: active ? '1.5px solid var(--brand)' : 'none' }}>
-                {stepDone && <Icon as={Check} size={11} color="#fff" />}
-                {active && <span style={{ width: 5, height: 5, borderRadius: '50%', background: 'var(--brand)' }} />}
-              </span>
-              <span style={{ font: `${active ? 600 : 400} 13px/1.2 var(--font-sans)`,
-                color: stepDone ? 'var(--text-body)' : (active ? 'var(--text-strong)' : 'var(--text-subtle)') }}>{label}</span>
-            </div>
-          );
-        })}
-      </div>
-    </Card>
-  );
-}
-
-/* ── profile card (full column stats — used in the column drilldown) ── */
 function ProfileCard({ col }: { col: ColumnVM }) {
   const nullTone = col.nullPercent >= 3 ? 'warning' : 'brand';
   return (
@@ -137,10 +59,19 @@ function ProfileCard({ col }: { col: ColumnVM }) {
                 <div className="mono" style={{ font: '600 12.5px/1.3 var(--font-mono)', color: 'var(--text-strong)' }}>{String(col.q25)} · {String(col.q50)} · {String(col.q75)}</div>
               </div>
             </div>
-            <div style={{ marginTop: 2 }}><Sparkline data={col.hist} /></div>
+            <div style={{ marginTop: 2 }}>
+              <div style={{ font: '500 11px/1 var(--font-sans)', color: 'var(--text-muted)', marginBottom: 4 }}>DISTRIBUTION</div>
+              <Sparkline data={col.hist} labels={col.histLabels} />
+            </div>
           </>
         ) : (
           <div>
+            {col.hist && (
+              <div style={{ marginBottom: 10 }}>
+                <div style={{ font: '500 11px/1 var(--font-sans)', color: 'var(--text-muted)', marginBottom: 4 }}>TOP VALUES</div>
+                <Sparkline data={col.hist} labels={col.histLabels} />
+              </div>
+            )}
             <div style={{ font: '500 11px/1 var(--font-sans)', color: 'var(--text-muted)', marginBottom: 6 }}>SAMPLE VALUES</div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
               {col.samples.map((v, i) => (
@@ -171,7 +102,13 @@ function group(datasets: Dataset[]): Groups {
 function TableNode({ d, catalog }: { d: Dataset; catalog: Record<string, CatalogEntry> }) {
   const { expanded, toggleExpand, selectColumn, selectedColumn, detailDatasetId, setDetail } = useCatalog();
   const open = !!expanded[d.id];
-  const cols = catalog[d.id]?.columns || [];
+  // Fix 3: column nodes come from the PROFILE (always present), with the role
+  // badge from the catalog when it exists (files may not be LLM-catalogued).
+  const catCols = catalog[d.id]?.columns || [];
+  const cols = d.profile.columns.map((pc) => ({
+    name: pc.name,
+    role: catCols.find((c) => c.name === pc.name)?.role,
+  }));
   const isDetail = d.id === detailDatasetId;
   const needsReview = (catalog[d.id]?.clarifications || []).length > 0;
   const status = d.status === 'complete' ? 'ready' : 'running';
@@ -182,10 +119,10 @@ function TableNode({ d, catalog }: { d: Dataset; catalog: Record<string, Catalog
           style={{ display: 'flex', alignItems: 'center', border: 'none', background: 'transparent', cursor: 'pointer', padding: '7px 2px 7px 30px' }}>
           <Icon as={open ? ChevronDown : ChevronRight} size={14} color="var(--text-muted)" />
         </button>
-        <button aria-label={`Open table ${d.name}`} onClick={() => setDetail(d.id)}
+        <button aria-label={`Open table ${d.entity}`} onClick={() => setDetail(d.id)}
           style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 7, padding: '7px 16px 7px 2px', border: 'none', background: 'transparent', cursor: 'pointer', textAlign: 'left' }}>
           <Icon as={Table2} size={15} color={isDetail ? 'var(--brand)' : 'var(--text-muted)'} />
-          <span className="mono" style={{ font: '600 12.5px/1.2 var(--font-mono)', color: 'var(--text-strong)', flex: 1 }}>{d.fileName}</span>
+          <span className="mono" style={{ font: '600 12.5px/1.2 var(--font-mono)', color: 'var(--text-strong)', flex: 1 }}>{d.entity}</span>
           {needsReview && <Icon as={HelpCircle} size={13} color="var(--amber-500)" />}
           {d.queryable
             ? <StatusPill status={status}>{status === 'ready' ? 'Ready' : 'Profiling'}</StatusPill>
@@ -196,14 +133,14 @@ function TableNode({ d, catalog }: { d: Dataset; catalog: Record<string, Catalog
         <div>
           {cols.map((c) => {
             const sel = selectedColumn?.ds === d.id && selectedColumn?.name === c.name;
-            const rb = roleBadge(c.role);
+            const rb = c.role ? roleBadge(c.role) : null;
             return (
               <button key={c.name} onClick={() => selectColumn(d.id, c.name)}
                 style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 8, padding: '5px 16px 5px 52px', border: 'none',
                   borderLeft: `2px solid ${sel ? 'var(--brand)' : 'transparent'}`, background: sel ? 'var(--brand-subtle)' : 'transparent',
                   cursor: 'pointer', textAlign: 'left' }}>
                 <span className="mono" style={{ font: '500 12px/1.2 var(--font-mono)', color: sel ? 'var(--text-brand)' : 'var(--text-body)', flex: 1 }}>{c.name}</span>
-                <Badge tone={rb.tone}>{rb.label}</Badge>
+                {rb && <Badge tone={rb.tone}>{rb.label}</Badge>}
               </button>
             );
           })}
@@ -228,16 +165,69 @@ function GroupNode({ g, catalog, defaultOpen }: { g: { key: string; datasets: Da
   );
 }
 
+/* ── add-data menu: the "+" in the nav header (upload / connect DB) ── */
+function AddMenu() {
+  const startIngestion = useIngestion((s) => s.startIngestion);
+  const [menu, setMenu] = useState<null | 'menu' | 'connect'>(null);
+  const input = useRef<HTMLInputElement>(null);
+  return (
+    <div style={{ position: 'relative' }}>
+      <input ref={input} type="file" accept=".csv,.tsv,.xlsx,.xls,.json" style={{ display: 'none' }}
+        aria-label="Choose a file to upload"
+        onChange={(e) => { const f = e.target.files?.[0]; if (f) startIngestion(f); e.target.value = ''; setMenu(null); }} />
+      <IconButton as={Plus} label="Add data" onClick={() => setMenu((m) => (m ? null : 'menu'))} />
+      {menu === 'menu' && (
+        <div style={{ position: 'absolute', top: 38, right: 0, zIndex: 10, width: 190, background: 'var(--surface-card)',
+          border: '1px solid var(--border-default)', borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-md)', padding: 5 }}>
+          <button aria-label="Upload a file" onClick={() => input.current?.click()}
+            style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 9, padding: '8px 10px', border: 'none', background: 'transparent', cursor: 'pointer', borderRadius: 'var(--radius-sm)', textAlign: 'left', font: '500 13px/1 var(--font-sans)', color: 'var(--text-strong)' }}>
+            <Icon as={Upload} size={15} color="var(--text-muted)" /> Upload a file
+          </button>
+          <button aria-label="Connect a database" onClick={() => setMenu('connect')}
+            style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 9, padding: '8px 10px', border: 'none', background: 'transparent', cursor: 'pointer', borderRadius: 'var(--radius-sm)', textAlign: 'left', font: '500 13px/1 var(--font-sans)', color: 'var(--text-strong)' }}>
+            <Icon as={Plug} size={15} color="var(--text-muted)" /> Connect a database
+          </button>
+        </div>
+      )}
+      {menu === 'connect' && (
+        <div style={{ position: 'absolute', top: 38, right: 0, zIndex: 10, width: 250, background: 'var(--surface-card)',
+          border: '1px solid var(--border-default)', borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-md)' }}>
+          <ConnectForm onDone={() => setMenu(null)} />
+        </div>
+      )}
+    </div>
+  );
+}
+
 function SourceTree() {
   const { datasets, catalog } = useCatalog();
+  const uploads = useIngestion((s) => s.uploads);
   const files = group(datasets.filter((d) => d.sourceKind === 'file'));
   const dbs = group(datasets.filter((d) => d.sourceKind === 'database'));
   return (
     <aside style={{ width: 288, flex: 'none', overflow: 'auto', borderRight: '1px solid var(--border-subtle)', background: 'var(--surface-card)', padding: '18px 0' }}>
-      <div style={{ padding: '0 18px 16px', display: 'flex', alignItems: 'center', gap: 9 }}>
+      <div style={{ padding: '0 14px 14px 18px', display: 'flex', alignItems: 'center', gap: 9 }}>
         <div style={{ width: 22, height: 22, background: 'var(--brand)', borderRadius: 2, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Icon as={Braces} size={12} color="#fff" /></div>
-        <span style={{ font: '700 12px/1 var(--font-sans)', letterSpacing: '.1em', textTransform: 'uppercase', color: 'var(--text-strong)' }}>Semantic catalog</span>
+        <span style={{ font: '700 12px/1 var(--font-sans)', letterSpacing: '.1em', textTransform: 'uppercase', color: 'var(--text-strong)', flex: 1 }}>Catalog</span>
+        <AddMenu />
       </div>
+      {uploads.length > 0 && (
+        <div style={{ padding: '0 18px 10px', display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {uploads.map((u) => (
+            <div key={u.name}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 7, font: '500 11.5px/1.2 var(--font-mono)',
+                color: u.status === 'failed' ? 'var(--amber-600)' : 'var(--text-muted)' }}>
+                <Icon as={u.status === 'failed' ? TriangleAlert : FileText} size={12} color={u.status === 'failed' ? 'var(--amber-600)' : 'var(--text-subtle)'} />
+                <span style={{ flex: 1 }}>{u.fileName}</span>
+                <span>{u.status === 'failed' ? 'Failed' : u.status === 'complete' ? '✓' : `${Math.round(u.progress)}%`}</span>
+              </div>
+              {u.status === 'failed' && u.error && (
+                <div style={{ padding: '3px 0 0 19px', font: '400 11px/1.4 var(--font-sans)', color: 'var(--text-body)' }}>{u.error}</div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
 
       <div style={{ padding: '0 18px', display: 'flex', alignItems: 'center', gap: 7, ...EYEBROW, margin: '4px 0 6px' }}>
         <Icon as={FileText} size={12} color="var(--text-subtle)" /> Files
@@ -271,6 +261,31 @@ function DeleteDataset({ id }: { id: string }) {
       <button onClick={() => setArm(false)} aria-label="Cancel delete"
         style={{ font: '500 12px/1 var(--font-sans)', color: 'var(--text-muted)', background: 'transparent',
           border: '1px solid var(--border-default)', borderRadius: 'var(--radius-md)', padding: '6px 10px', cursor: 'pointer' }}>
+        Cancel
+      </button>
+    </span>
+  );
+}
+
+/* ── disconnect a database (from the DB table's detail pane) ───────── */
+function DisconnectDatabase({ connection }: { connection: string }) {
+  const detach = useCatalog((s) => s.detachDatabase);
+  const [arm, setArm] = useState(false);
+  if (!arm) return (
+    <button aria-label={`Disconnect database ${connection}`} onClick={() => setArm(true)}
+      style={{ display: 'inline-flex', alignItems: 'center', gap: 6, font: '600 12px/1 var(--font-sans)', color: 'var(--text-muted)',
+        background: 'transparent', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-md)', padding: '6px 10px', cursor: 'pointer' }}>
+      <Icon as={Unplug} size={13} /> Disconnect
+    </button>
+  );
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+      <button onClick={() => { void detach(connection); }} aria-label={`Confirm disconnect ${connection}`}
+        style={{ font: '600 12px/1 var(--font-sans)', color: '#fff', background: 'var(--red-500, #c0392b)', border: 'none', borderRadius: 'var(--radius-md)', padding: '6px 10px', cursor: 'pointer' }}>
+        Disconnect "{connection}"?
+      </button>
+      <button onClick={() => setArm(false)} aria-label="Cancel disconnect"
+        style={{ font: '500 12px/1 var(--font-sans)', color: 'var(--text-muted)', background: 'transparent', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-md)', padding: '6px 10px', cursor: 'pointer' }}>
         Cancel
       </button>
     </span>
@@ -316,7 +331,9 @@ function TableDetail() {
           <Badge tone="warning"><Icon as={Lock} size={10} style={{ marginRight: 3 }} />Not yet answerable by Q&amp;A</Badge>
         )}
         <div style={{ flex: 1 }} />
-        <DeleteDataset key={d.id} id={d.id} />
+        {d.sourceKind === 'database'
+          ? <DisconnectDatabase connection={d.group} />
+          : <DeleteDataset key={d.id} id={d.id} />}
       </div>
 
       <Card style={{ padding: 0, marginBottom: 22 }}>
@@ -387,39 +404,19 @@ function TableDetail() {
   );
 }
 
-/* ── add data (upload + connect a database) ───────────────────────── */
-function AddData() {
-  const { uploads, startIngestion } = useIngestion();
-  return (
-    <div style={{ padding: '22px 30px 6px', borderBottom: '1px solid var(--border-subtle)' }}>
-      <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: 22, alignItems: 'start' }}>
-        <div>
-          <div style={EYEBROW}>Add data — upload a file</div>
-          <div style={{ marginTop: 10 }}><FileDropZone onUpload={(file) => startIngestion(file)} /></div>
-          {uploads.length > 0 && (
-            <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 12 }} className="ana-in">
-              {uploads.map((u) => <UploadCard key={u.name} up={u} />)}
-            </div>
-          )}
-        </div>
-        <div>
-          <div style={EYEBROW}>Add data — connect a database</div>
-          <Card style={{ padding: '10px 0 6px', marginTop: 10 }}>
-            <DatabasePanel />
-          </Card>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 export function IngestionPage() {
+  const hasData = useCatalog((s) => s.datasets.length > 0);
   return (
     <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
       <SourceTree />
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-        <AddData />
-        <TableDetail />
+        {hasData
+          ? <TableDetail />
+          : <div style={{ margin: 'auto', textAlign: 'center', maxWidth: 360, color: 'var(--text-muted)' }}>
+              <Icon as={UploadCloud} size={30} color="var(--text-subtle)" style={{ margin: '0 auto 12px' }} />
+              <div style={{ font: '700 16px/1.3 var(--font-sans)', color: 'var(--text-strong)', marginBottom: 6 }}>No data yet</div>
+              <div style={{ font: '400 13.5px/1.5 var(--font-sans)' }}>Use the <strong>+</strong> in the catalog rail to upload a file or connect a database.</div>
+            </div>}
       </div>
     </div>
   );
