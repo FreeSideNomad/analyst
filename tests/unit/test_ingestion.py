@@ -169,3 +169,52 @@ def test_json_file_is_named_with_extension(tmp_path):
     path.write_text(json.dumps([{"id": 1}, {"id": 2}]), encoding="utf-8")
     result = _service(tmp_path).ingest(path)
     assert result.dataset_name == "orders.json"
+
+
+# --------------------------------------------------------------------------- #
+# Feature 010 — cataloguing with a workspace catalog source (AC-1/2/10)
+# --------------------------------------------------------------------------- #
+_CUSTOMERS_010 = "id,region\n10,North\n20,South\n"
+_ORDERS_010 = "order_id,customer_id,quantity\n1,10,2\n2,20,1\n3,10,3\n"
+
+
+def test_ingest_uses_catalog_source_for_context(tmp_path):
+    catalogs: dict = {}
+    store = DatasetStore(base_dir=tmp_path / "store")
+    service = IngestionService(store, catalog_source=lambda: catalogs)
+    (tmp_path / "customers.csv").write_text(_CUSTOMERS_010, encoding="utf-8")
+    (tmp_path / "orders.csv").write_text(_ORDERS_010, encoding="utf-8")
+    cust = service.ingest(tmp_path / "customers.csv").datasets[0]
+    catalogs[cust.name] = cust.catalog
+    orders = service.ingest(tmp_path / "orders.csv").datasets[0]
+    fk = next(c for c in orders.catalog.columns if c.name == "customer_id")
+    # The parent's meaning (its own description text), not just its name.
+    assert "customers.csv: 2 rows, 2 columns" in fk.description
+    assert "customers.csv: 2 rows, 2 columns" in orders.catalog.table_description
+
+
+def test_ingest_without_catalog_source_is_unchanged(tmp_path):
+    store = DatasetStore(base_dir=tmp_path / "store")
+    service = IngestionService(store)
+    (tmp_path / "customers.csv").write_text(_CUSTOMERS_010, encoding="utf-8")
+    (tmp_path / "orders.csv").write_text(_ORDERS_010, encoding="utf-8")
+    service.ingest(tmp_path / "customers.csv")
+    orders = service.ingest(tmp_path / "orders.csv").datasets[0]
+    fk = next(c for c in orders.catalog.columns if c.name == "customer_id")
+    assert "rows" not in fk.description  # no sibling meaning woven
+    assert "customers.csv" in fk.description  # name-level reference remains
+
+
+def test_context_failure_degrades_to_cataloguing_in_isolation(tmp_path):
+    def broken_source():
+        raise RuntimeError("catalog registry unavailable")
+
+    store = DatasetStore(base_dir=tmp_path / "store")
+    service = IngestionService(store, catalog_source=broken_source)
+    (tmp_path / "customers.csv").write_text(_CUSTOMERS_010, encoding="utf-8")
+    (tmp_path / "orders.csv").write_text(_ORDERS_010, encoding="utf-8")
+    service.ingest(tmp_path / "customers.csv")
+    orders = service.ingest(tmp_path / "orders.csv").datasets[0]  # must not raise
+    fk = next(c for c in orders.catalog.columns if c.name == "customer_id")
+    assert "customers.csv" in fk.description  # isolation result, still grounded
+    assert "rows" not in fk.description

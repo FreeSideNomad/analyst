@@ -184,3 +184,30 @@ def test_federated_tables_are_excluded_from_qa(tmp_path):
     names = {t.name for t in PlannerQAService.__new__(PlannerQAService)._tables(repo)}
     assert "q_orders_csv" in names
     assert "q_pgsql_film" not in names
+
+
+# --------------------------------------------------------------------------- #
+# Feature 010 — connect catalogues each table knowing the workspace (AC-1)
+# --------------------------------------------------------------------------- #
+def test_connect_catalogues_with_workspace_context(db_path):
+    from analyst.api.routes.databases import DatabaseManager, _enrich_catalog_fn
+    from analyst.domain.connection import ConnectionSpec, DatabaseEngine
+
+    repo = FixtureRepository()  # seeded workspace: sales / customers / products
+    seen = {}
+
+    def spy(table, relationships, context):
+        seen[table.name] = context
+        return _enrich_catalog_fn(table, relationships, context)
+
+    manager = DatabaseManager(repo=repo, catalog_fn=spy)
+    manager.connect(
+        ConnectionSpec(name="chinook", engine=DatabaseEngine.SQLITE, path=str(db_path))
+    )
+    manager._pool.shutdown(wait=True)  # drain the background cataloguing
+    context = seen["Album"]
+    assert context is not None
+    names = {t.name for t in context.tables}
+    # The pre-existing workspace tables, with their descriptions, are in view.
+    assert "sales" in names
+    assert context.describe("sales")

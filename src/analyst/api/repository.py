@@ -172,7 +172,15 @@ class StoreRepository:
 
         self._tempfile = tempfile
         self.store = DatasetStore(data_dir)
-        self.service = IngestionService(self.store, cataloguer=cataloguer)  # type: ignore[arg-type]
+        # Feature 010: cataloguing sees the workspace — the service pulls the
+        # current catalogs (files AND connected-DB records) on each ingest.
+        self.service = IngestionService(
+            self.store,
+            cataloguer=cataloguer,  # type: ignore[arg-type]
+            catalog_source=lambda: {
+                name: record.summary.catalog for name, record in self._records.items()
+            },
+        )
         self._records: dict[str, DatasetRecord] = {}
         self._rehydrate()
 

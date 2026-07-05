@@ -44,6 +44,10 @@ from analyst.domain.relationships import (
     Relationship,
 )
 from analyst.domain.status import IngestionStatus
+from analyst.domain.workspace_context import (
+    WorkspaceContext,
+    build_workspace_context,
+)
 from analyst.engine.federation import (
     DuplicateConnectionError,
     FederatedTable,
@@ -55,8 +59,12 @@ from analyst.engine.federation import (
 
 _LOG = logging.getLogger(__name__)
 
-# A cataloguing strategy: (table, workspace relationships) -> CatalogEntry.
-CatalogFn = Callable[[FederatedTable, tuple[Relationship, ...]], CatalogEntry]
+# A cataloguing strategy: (table, workspace relationships, workspace context)
+# -> CatalogEntry (feature 010: the context carries the other tables' meanings).
+CatalogFn = Callable[
+    [FederatedTable, tuple[Relationship, ...], "WorkspaceContext | None"],
+    CatalogEntry,
+]
 
 # Feature 007: engines with a DuckDB scanner whose tables can be ATTACHed into
 # the store's connection for within-DB Q&A (push-down). Bridge-only engines
@@ -180,11 +188,15 @@ def _declared_relationships(
 
 
 def _enrich_catalog_fn(
-    table: FederatedTable, relationships: tuple[Relationship, ...]
+    table: FederatedTable,
+    relationships: tuple[Relationship, ...],
+    context: WorkspaceContext | None = None,
 ) -> CatalogEntry:
     """Default LLM-free, data-grounded cataloguing (deterministic, offline)."""
     keys = table.keys.primary_key if table.keys else ()
-    return enrich.catalog_entry(table.name, table.profile, relationships, keys=keys)
+    return enrich.catalog_entry(
+        table.name, table.profile, relationships, keys=keys, context=context
+    )
 
 
 @dataclass
@@ -208,6 +220,10 @@ class DatabaseManager:
         spec.validate()
         tables = self.service.connect(spec)
         relationships = _declared_relationships(tables)
+        # Feature 010: snapshot the pre-existing workspace's meanings BEFORE
+        # registering this connection's records, so each table is catalogued
+        # knowing its neighbours. A failure degrades to isolation (AC-10).
+        context = self._workspace_context(relationships)
         # 1) Immediate records: stub catalog + pending status; return promptly.
         records = [
             DatasetRecord(
@@ -238,8 +254,19 @@ class DatabaseManager:
         # 2) Background cataloguing (bounded concurrency), contained per table.
         pool = self._ensure_pool()
         for table in tables:
-            pool.submit(self._catalogue_one, spec.name, table, relationships)
+            pool.submit(self._catalogue_one, spec.name, table, relationships, context)
         return self._schema(spec)
+
+    def _workspace_context(
+        self, relationships: tuple[Relationship, ...]
+    ) -> WorkspaceContext | None:
+        try:
+            return build_workspace_context(
+                {r.name: r.summary.catalog for r in self.repo.list_datasets()},
+                relationships,
+            )
+        except Exception:  # noqa: BLE001 - degrade to isolation, never fail connect
+            return None
 
     def _attach_for_query(
         self,
@@ -279,12 +306,14 @@ class DatabaseManager:
         connection: str,
         table: FederatedTable,
         relationships: tuple[Relationship, ...],
+        context: WorkspaceContext | None = None,
     ) -> None:
         name = f"{connection}.{table.name}"
         try:
             if self.catalog_delay:
                 time.sleep(self.catalog_delay)
-            entry = self.catalog_fn(table, relationships)
+            trimmed = context.for_table(table.name) if context is not None else None
+            entry = self.catalog_fn(table, relationships, trimmed)
             self._apply(name, entry, "complete")
         except Exception:  # noqa: BLE001 - failure is contained to this table
             self._apply(name, None, "failed")
@@ -368,11 +397,13 @@ def _configured_catalog_fn() -> CatalogFn:
         return _enrich_catalog_fn
 
     def fn(
-        table: FederatedTable, relationships: tuple[Relationship, ...]
+        table: FederatedTable,
+        relationships: tuple[Relationship, ...],
+        context: WorkspaceContext | None = None,
     ) -> CatalogEntry:
         mine = tuple(r for r in relationships if r.child_table == table.name)
         payload = payload_from_profile(table.name, table.profile)
-        return cataloguer.catalog(payload, mine)  # type: ignore[attr-defined]
+        return cataloguer.catalog(payload, mine, context=context)  # type: ignore[attr-defined]
 
     return fn
 

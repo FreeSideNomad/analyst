@@ -339,3 +339,29 @@ def test_files_get_semantic_analysis_by_default(tmp_path):
         and district.description != "Text column from the source table."
     )
     assert district.role  # a role was inferred
+
+
+# --------------------------------------------------------------------------- #
+# Feature 010 — the repository supplies the workspace catalogs for cataloguing
+# --------------------------------------------------------------------------- #
+_CUSTOMERS_010 = b"id,region\n10,North\n20,South\n"
+_ORDERS_010 = b"order_id,customer_id,quantity\n1,10,2\n2,20,1\n3,10,3\n"
+
+
+def test_repository_ingest_catalogues_in_workspace_context(tmp_path):
+    repo = StoreRepository(str(tmp_path / "data"))
+    repo.ingest("customers.csv", _CUSTOMERS_010)
+    (orders,) = repo.ingest("orders.csv", _ORDERS_010)
+    fk = next(c for c in orders.summary.catalog.columns if c.name == "customer_id")
+    # The sibling's meaning — not just its name — is woven in (AC-1/AC-2).
+    assert "customers.csv: 2 rows, 2 columns" in fk.description
+
+
+def test_workspace_context_survives_a_restart(tmp_path):
+    """AC-11: a fresh session rebuilds the context from persisted catalogs."""
+    data = str(tmp_path / "data")
+    StoreRepository(data).ingest("customers.csv", _CUSTOMERS_010)
+    reopened = StoreRepository(data)  # fresh session — catalogs from sidecars
+    (orders,) = reopened.ingest("orders.csv", _ORDERS_010)
+    fk = next(c for c in orders.summary.catalog.columns if c.name == "customer_id")
+    assert "customers.csv: 2 rows, 2 columns" in fk.description

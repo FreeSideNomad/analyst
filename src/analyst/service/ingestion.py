@@ -17,7 +17,9 @@ from analyst.agentic.cataloguer import Cataloguer
 from analyst.domain.catalog import CatalogEntry, Clarification, payload_from_profile
 from analyst.domain.dataset import DatasetSummary, IngestionResult, RefreshResult
 from analyst.domain.profile import DatasetProfile
+from analyst.domain.relationships import Relationship
 from analyst.domain.status import IngestionStatus
+from analyst.domain.workspace_context import WorkspaceContext, build_workspace_context
 from analyst.engine.excel import ExcelReader
 from analyst.engine.reader import FileTooLargeError, UnsupportedFormatError
 from analyst.engine.store import DatasetStore
@@ -28,6 +30,9 @@ _SUPPORTED = "CSV, TSV, Excel, JSON"
 DEFAULT_MAX_BYTES = 1_000_000_000  # ~1 GB envelope (AC-21)
 
 StatusSink = Callable[[str, IngestionStatus], None]
+# Feature 010: whoever holds the workspace's catalogs (the repository) supplies
+# them on demand, so each ingest is catalogued knowing its siblings.
+CatalogSource = Callable[[], "dict[str, CatalogEntry | None]"]
 
 
 def _sanitize(name: str) -> str:
@@ -66,11 +71,13 @@ class IngestionService:
         cataloguer: Cataloguer | None = None,
         max_bytes: int = DEFAULT_MAX_BYTES,
         status_sink: StatusSink | None = None,
+        catalog_source: CatalogSource | None = None,
     ):
         self.store = store
         self.cataloguer = cataloguer
         self.max_bytes = max_bytes
         self.status_sink = status_sink
+        self.catalog_source = catalog_source
 
     def _report(self, dataset: str, status: IngestionStatus) -> None:
         if self.status_sink is not None:
@@ -126,12 +133,34 @@ class IngestionService:
             ),
         )
 
+    def _context(
+        self, dataset: str, relationships: tuple[Relationship, ...]
+    ) -> WorkspaceContext | None:
+        """The workspace context for cataloguing ``dataset`` (feature 010).
+
+        Trimmed to the dataset's view (self excluded, sibling columns only for
+        direct links). A failure building it degrades to
+        cataloguing-in-isolation (AC-10) — the ingest itself must never break
+        on a broken catalog registry.
+        """
+        if self.catalog_source is None:
+            return None
+        try:
+            full = build_workspace_context(dict(self.catalog_source()), relationships)
+            return full.for_table(dataset)
+        except Exception:  # noqa: BLE001 - degrade, never fail the ingest
+            return None
+
     def _catalog(self, dataset: str, profile: DatasetProfile) -> CatalogEntry | None:
+        rels = tuple(self.store.discover_relationships())
+        context = self._context(dataset, rels)
         if self.cataloguer is not None:
             from analyst.agentic.cataloguer import CatalogingError
 
             try:
-                return self.cataloguer.catalog(payload_from_profile(dataset, profile))
+                return self.cataloguer.catalog(
+                    payload_from_profile(dataset, profile), rels, context=context
+                )
             except CatalogingError:
                 self.store.delete(dataset)  # rollback — no partial dataset (AC-17)
                 raise
@@ -141,8 +170,7 @@ class IngestionService:
         # not left profile-only. No LLM, no env flag.
         from analyst.agentic import enrich
 
-        rels = tuple(self.store.discover_relationships())
-        return enrich.catalog_entry(dataset, profile, rels)
+        return enrich.catalog_entry(dataset, profile, rels, context=context)
 
     def ingest(self, source: str | os.PathLike[str]) -> IngestionResult:
         path = Path(source)
