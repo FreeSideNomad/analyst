@@ -70,19 +70,22 @@ def _abstain_answer(summary: str) -> AnswerResult:
     )
 
 
-def _friendly_sql(sql: str, repo: DatasetRepository) -> str:
-    """Rewrite internal q_ SQL aliases back to their quoted dataset ids for the
-    trust trail (e.g. q_orders_csv -> "orders.csv"). Longest alias first so no
-    alias is a prefix of another."""
+def _friendly_sql(text: str, repo: DatasetRepository, quote: bool = True) -> str:
+    """Rewrite internal q_ SQL aliases back to their dataset ids for anything the
+    user sees (e.g. q_orders_csv -> "orders.csv" in SQL, or orders.csv in prose).
+    Longest alias first so no alias is a prefix of another. ``quote`` wraps the id
+    in double quotes (needed in SQL, noise in prose like assumptions/lineage)."""
     import re
 
     store = getattr(repo, "store", None)
     if store is None:
-        return sql
+        return text
     mapping = store.query_alias_map()  # alias -> dataset id
     for alias in sorted(mapping, key=len, reverse=True):
-        sql = re.sub(rf"\b{re.escape(alias)}\b", f'"{mapping[alias]}"', sql)
-    return sql
+        name = mapping[alias]
+        repl = f'"{name}"' if quote else name
+        text = re.sub(rf"\b{re.escape(alias)}\b", repl, text)
+    return text
 
 
 def _format_value(value: object) -> str:
@@ -318,7 +321,10 @@ class PlannerQAService:
             )
 
         if plan.action is PlanAction.ABSTAIN:
-            coverage = ", ".join(t.name for t in tables)
+            # friendly dataset ids, not the internal q_ aliases
+            coverage = ", ".join(
+                _friendly_sql(t.name, repo, quote=False) for t in tables
+            )
             reason = plan.reason or "The question is outside the loaded datasets."
             return _abstain_answer(
                 f"I can't answer that from the current catalog. {reason} "
@@ -346,9 +352,25 @@ class PlannerQAService:
                 except Exception as exc:  # noqa: BLE001 - surface as a refinable error
                     problems = [f"execution error: {exc}"]
                 else:
-                    # Trust trail shows friendly dataset ids, not the q_ aliases.
+                    # Everything the user sees uses friendly dataset ids, not the
+                    # internal q_ aliases — the SQL (quoted) AND the LLM prose
+                    # (title/assumptions/lineage, unquoted).
                     display = dataclasses.replace(
-                        current, sql=_friendly_sql(current.sql, repo)
+                        current,
+                        sql=_friendly_sql(current.sql, repo),
+                        title=(
+                            _friendly_sql(current.title, repo, quote=False)
+                            if current.title
+                            else current.title
+                        ),
+                        assumptions=tuple(
+                            _friendly_sql(a, repo, quote=False)
+                            for a in current.assumptions
+                        ),
+                        lineage=tuple(
+                            _friendly_sql(line, repo, quote=False)
+                            for line in current.lineage
+                        ),
                     )
                     return _shape_answer(display, result)
             problem = " ".join(problems)

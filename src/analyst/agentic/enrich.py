@@ -38,8 +38,10 @@ def _role(col: ColumnProfile, is_child_fk: bool, is_key: bool) -> str:
 
 
 def _sample_phrase(col: ColumnProfile, limit: int = 3) -> str:
-    values = [str(v) for v in col.samples[:limit] if v is not None]
-    return ", ".join(values)
+    # Sorted so the description (and therefore the planner prompt it feeds) is
+    # DETERMINISTIC — profile samples come back in DuckDB's arbitrary order.
+    values = sorted(str(v) for v in col.samples if v is not None)
+    return ", ".join(values[:limit])
 
 
 def _null_note(col: ColumnProfile, row_count: int) -> str:

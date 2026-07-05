@@ -211,9 +211,24 @@ def then_result_table_shown(ctx: ScenarioContext) -> None:
     expect(ctx.page.get_by_role("button", name="Download CSV")).to_be_visible()
 
 
-@step(r"the user saves the result as a dataset")
-def when_save_result(ctx: ScenarioContext) -> None:
+@step(r"the user opens the save-as-dataset dialog")
+def when_open_save_dialog(ctx: ScenarioContext) -> None:
     ctx.page.get_by_role("button", name="Save as dataset").click()
+    _expect()(
+        ctx.page.get_by_role("dialog", name="Save result as dataset")
+    ).to_be_visible()
+
+
+@step(r"an empty name is rejected")
+def then_empty_name_rejected(ctx: ScenarioContext) -> None:
+    ctx.page.get_by_label("Dataset name").fill("")
+    _expect()(ctx.page.get_by_role("button", name="Save dataset")).to_be_disabled()
+
+
+@step(r"the user confirms a valid dataset name")
+def when_confirm_save(ctx: ScenarioContext) -> None:
+    ctx.page.get_by_label("Dataset name").fill("region_totals")
+    ctx.page.get_by_role("button", name="Save dataset").click()
 
 
 @step(r"the result is confirmed saved to Ingest & Profile")
