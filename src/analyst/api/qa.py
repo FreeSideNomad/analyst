@@ -67,6 +67,22 @@ def _abstain_answer(summary: str) -> AnswerResult:
     )
 
 
+def _friendly_sql(sql: str, repo: DatasetRepository) -> str:
+    """Rewrite internal q_ SQL aliases back to their quoted dataset ids for the
+    trust trail (e.g. q_orders_csv -> "orders.csv"). Longest alias first so no
+    alias is a prefix of another."""
+    import re
+
+    mapping = {
+        query_alias_name(r.name): r.name
+        for r in repo.list_datasets()
+        if not getattr(r, "federated", False) or getattr(r, "db_queryable", False)
+    }
+    for alias in sorted(mapping, key=len, reverse=True):
+        sql = re.sub(rf"\b{re.escape(alias)}\b", f'"{mapping[alias]}"', sql)
+    return sql
+
+
 def _format_value(value: object) -> str:
     if isinstance(value, bool) or value is None:
         return str(value)
@@ -296,7 +312,10 @@ class PlannerQAService:
             result = run_select(repo.store, plan.sql)
         except Exception as exc:
             return _abstain_answer(f"The query could not be executed: {exc}")
-        return _shape_answer(plan, result)
+        # The trust trail shows the query in friendly dataset ids, not the
+        # internal q_ SQL aliases (the executed SQL above used the aliases).
+        display = dataclasses.replace(plan, sql=_friendly_sql(plan.sql, repo))
+        return _shape_answer(display, result)
 
 
 def build_qa_service(repo: DatasetRepository) -> QAService:

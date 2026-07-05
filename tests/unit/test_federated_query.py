@@ -104,3 +104,82 @@ def test_real_nl_question_over_connected_db_answers_live(tmp_path):
     res = qa.submit("How many albums does each artist have? Top 5 artists.", repo)
     assert not res.abstain, res.summary
     assert res.trust_trail and "q_sales_db_" in res.trust_trail.sql
+
+
+def test_trust_trail_shows_friendly_names_not_aliases(tmp_path):
+    """Fix: the displayed SQL uses friendly dataset ids, not q_ aliases."""
+    from analyst.api.qa import _friendly_sql
+    from analyst.api.repository import StoreRepository
+
+    repo = StoreRepository(str(tmp_path / "data"))
+    repo.ingest("orders.csv", b"id,amount\n1,10\n2,20\n")
+    friendly = _friendly_sql("SELECT SUM(amount) FROM q_orders_csv", repo)
+    assert friendly == 'SELECT SUM(amount) FROM "orders.csv"'
+
+
+def test_restart_leaves_no_dangling_federated_views(tmp_path):
+    """Fix: attach uses TEMP views, so a connected DB leaves nothing queryable
+    (and nothing in datasets()) after a restart — the user re-connects."""
+    from analyst.api.repository import StoreRepository
+    from analyst.api.routes.databases import DatabaseManager
+
+    repo = StoreRepository(str(tmp_path / "data"))
+    DatabaseManager(repo=repo).connect(_spec())
+    reopened = StoreRepository(str(tmp_path / "data"))  # simulate a restart
+    assert not any(n.startswith("sales_db.") for n in reopened.store.datasets())
+    try:
+        run_select(reopened.store, 'SELECT COUNT(*) FROM "sales_db.Album"')
+        raise AssertionError("a federated view must not survive a restart")
+    except AssertionError:
+        raise
+    except Exception:
+        pass
+
+
+def test_attach_failure_is_loud_and_disables_queryability(
+    tmp_path, caplog, monkeypatch
+):
+    """Fix: a failed attach (e.g. missing scanner extension) is LOGGED, not
+    swallowed; the connection stays catalogued but its tables are not queryable."""
+    import logging
+
+    from analyst.api.repository import StoreRepository
+    from analyst.api.routes.databases import DatabaseManager
+
+    repo = StoreRepository(str(tmp_path / "data"))
+    mgr = DatabaseManager(repo=repo)
+
+    def _boom(*_a, **_k):
+        raise RuntimeError("no scanner extension available")
+
+    monkeypatch.setattr(repo.store, "attach_database", _boom)
+    with caplog.at_level(logging.WARNING):
+        mgr.connect(_spec())
+    assert any("within-DB Q&A disabled" in r.message for r in caplog.records)
+    assert not any(r.db_queryable for r in repo.list_datasets() if r.federated)
+
+
+@pytest.mark.live
+def test_postgres_within_db_qa_live(tmp_path):
+    """Real PostgreSQL path (run with `-m live` after `make dbs-up`): the pagila
+    tables become queryable and run against the source."""
+    from analyst.api.repository import StoreRepository
+    from analyst.api.routes.databases import DatabaseManager
+    from analyst.domain.connection import ConnectionSpec, DatabaseEngine
+
+    repo = StoreRepository(str(tmp_path / "data"))
+    spec = ConnectionSpec(
+        name="pg",
+        engine=DatabaseEngine.POSTGRES,
+        host="localhost",
+        port=55432,
+        database="pagila",
+        user="postgres",
+        password="analyst",
+    )
+    DatabaseManager(repo=repo).connect(spec)
+    recs = [r for r in repo.list_datasets() if r.federated]
+    assert recs and all(r.db_queryable for r in recs)
+    film = next(r.name for r in recs if r.name.endswith(".film"))
+    res = run_select(repo.store, f'SELECT COUNT(*) FROM "{film}"')
+    assert res.rows[0][0] > 0

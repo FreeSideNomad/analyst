@@ -191,10 +191,12 @@ class DatasetStore:
         self, connection: str, spec: object, tables: tuple[str, ...]
     ) -> None:
         """Feature 007: ATTACH a connected database (scanner engine) into this
-        connection and register each table as a view named ``<connection>.<table>``
-        — the dataset id the planner uses — so planner SQL executes against it
-        with scanner push-down. Read-only; bulk data stays at the source."""
-        from analyst.domain.connection import DatabaseEngine
+        connection and register each table as a TEMP view named
+        ``<connection>.<table>`` — the dataset id the planner uses — so planner
+        SQL executes against it with scanner push-down. Read-only; bulk data
+        stays at the source. TEMP so the attach (which is not persisted, and
+        whose secret is never written to disk) leaves nothing dangling on
+        restart — the user re-connects."""
         from analyst.engine.federation import build_attach_sql, source_schema
 
         alias = f"__fed_{connection}"
@@ -205,11 +207,10 @@ class DatasetStore:
                 pass  # already present, or offline — ATTACH surfaces a clean error
         self._con.execute(build_attach_sql(spec, alias))  # type: ignore[arg-type]
         schema = source_schema(spec.engine)  # type: ignore[attr-defined]
-        _ = DatabaseEngine  # (imported for callers/type context)
         for table in tables:
             view = f"{connection}.{table}"
             self._con.execute(
-                f"CREATE OR REPLACE VIEW {_quote_ident(view)} AS SELECT * FROM "
+                f"CREATE OR REPLACE TEMP VIEW {_quote_ident(view)} AS SELECT * FROM "
                 f"{_quote_ident(alias)}.{_quote_ident(schema)}.{_quote_ident(table)}"
             )
             self._fed_views.add(view)
