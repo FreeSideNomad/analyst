@@ -17,14 +17,14 @@ Feature: Two-surface workbench — Ingest & Profile (data + catalog) and Query (
     Given a workspace with the seeded datasets
     When an Excel file "company.xlsx" with sheets "employees" and "departments" is ingested
     Then the datasets "company.employees.xlsx" and "company.departments.xlsx" exist
-    And they share the group "company"
+    And they share the group "company.xlsx"
 
   # AC-3
   Scenario: A single-table file is named by file and extension
     Given a workspace with the seeded datasets
     When a CSV file "orders.csv" is ingested
     Then the dataset "orders.csv" exists
-    And its group is "orders" with one table
+    And its group is "orders.csv" with one table
 
 ## The workbench — Ingest & Profile (browser)
 
@@ -101,7 +101,7 @@ Feature: Two-surface workbench — Ingest & Profile (data + catalog) and Query (
   Scenario: The user can move between the two surfaces
     Given the app is open in a browser
     When the user opens the Ingest & Profile view
-    Then the upload zone is shown
+    Then the workbench is shown
     When the user opens the Query view
     Then the Q&A conversation is shown
 

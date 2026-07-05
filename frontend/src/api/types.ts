@@ -21,6 +21,7 @@ export interface ColumnProfile {
   dominantType?: ColumnType | null;
   offTypeExamples: unknown[];
   isNested: boolean;
+  distribution: { label: string; count: number }[];  // real histogram / top-K
 }
 
 export interface DatasetProfile {
@@ -59,8 +60,9 @@ export interface Dataset {
   columnCount: number;
   profile: DatasetProfile;
   catalog: CatalogEntry | null;
-  // Feature 006 — source-grouped workbench:
-  group: string;               // first dot-segment of the name
+  // Feature 006 — source-grouped workbench (file/connection → table → columns):
+  group: string;               // the FILE with extension ("company.xlsx") or connection ("sales_db")
+  entity: string;              // the sheet/table/stem shown as the table node ("employees", "orders")
   sourceKind: 'file' | 'database';
   queryable: boolean;          // false for connected-DB tables (not yet Q&A-able)
 }

@@ -125,21 +125,23 @@ def then_answer_with_trail(ctx: ScenarioContext) -> None:
 def given_app_open(ctx: ScenarioContext) -> None:
     expect = _expect()
     ctx.page.goto(_STACK["web"])
-    expect(ctx.page.get_by_text("Semantic catalog").first).to_be_visible()
+    expect(ctx.page.get_by_text("Catalog", exact=True).first).to_be_visible()
 
 
 @step(r"the analyst app is open on the ingestion view")
 def given_app_on_ingestion(ctx: ScenarioContext) -> None:
     given_app_open(ctx)
     ctx.page.get_by_role("button", name="Ingest & profile").click()
-    _expect()(ctx.page.get_by_text("Drop a file, or click to upload")).to_be_visible()
+    _expect()(ctx.page.get_by_role("button", name="Add data")).to_be_visible()
 
 
-@step(r'the semantic catalog lists "sales.csv", "customers.csv" and "products.csv"')
+@step(r'the semantic catalog lists "sales", "customers" and "products"')
 def then_catalog_lists_seeded(ctx: ScenarioContext) -> None:
     expect = _expect()
-    for file_name in ("sales.csv", "customers.csv", "products.csv"):
-        expect(ctx.page.get_by_text(file_name).first).to_be_visible()
+    for name in ("sales", "customers", "products"):
+        expect(
+            ctx.page.get_by_role("button", name=f"Open table {name}").first
+        ).to_be_visible()
 
 
 @step(r'the table details describe the dataset "sales" in plain English')
@@ -209,7 +211,9 @@ def then_trust_trail(ctx: ScenarioContext) -> None:
 
 @step(r"the user drops a file on the upload zone")
 def when_drop_file(ctx: ScenarioContext) -> None:
-    # Bind "drop" to the file input — the REAL file is what gets uploaded.
+    # Open the add-data menu, then set the file on its hidden input (the REAL
+    # file is what gets uploaded).
+    ctx.page.get_by_role("button", name="Add data").click()
     ctx.page.get_by_label("Choose a file to upload").set_input_files(
         files=[
             {
@@ -223,17 +227,16 @@ def when_drop_file(ctx: ScenarioContext) -> None:
 
 @step(r"the upload progresses to completion")
 def then_upload_completes(ctx: ScenarioContext) -> None:
-    row = (
-        ctx.page.get_by_role("button")
-        .filter(has_text="transactions_q4.csv")
-        .filter(has_text="Ready")
-    )
-    _expect()(row).to_be_visible(timeout=20_000)
+    _expect()(
+        ctx.page.get_by_role("button", name="Open table transactions").first
+    ).to_be_visible(timeout=20_000)
 
 
-@step(r'"transactions_q4.csv" appears among the ingested datasets')
+@step(r'"transactions" appears among the ingested datasets')
 def then_upload_listed(ctx: ScenarioContext) -> None:
-    _expect()(ctx.page.get_by_text("transactions_q4.csv").first).to_be_visible()
+    _expect()(
+        ctx.page.get_by_role("button", name="Open table transactions").first
+    ).to_be_visible()
 
 
 @step(r"the user opens the ingestion view")
@@ -243,7 +246,7 @@ def when_open_ingestion(ctx: ScenarioContext) -> None:
 
 @step(r"the upload zone invites them to drop a file")
 def then_upload_zone_visible(ctx: ScenarioContext) -> None:
-    _expect()(ctx.page.get_by_text("Drop a file, or click to upload")).to_be_visible()
+    _expect()(ctx.page.get_by_role("button", name="Add data")).to_be_visible()
 
 
 @step(r"the user opens the workspace view")
@@ -294,6 +297,7 @@ def then_no_server_error(ctx: ScenarioContext) -> None:
 
 @step(r"the user uploads an empty file")
 def when_upload_empty_file(ctx: ScenarioContext) -> None:
+    ctx.page.get_by_role("button", name="Add data").click()
     ctx.page.get_by_label("Choose a file to upload").set_input_files(
         files=[{"name": "empty.csv", "mimeType": "text/csv", "buffer": b""}]
     )

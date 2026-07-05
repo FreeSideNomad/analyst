@@ -57,7 +57,7 @@ Feature: FastAPI layer & aligned frontend
   # AC-6
   Scenario: The workspace lists the seeded datasets
     Given the analyst app is open in a browser
-    Then the semantic catalog lists "sales.csv", "customers.csv" and "products.csv"
+    Then the semantic catalog lists "sales", "customers" and "products"
 
   # AC-7
   Scenario: A dataset's profile and catalog descriptions are revealable
@@ -80,7 +80,7 @@ Feature: FastAPI layer & aligned frontend
     Given the analyst app is open on the ingestion view
     When the user drops a file on the upload zone
     Then the upload progresses to completion
-    And "transactions_q4.csv" appears among the ingested datasets
+    And "transactions" appears among the ingested datasets
 
   # AC-10
   Scenario: The user can move between the ingestion and workspace views

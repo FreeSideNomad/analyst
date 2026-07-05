@@ -134,22 +134,22 @@ export function Tag({ children, onClick, selected }: { children: ReactNode; onCl
   );
 }
 
-// data-driven distribution sparkline (SWISS Sparkline)
-export function Sparkline({ data, width = 210, height = 42, color = 'var(--brand)' }: { data?: number[]; width?: number; height?: number; color?: string }) {
+// data-driven distribution — REAL histogram / top-K counts drawn as bars
+export function Sparkline({ data, labels, width = 210, height = 42, color = 'var(--brand)' }: { data?: number[]; labels?: string[]; width?: number; height?: number; color?: string }) {
   if (!data || !data.length) return <svg width={width} height={height} />;
-  const min = Math.min(...data), max = Math.max(...data), span = (max - min) || 1, pad = 3;
-  const x = (i: number) => (i / (data.length - 1)) * (width - pad * 2) + pad;
-  const y = (v: number) => height - pad - ((v - min) / span) * (height - pad * 2);
-  const pts = data.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`);
-  const line = 'M' + pts.join(' L');
-  const area = `${line} L${x(data.length - 1).toFixed(1)},${height} L${x(0).toFixed(1)},${height} Z`;
+  const max = Math.max(...data) || 1, pad = 2, gap = 1.5;
+  const bw = (width - pad * 2 - gap * (data.length - 1)) / data.length;
   return (
     <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} style={{ display: 'block' }}>
-      <defs><linearGradient id="spk" x1="0" y1="0" x2="0" y2="1">
-        <stop offset="0%" stopColor={color} stopOpacity=".16" /><stop offset="100%" stopColor={color} stopOpacity="0" />
-      </linearGradient></defs>
-      <path d={area} fill="url(#spk)" />
-      <path d={line} fill="none" stroke={color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+      {data.map((v, i) => {
+        const h = Math.max(1, (v / max) * (height - pad * 2));
+        return (
+          <rect key={i} x={pad + i * (bw + gap)} y={height - pad - h} width={Math.max(1, bw)} height={h}
+            rx={1} fill={color} fillOpacity={0.85}>
+            <title>{`${labels?.[i] ?? i}: ${v}`}</title>
+          </rect>
+        );
+      })}
     </svg>
   );
 }

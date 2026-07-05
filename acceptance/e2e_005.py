@@ -215,11 +215,12 @@ def then_detach_not_found(ctx: ScenarioContext, name: str) -> None:
 def given_app_open(ctx: ScenarioContext) -> None:
     expect = _expect()
     ctx.page.goto(ctx.web)
-    expect(ctx.page.get_by_text("Semantic catalog").first).to_be_visible()
+    expect(ctx.page.get_by_text("Catalog", exact=True).first).to_be_visible()
 
 
 @step(r"the user opens the database connection form")
 def when_open_connect_form(ctx: ScenarioContext) -> None:
+    ctx.page.get_by_role("button", name="Add data").click()
     ctx.page.get_by_role("button", name="Connect a database").click()
     _expect()(ctx.page.get_by_label("Connection name")).to_be_visible()
 
@@ -249,30 +250,38 @@ def given_connected_via_form(ctx: ScenarioContext, name: str) -> None:
 @step(r'"(?P<name>[^"]+)" appears among the connected databases')
 def then_connection_visible(ctx: ScenarioContext, name: str) -> None:
     _expect()(
-        ctx.page.get_by_role("button", name=f"Detach database {name}")
+        ctx.page.get_by_role("button", name=f"Toggle source {name}")
     ).to_be_visible(timeout=20_000)
 
 
 @step(r'the table "(?P<table>[^"]+)" appears in the semantic catalog')
 def then_table_in_catalog(ctx: ScenarioContext, table: str) -> None:
-    _expect()(ctx.page.get_by_text(table).first).to_be_visible()
+    entity = table.split(".", 1)[1] if "." in table else table
+    _expect()(
+        ctx.page.get_by_role("button", name=f"Open table {entity}").first
+    ).to_be_visible()
 
 
 @step(r'the user detaches the database "(?P<name>[^"]+)"')
 def when_detach_via_ui(ctx: ScenarioContext, name: str) -> None:
-    ctx.page.get_by_role("button", name=f"Detach database {name}").click()
+    ctx.page.get_by_role("button", name="Open table Album").first.click()
+    ctx.page.get_by_role("button", name=f"Disconnect database {name}").click()
+    ctx.page.get_by_role("button", name=f"Confirm disconnect {name}").click()
 
 
 @step(r'"(?P<name>[^"]+)" no longer appears among the connected databases')
 def then_connection_gone_from_ui(ctx: ScenarioContext, name: str) -> None:
     _expect()(
-        ctx.page.get_by_role("button", name=f"Detach database {name}")
+        ctx.page.get_by_role("button", name=f"Toggle source {name}")
     ).to_have_count(0)
 
 
 @step(r'the table "(?P<table>[^"]+)" no longer appears in the semantic catalog')
 def then_table_gone_from_catalog(ctx: ScenarioContext, table: str) -> None:
-    _expect()(ctx.page.get_by_text(table)).to_have_count(0)
+    entity = table.split(".", 1)[1] if "." in table else table
+    _expect()(
+        ctx.page.get_by_role("button", name=f"Open table {entity}")
+    ).to_have_count(0)
 
 
 @step(r"the user submits an unreachable PostgreSQL connection")

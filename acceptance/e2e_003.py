@@ -274,7 +274,7 @@ def when_canned_question(ctx: ScenarioContext, question: str) -> None:
 def given_app_open(ctx: ScenarioContext) -> None:
     expect = _expect()
     ctx.page.goto(_STACK["web"])
-    expect(ctx.page.get_by_text("Semantic catalog").first).to_be_visible()
+    expect(ctx.page.get_by_text("Catalog", exact=True).first).to_be_visible()
 
 
 @step(r'the user asks in the chat "(?P<question>[^"]+)"')
