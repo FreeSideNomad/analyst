@@ -104,7 +104,29 @@ def create_app(repo: DatasetRepository | None = None) -> FastAPI:
     app.include_router(datasets.router)
     app.include_router(qa.router)
     app.include_router(system.router)
+    _mount_web(app)
     return app
+
+
+def _mount_web(app: FastAPI) -> None:
+    """Serve the built frontend from this process (single-image deploy).
+
+    ANALYST_WEB_DIST names the Vite build output; unset, the repo-relative
+    ``frontend/dist`` is used when it exists. Mounted after the routers, so
+    ``/api/*`` always wins; no dist → API-only (the dev setup, where Vite
+    proxies to us)."""
+    from pathlib import Path
+
+    from fastapi.staticfiles import StaticFiles
+
+    configured = os.environ.get("ANALYST_WEB_DIST")
+    dist = (
+        Path(configured)
+        if configured
+        else Path(__file__).resolve().parents[3] / "frontend" / "dist"
+    )
+    if (dist / "index.html").is_file():
+        app.mount("/", StaticFiles(directory=str(dist), html=True), name="web")
 
 
 app = create_app()
