@@ -1,46 +1,73 @@
 # analyst
 
-Self-hosted **AI data analyst**: drop in Excel/CSV files or connect a database, and an agent automatically profiles, catalogues, and understands your data so anyone can ask questions in plain English — with the profiling, relationships, SQL, and assumptions always one click away.
+**Self-hosted AI data analyst.** Drop in Excel/CSV files or connect a
+database; an agent automatically profiles, catalogues, and *understands* your
+data, so anyone on the team can ask questions in plain English — with the
+profiling, relationships, generated SQL, and assumptions always one click
+away.
 
 > **Autopilot by default, grab the wheel on demand.**
 
-Built under **DAE (Disciplined Agentic Engineering)** with **ATDD**. See [`CHARTER.md`](CHARTER.md) (engineering constitution) and [`docs/PRD.md`](docs/PRD.md) (product vision + competitive research).
+📖 **[User manual (with screenshots)](https://freesidenomad.github.io/analyst/)** ·
+🐳 **[`ghcr.io/freesidenomad/analyst`](https://github.com/FreeSideNomad/analyst/pkgs/container/analyst)**
 
-## Status
+![The workspace: semantic catalog + table detail](docs/site/img/catalog.png)
 
-Early development.
-- **Feature 001 — file ingestion & agentic profiling**: shipped (41/41 acceptance).
-- **Feature 002 — FastAPI layer & aligned frontend**: the Claude Desktop Design
-  prototype integrated against the real domain (11/11 acceptance, Playwright e2e).
+## Quick start (Docker)
 
-## Tech
-
-- **Backend:** Python 3.14 (managed with **uv**), DuckDB + Parquet, FastAPI, Claude Agent SDK.
-- **Frontend:** React + TypeScript + zustand, Vite/bun, Swiss-style design tokens (see `CONTRACT.md` for the domain↔wire contract).
-
-## Run the app
-
-Requires [uv](https://docs.astral.sh/uv/) and [bun](https://bun.sh).
+One self-contained image — API, DuckDB/Parquet analytical engine, and web UI
+in a single container:
 
 ```bash
-make install     # uv sync + bun install
-make dev         # API :8000 (real DuckDB store) + web :5173 together
-make api-mock    # instead of `make api`: in-memory Python fixtures (demos/e2e)
+docker run -d --name analyst \
+  -p 8000:8000 \
+  -v analyst-data:/data \
+  ghcr.io/freesidenomad/analyst:latest
 ```
 
-The mock is **opt-in** (`ANALYST_FIXTURES=1`), never the default.
+Open <http://localhost:8000>. Ingestion, profiling, cataloguing, and
+relationship discovery run **fully locally** with no external calls. Add
+`-e ANTHROPIC_API_KEY=...` to enable natural-language Q&A and
+`-e ANALYST_CATALOG=live` for agent-written catalog descriptions — the
+governance invariant holds regardless: **raw bulk data never leaves the box**
+(only schema, profiles, capped samples, and small result sets reach the
+model; SQL executes locally in DuckDB).
+
+See the [manual](https://freesidenomad.github.io/analyst/) for OAuth login,
+workspaces, encrypted credential storage, backups, and the full
+configuration reference.
+
+## What it does
+
+| | |
+|---|---|
+| **Agentic ingestion** | CSV/TSV/Excel/JSON → profiled (types, nulls, cardinality, distributions), materialized to Parquet/DuckDB, catalogued in plain English. Messy files (synthesized headers, duplicate columns, mixed types, encodings) handled and recorded. |
+| **Relationship discovery** | PK/FK links discovered even when undeclared — proposed by name/type, **validated against the data** (referential integrity), marked required/optional. Declared, composite, and cross-source (file ↔ database) keys included. |
+| **Workspace-aware semantic layer** | Each table is catalogued *knowing* the rest of the workspace; adding `orders` teaches `customers` it is now referenced. The catalog persists and survives restarts. |
+| **Plain-English Q&A** | Questions span files *and* connected databases (federated joins). Confidence-gated: the agent asks a clarifying question when ambiguous, abstains with a reason rather than hallucinating. |
+| **Trust trail** | Every answer expands into assumptions, data lineage, and the exact SQL. Results export to CSV or save back as first-class datasets. |
+| **Database federation** | PostgreSQL, SQLite, SQL Server, DB2 — queried read-only **in place**, nothing copied. Encrypted-at-rest credential storage (operator-supplied key, Docker-secret friendly) with automatic reconnect after restarts. |
+| **Team-ready** | Google/Microsoft OAuth; first user becomes admin; isolated workspaces. |
 
 ## Development
 
+Backend: Python 3.14 (managed with [uv](https://docs.astral.sh/uv/)),
+DuckDB + Parquet, FastAPI, Claude Agent SDK. Frontend: React + TypeScript +
+zustand, Vite/[bun](https://bun.sh). See [`CHARTER.md`](CHARTER.md)
+(engineering constitution), [`CONTRACT.md`](CONTRACT.md) (domain↔wire
+contract), and [`docs/PRD.md`](docs/PRD.md) (product vision).
+
 ```bash
-uv sync                      # install deps (uv provisions Python 3.14)
-uv run pre-commit install    # enable the local commit gate (one-time, per clone)
+make install     # uv sync + bun install
+make dev         # API :8000 + web :5173 (Vite proxies /api)
+make api-mock    # in-memory fixture data (demos/e2e) — opt-in, never default
 
 uv run pytest tests/unit     # unit tests (incl. the API layer)
 uv run ruff check .          # lint
-uv run ruff format .         # format
 uv run mypy src/analyst      # static types
 cd frontend && bun run lint && bun run build   # frontend gate
+
+docker build -t analyst:local .   # the production image
 ```
 
 ### Acceptance tests (ATDD)
@@ -51,17 +78,38 @@ pytest by the DAE acceptance pipeline (parser vendored under
 
 ```bash
 uv run playwright install chromium   # one-time, for the e2e suite
-./run-acceptance-tests.sh            # both boards: in-process + browser e2e
+./run-acceptance-tests.sh            # every feature's board (in-process + browser e2e)
 E2E=0 ./run-acceptance-tests.sh      # skip the browser suite
 ```
 
-Feature 001 binds steps in-process; feature 002 binds them to HTTP + Playwright
-(Chromium against the production build, proxied to the fixtures API —
-deterministic, no LLM).
+### How it's built
+
+The project runs under **DAE (Disciplined Agentic Engineering)** with
+**ATDD**: every feature starts as human-approved acceptance criteria, becomes
+an executable Gherkin spec, and ships only when its generated acceptance
+board — and every previous feature's — is green. Feature history lives in
+[`features/`](features/), one folder per feature with its ACs, spec, plan,
+and handoffs.
+
+| Shipped | Feature |
+|---|---|
+| 001 | File ingestion & agentic profiling |
+| 002 | FastAPI layer & aligned frontend |
+| 003 | Natural-language Q&A with clarifications + trust trail |
+| 004 | Auth & workspaces (OAuth, first-user-admin) |
+| 005 | Database federation (Postgres/SQLite/SQL Server/DB2) |
+| 006 | Data-workbench UX |
+| 007 | Within-database Q&A (push-down SQL) |
+| 008 | Files × database questions (cross-source joins) |
+| 009 | Semantic depth — PK/FK discovery + data-grounded catalog |
+| 010 | Workspace-aware cataloguing (context, retroactive, persistent) |
+| 011 | Encrypted-at-rest credentials with seamless reconnect |
 
 ### Quality gate
 
-The same checks run **on every commit** (`.pre-commit-config.yaml`) and **in CI**
-(`.github/workflows/ci.yml`): `ruff` lint + format, `mypy`, unit tests, the
-frontend lint/typecheck/build, and both acceptance boards. Nothing lands with a
-regression.
+The same checks run **on every commit** (`.pre-commit-config.yaml`) and **in
+CI** (`.github/workflows/ci.yml`): `ruff` lint + format, `mypy`, unit tests,
+the frontend lint/typecheck/build, and every acceptance board — 161 scenarios
+across 10 boards, browser E2E included. Nothing lands with a regression.
+`docker.yml` publishes the image to GHCR on every push to `main`; `pages.yml`
+publishes the manual.

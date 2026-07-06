@@ -405,3 +405,26 @@ def test_recataloguing_failure_keeps_the_prior_entry(tmp_path):
     (orders,) = repo.ingest("orders.csv", _ORDERS_010)  # must not raise
     assert orders.summary.catalog is not None
     assert repo.get_dataset("customers.csv").summary.catalog is prior
+
+
+# --------------------------------------------------------------------------- #
+# Distribution — the API serves the built frontend (single-image deploy)
+# --------------------------------------------------------------------------- #
+def test_serves_built_frontend_when_dist_configured(tmp_path, monkeypatch):
+    dist = tmp_path / "dist"
+    dist.mkdir()
+    (dist / "index.html").write_text("<!doctype html><title>analyst</title>")
+    (dist / "app.js").write_text("console.log('ok')")
+    monkeypatch.setenv("ANALYST_WEB_DIST", str(dist))
+    monkeypatch.setenv("ANALYST_FIXTURES", "1")
+    client = TestClient(create_app(FixtureRepository()))
+    assert "analyst" in client.get("/").text
+    assert client.get("/app.js").status_code == 200
+    assert client.get("/api/health").status_code == 200  # API keeps priority
+
+
+def test_no_dist_configured_keeps_api_only(monkeypatch):
+    monkeypatch.delenv("ANALYST_WEB_DIST", raising=False)
+    monkeypatch.setenv("ANALYST_FIXTURES", "1")
+    client = TestClient(create_app(FixtureRepository()))
+    assert client.get("/api/health").status_code == 200
