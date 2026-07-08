@@ -92,6 +92,14 @@ Feature: Natural-language Q&A over a dataset
     Then a stat answer appears showing the value "$367.42"
     And the trust trail is expandable down to the SQL
 
+  # AC-9 — behavior pin (fix investigation 2026-07-08: reported self-collapse
+  # was not reproducible; the trail opens by default on the latest answer)
+  Scenario: The latest answer's trust trail arrives expanded and stays expanded
+    Given the analyst app is open in a browser
+    When the user asks in the chat "What is the average order value?"
+    Then the trust trail is already expanded showing its assumptions
+    And the trust trail stays expanded
+
   # AC-10
   Scenario: An aggregate answer renders as a chart with its leader highlighted
     Given the analyst app is open in a browser
