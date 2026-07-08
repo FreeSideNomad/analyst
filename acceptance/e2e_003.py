@@ -351,3 +351,30 @@ def then_sql_reveals_join(ctx: ScenarioContext) -> None:
     expect(ctx.page.get_by_text("Trust trail").first).to_be_visible()
     ctx.page.get_by_role("button", name="SQL", exact=True).click()
     expect(ctx.page.get_by_text("INNER JOIN", exact=False).first).to_be_visible()
+
+
+# --------------------------------------------------------------------------- #
+# Behavior pin (fix 2026-07-08-trust-trail-collapse): the latest answer's
+# trail arrives expanded — no click — and does not close by itself.
+# --------------------------------------------------------------------------- #
+@step(r"the trust trail is already expanded showing its assumptions")
+def then_trail_open_by_default(ctx: ScenarioContext) -> None:
+    expect = _expect()
+    # Deliberately NO click on "Trust trail": the tab bar being visible
+    # proves the panel arrived expanded (defaultOpen on the latest answer).
+    expect(
+        ctx.page.get_by_role("button", name="Assumptions", exact=True).first
+    ).to_be_visible()
+
+
+@step(r"the trust trail stays expanded")
+def then_trail_stays_expanded(ctx: ScenarioContext) -> None:
+    import time as _time
+
+    expect = _expect()
+    # Dwell long enough to span background poll ticks — a self-collapse
+    # (the reported defect) would close the panel within this window.
+    _time.sleep(1.5)
+    expect(
+        ctx.page.get_by_role("button", name="Assumptions", exact=True).first
+    ).to_be_visible()
