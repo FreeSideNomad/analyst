@@ -2,7 +2,7 @@
 
 Deselected by default (`-m 'not live'`). Requires the pagila container:
 
-    make dbs-up
+    sh scripts/dbs_up.sh                # start + seed the containers
     uv run pytest tests/live/test_credential_reconnect.py -m live -v
 """
 

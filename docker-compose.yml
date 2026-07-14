@@ -1,0 +1,32 @@
+# analyst — the whole app in one container (built from ./Dockerfile).
+#
+#   make build   build the local image
+#   make run     start on :${ANALYST_PORT:-8000} (+ demo DBs via scripts/dbs_up.sh)
+#   docker compose down   stop (the data volume is kept)
+#
+# Configuration comes from ./.env (gitignored) — copy .env.example to start.
+# Data persists in the named volume `analyst-data` across restarts/rebuilds.
+
+name: analyst
+
+services:
+  analyst:
+    image: ${ANALYST_IMAGE:-analyst:local}
+    build: .
+    ports:
+      - "${ANALYST_PORT:-8000}:8000"
+    environment:
+      # LLM features (NL Q&A) — unset keeps the app fully local/offline.
+      # Either an API key or a Claude subscription token (`claude setup-token`).
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN:-}
+      # "live" enables agent-written catalog descriptions (needs the API key).
+      ANALYST_CATALOG: ${ANALYST_CATALOG:-}
+      # Operator key for encrypted-at-rest DB credentials (feature 011).
+      ANALYST_SECRET_KEY: ${ANALYST_SECRET_KEY:-}
+    volumes:
+      - analyst-data:/data
+    restart: unless-stopped
+
+volumes:
+  analyst-data:

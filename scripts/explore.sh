@@ -2,9 +2,9 @@
 # Exploratory-testing harness: boot the app, tail logs for errors live, and
 # summarize defects on exit.
 #
-#   make explore          # mocked data (ANALYST_FIXTURES=1) — seeded workspace
-#   make explore-real     # real DuckDB store (empty until you upload)
-#   make explore-report   # re-summarize the last session's logs
+#   MODE=mock sh scripts/explore.sh   # mocked data (ANALYST_FIXTURES=1) — seeded workspace
+#   MODE=real sh scripts/explore.sh   # real DuckDB store (empty until you upload)
+#   uv run python scripts/summarize_defects.py .explore   # re-summarize last session
 #
 # While it runs: click around http://localhost:5173. API/web log lines stream
 # here, error lines highlighted. Ctrl-C stops everything and writes

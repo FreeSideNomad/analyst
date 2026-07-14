@@ -2,7 +2,7 @@
 
 Deselected by default (pytest addopts `-m 'not live'`). To run:
 
-    make dbs-up                       # start + seed the containers
+    sh scripts/dbs_up.sh                # start + seed the containers
     uv sync --extra dbs               # pymssql + ibm_db drivers
     uv run pytest tests/live -m live -v
 
@@ -38,7 +38,9 @@ def _reachable(host: str, port: int) -> bool:
 
 def _require_up(host: str, port: int, what: str) -> None:
     if not _reachable(host, port):
-        pytest.skip(f"{what} not reachable at {host}:{port} — run `make dbs-up`")
+        pytest.skip(
+            f"{what} not reachable at {host}:{port} — run `sh scripts/dbs_up.sh`"
+        )
 
 
 # --------------------------------------------------------------------------- #

@@ -1,72 +1,22 @@
-# analyst — root Makefile (repo root: Python at ., frontend in ./frontend)
-# One entry point for the whole app. Backend uses uv, frontend uses bun.
+# analyst — build and run the whole app in Docker.
+#
+#   make build   build the local image (web UI + API in one)
+#   make run     start the app (:8000, or ANALYST_PORT in .env) + seeded demo DBs
+#
+# App config comes from ./.env (see .env.example). Underlying pieces stay
+# directly runnable: docker compose (app), scripts/dbs_up.sh (demo DBs),
+# `uv run pytest tests/unit`, `uv run ruff/mypy` (also the pre-commit gate).
+
 .DEFAULT_GOAL := help
-UV  ?= uv
-BUN ?= bun
-
 help: ## Show available targets
-	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-12s\033[0m %s\n",$$1,$$2}'
+	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-8s\033[0m %s\n",$$1,$$2}'
 
-## ── setup ──────────────────────────────────────────────────────────
-install: install-api install-web ## Install backend + frontend deps
+build: ## Build the local Docker image
+	docker compose build
 
-install-api: ## Install backend deps (uv)
-	$(UV) sync
-
-install-web: ## Install frontend deps (bun)
-	cd frontend && $(BUN) install
-
-## ── run ────────────────────────────────────────────────────────────
-dev: ## Run API (:8000) + web (:5173) together
-	@$(MAKE) -j2 api web
-
-api: ## Backend API on :8000 (real DuckDB store + live agent cataloguing)
-	ANALYST_CATALOG=live $(UV) run uvicorn analyst.api.app:app --reload --port 8000
-
-api-mock: ## Backend serving the in-memory Python fixtures (demos / e2e)
-	ANALYST_FIXTURES=1 $(UV) run uvicorn analyst.api.app:app --reload --port 8000
-
-web: ## Frontend dev server on :5173 (proxies /api → :8000)
-	cd frontend && $(BUN) run dev
-
-## ── exploratory testing ────────────────────────────────────────────
-explore: ## Boot app on mocked data, tail logs live, defect summary on Ctrl-C
-	MODE=mock sh scripts/explore.sh
-
-explore-real: ## Same, against the real DuckDB store (no auth/catalog)
-	MODE=real sh scripts/explore.sh
-
-explore-mvp: ## Full MVP: real store + dev-login auth + LIVE agent cataloguing
-	MODE=mvp sh scripts/explore.sh
-
-explore-report: ## Re-summarize the last exploratory session's logs
-	$(UV) run python scripts/summarize_defects.py .explore
-
-## ── live federation test databases (feature 005) ───────────────────
-dbs-up: ## Start + seed Docker sample DBs (Pagila/Northwind/DB2 SAMPLE)
+run: ## Start the app container + demo databases (Pagila/Northwind/DB2)
 	sh scripts/dbs_up.sh
+	docker compose up -d
+	@echo "analyst → http://localhost:$${ANALYST_PORT:-8000}"
 
-dbs-down: ## Stop the sample DBs and remove their volumes
-	docker compose -f docker-compose.dbs.yml down -v
-
-## ── build / check ──────────────────────────────────────────────────
-build: ## Production build of the frontend → frontend/dist
-	cd frontend && $(BUN) run build
-
-test: ## Backend unit tests
-	$(UV) run pytest tests/unit
-
-lint: ## Backend ruff + mypy
-	$(UV) run ruff check . && $(UV) run mypy src/analyst
-
-typecheck-web: ## Frontend tsc (no emit)
-	cd frontend && $(BUN) run typecheck
-
-check: lint test typecheck-web ## Run all checks
-
-## ── housekeeping ───────────────────────────────────────────────────
-clean: ## Remove build artifacts, deps and local data
-	cd frontend && rm -rf node_modules dist
-	rm -rf .analyst-data
-
-.PHONY: help install install-api install-web dev api api-real web dbs-up dbs-down build test lint typecheck-web check clean
+.PHONY: help build run

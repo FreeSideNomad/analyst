@@ -58,16 +58,17 @@ zustand, Vite/[bun](https://bun.sh). See [`CHARTER.md`](CHARTER.md)
 contract), and [`docs/PRD.md`](docs/PRD.md) (product vision).
 
 ```bash
-make install     # uv sync + bun install
-make dev         # API :8000 + web :5173 (Vite proxies /api)
-make api-mock    # in-memory fixture data (demos/e2e) — opt-in, never default
+make build   # build the local Docker image (web UI + API in one)
+make run     # start the app container + seeded demo DBs (config via .env)
+
+# dev servers (uv sync + `cd frontend && bun install` first):
+uv run uvicorn analyst.api.app:app --reload --port 8000   # API :8000
+cd frontend && bun run dev                                # web :5173, proxies /api
 
 uv run pytest tests/unit     # unit tests (incl. the API layer)
 uv run ruff check .          # lint
 uv run mypy src/analyst      # static types
 cd frontend && bun run lint && bun run build   # frontend gate
-
-docker build -t analyst:local .   # the production image
 ```
 
 ### Acceptance tests (ATDD)

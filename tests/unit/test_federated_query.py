@@ -167,7 +167,7 @@ def test_attach_failure_is_loud_and_disables_queryability(
 
 @pytest.mark.live
 def test_postgres_within_db_qa_live(tmp_path):
-    """Real PostgreSQL path (run with `-m live` after `make dbs-up`): the pagila
+    """Real PostgreSQL path (run with `-m live` after `sh scripts/dbs_up.sh`): the pagila
     tables become queryable and run against the source."""
     from analyst.api.repository import StoreRepository
     from analyst.api.routes.databases import DatabaseManager

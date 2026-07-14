@@ -1,7 +1,7 @@
 # Live federation test databases (feature 005) — REAL sample DBs in Docker.
 #
-#   make dbs-up     start + seed (Pagila / Northwind / DB2 SAMPLE)
-#   make dbs-down   stop and remove (volumes included)
+#   sh scripts/dbs_up.sh   start + seed (Pagila / Northwind / DB2 SAMPLE)
+#   docker compose -f docker-compose.dbs.yml down -v   # stop + remove volumes
 #
 # Ports/credentials + Apple-silicon caveats: features/005-db-federation/runbook.md
 # Seeding SQL is downloaded (cached in tests/.dbs_seed/) by scripts/dbs_up.sh.

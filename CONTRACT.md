@@ -87,11 +87,11 @@ contract — if the domain changes, the fixtures stop type-checking.
 ## Run
 
 ```bash
-make dev          # API :8000 (real DuckDB store) + web :5173 together
-# or separately:
-make api          # real store (default)
-make api-mock     # in-memory Python fixtures (demos / deterministic e2e)
-make web          # vite on :5173, proxies /api → :8000
+make run     # the whole app in Docker (+ demo DBs)
+# dev servers:
+uv run uvicorn analyst.api.app:app --reload --port 8000              # real store (default)
+ANALYST_FIXTURES=1 uv run uvicorn analyst.api.app:app --port 8000    # in-memory fixtures (demos / e2e)
+cd frontend && bun run dev                                           # vite :5173, proxies /api → :8000
 ```
 
 The mock is opt-in (`ANALYST_FIXTURES=1`), never the default.
