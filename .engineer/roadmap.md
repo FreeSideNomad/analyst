@@ -28,5 +28,17 @@
       Save answers as charts (type inferred, overridable); export result sets to CSV/Parquet/Excel.
 - [x] **React/Tailwind/shadcn frontend app shell** `id:react-tailwind-shadcn-frontend-app-shell` priority:4 status:shipped area:frontend → feature:data-workbench-ux
       Swiss International Design System UI; zustand state; renders the AskQuestion primitive, trust trail, and interactive dashboards; consumes FastAPI backend.
+- [ ] **Guided predictive models (Models area MVP)** `id:guided-predictive-models-mvp` priority:5 status:planned area:models → feature:guided-predictive-models
+      Parked feature 012: LLM-guided no-code ML — task definition, feature selection, local linear+LightGBM training, honest eval, predictions as datasets. MVP = single-table regression on Ames. Resume via /engineer.discuss guided-predictive-models.
+- [ ] **Relational features, temporal splits & classification** `id:relational-temporal-models` priority:6 status:planned area:models → feature:—
+      Models ladder 2: multi-table feature building along validated relationships, out-of-time splits with horizons, binary classification. Makes Home Credit runnable. Depends on feature 012 MVP.
+- [ ] **Q&A over predictions (facts x models)** `id:qa-predictions-integration` priority:7 status:planned area:models → feature:—
+      Models ladder 3: predict-X questions route into the model flow; questions span facts and predictions; models become catalog citizens.
+- [ ] **Automated feature & algorithm discovery (spike first)** `id:ml-discovery-accelerators` priority:8 status:planned area:models → feature:—
+      Models ladder 4: DFS-style FK-path window aggregates (generalizing the relgraph baseline) + algo/hyperparameter selection. Research spike before commitment.
+- [ ] **Relational graph (GNN) model backend** `id:relational-graph-backend` priority:9 status:planned area:models → feature:—
+      Models ladder 5: GNN behind the same task spec, gated on data size + FK integrity; torch as optional image variant; validated against RelBench baselines.
+- [ ] **Full sample gallery (join-powered samples)** `id:sample-gallery-full` priority:10 status:planned area:models → feature:—
+      Models ladder 6: NYC Rolling Sales + PLUTO, UK Price Paid + EPC, Home Credit via Kaggle token (011 vault). Download-on-demand, license-gated, never baked into the image.
 
 <!-- /DAE-ROADMAP -->
