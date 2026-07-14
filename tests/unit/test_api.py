@@ -215,6 +215,35 @@ def test_fixture_mode_also_rejects_empty_files(client):
     assert "empty" in response.json()["detail"].lower()
 
 
+class _AsyncioRunCataloguer:
+    """Mirrors the live backend's contract: catalog() drives its own event
+    loop via asyncio.run() (claude_backend.complete does exactly this), so it
+    MUST run off the server's event-loop thread or it raises RuntimeError."""
+
+    def catalog(self, payload, relationships=(), context=None):
+        import asyncio
+
+        from analyst.domain.catalog import CatalogEntry
+
+        async def _describe() -> str:
+            return "Customer orders with revenue by region and channel."
+
+        return CatalogEntry(table_description=asyncio.run(_describe()), columns=())
+
+
+def test_live_style_cataloguer_works_through_the_ingest_route(tmp_path):
+    """Regression (2026-07-14): the async ingest route ran repo.ingest() on
+    the event-loop thread, so every LIVE-catalogued upload died with
+    'asyncio.run() cannot be called from a running event loop' -> 500."""
+    repo = StoreRepository(str(tmp_path / "data"), cataloguer=_AsyncioRunCataloguer())
+    response = TestClient(create_app(repo)).post(
+        "/api/datasets/ingest", files={"file": ("orders.csv", CSV.encode())}
+    )
+    assert response.status_code == 200
+    (record,) = response.json()["datasets"]
+    assert record["catalog"]["tableDescription"].startswith("Customer orders")
+
+
 # --------------------------------------------------------------------------- #
 # Security hardening (review 2026-07-04). Each test reproduces a CONFIRMED
 # exploit found by the independent adversarial review, then locks the fix.
