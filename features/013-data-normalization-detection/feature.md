@@ -2,7 +2,7 @@
 slug: data-normalization-detection
 title: Data normalization detection — propose, validate, apply
 outcome: Ingested data with inconsistent value representations (case variants like "East"/"east"/"EAST", stray whitespace, near-duplicate category labels) is DETECTED at profiling time; the app proposes explicit normalization rules in plain language, the user approves or rejects them (never silently applied — charter rule), and approved rules materialize as a normalized view of the dataset that querying and cataloguing use. Rules are inspectable and reversible; the raw data is never mutated.
-status: ready
+status: done
 autonomy_level: high
 assignee: local
 owner: igormusic
