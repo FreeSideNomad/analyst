@@ -500,7 +500,7 @@ function TableDetail() {
           <span className="mono" style={{ font: '500 12.5px/1 var(--font-mono)', color: 'var(--text-muted)' }}>{d.profile.encoding || '—'}</span>
           <span style={{ flex: 1 }} />
           {d.sourceKind === 'file' && ['csv', 'parquet', 'xlsx'].map((fmt) => (
-            <a key={fmt} aria-label={`Export dataset as ${fmt}`}
+            <a key={fmt} aria-label={`Download dataset as ${fmt}`}
               href={`/api/datasets/${encodeURIComponent(d.id)}/export?format=${fmt}`}
               style={{ font: '600 11.5px/1 var(--font-sans)', letterSpacing: '.04em', textTransform: 'uppercase', color: 'var(--brand)', textDecoration: 'none' }}>
               {fmt}
