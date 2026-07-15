@@ -20,12 +20,14 @@
       Detect normalization needs (case standardization upper/lower/proper, etc.) and propose rules.
 
 ## later
-- [ ] **Cross-dataset joins via discovered FKs** `id:cross-dataset-joins-via-discovered-fks` priority:1 status:planned area:query → feature:—
+- [x] **Cross-dataset joins via discovered FKs** `id:cross-dataset-joins-via-discovered-fks` priority:1 status:shipped area:query → feature:files-x-db-qa
       Answer questions spanning multiple datasets using discovered relationships.
 - [ ] **Interactive dashboards (agent-authored, filterable)** `id:exports-visualizations-dashboards` priority:2 status:planned area:output → feature:—
       Tableau-like: agent assembles a multi-widget dashboard from an NL request, then fully interactive (filters, cross-filtering, chart-type switching, drill-down). Built/refined via the agentic AskQuestion workflow. Each widget keeps its trust trail; queries run locally in DuckDB.
 - [ ] **Charts & data exports** `id:charts-and-exports` priority:3 status:planned area:output → feature:—
       Save answers as charts (type inferred, overridable); export result sets to CSV/Parquet/Excel.
+- [ ] **Joins across multiple connected databases** `id:cross-database-joins` priority:4 status:planned area:query → feature:—
+      Residual of cross-dataset-joins (008 shipped file x DB pushdown, 009 file x file): one NL question joining tables from TWO different connected databases. Needs a local-join execution path (both sides remote) + governance-safe row capping.
 - [x] **React/Tailwind/shadcn frontend app shell** `id:react-tailwind-shadcn-frontend-app-shell` priority:4 status:shipped area:frontend → feature:data-workbench-ux
       Swiss International Design System UI; zustand state; renders the AskQuestion primitive, trust trail, and interactive dashboards; consumes FastAPI backend.
 - [ ] **Guided predictive models (Models area MVP)** `id:guided-predictive-models-mvp` priority:5 status:planned area:models → feature:guided-predictive-models
