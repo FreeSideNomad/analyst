@@ -20,6 +20,7 @@ async function j<T>(path: string, init?: RequestInit): Promise<T> {
 const JSON_HEADERS = { 'content-type': 'application/json' };
 
 export const api: ApiClient = {
+  health: () => j('/api/health'),
   listDatasets: () => j('/api/datasets'),
   getDataset: (name) => j(`/api/datasets/${encodeURIComponent(name)}`),
   getCatalog: () => j('/api/catalog'),

@@ -8,6 +8,7 @@ import {
   ChevronRight, ChevronDown, Braces, HelpCircle, Database, Trash2, Lock,
   Plus, Upload, Plug, Unplug,
 } from 'lucide-react';
+import { api } from '../api/client';
 import { useCatalog, useIngestion } from '../stores';
 import type { Dataset, CatalogEntry, ColumnDescription, Relationship } from '../api/types';
 import { columnVM, type ColumnVM } from '../lib/adapt';
@@ -171,15 +172,23 @@ function GroupNode({ g, catalog, defaultOpen }: { g: { key: string; datasets: Da
 function AddMenu() {
   const startIngestion = useIngestion((s) => s.startIngestion);
   const [menu, setMenu] = useState<null | 'menu' | 'connect'>(null);
+  // Say when cataloguing runs WITHOUT AI (profile-derived descriptions only)
+  // instead of degrading silently — checked when the menu opens, at the
+  // moment the user is about to add data.
+  const [noAiCatalog, setNoAiCatalog] = useState(false);
   const input = useRef<HTMLInputElement>(null);
+  const openMenu = () => {
+    setMenu((m) => (m ? null : 'menu'));
+    api.health().then((h) => setNoAiCatalog(h.catalog === 'off')).catch(() => setNoAiCatalog(false));
+  };
   return (
     <div style={{ position: 'relative' }}>
       <input ref={input} type="file" accept=".csv,.tsv,.xlsx,.xls,.json" style={{ display: 'none' }}
         aria-label="Choose a file to upload"
         onChange={(e) => { const f = e.target.files?.[0]; if (f) startIngestion(f); e.target.value = ''; setMenu(null); }} />
-      <IconButton as={Plus} label="Add data" onClick={() => setMenu((m) => (m ? null : 'menu'))} />
+      <IconButton as={Plus} label="Add data" onClick={openMenu} />
       {menu === 'menu' && (
-        <div style={{ position: 'absolute', top: 38, right: 0, zIndex: 10, width: 190, background: 'var(--surface-card)',
+        <div style={{ position: 'absolute', top: 38, right: 0, zIndex: 10, width: noAiCatalog ? 230 : 190, background: 'var(--surface-card)',
           border: '1px solid var(--border-default)', borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-md)', padding: 5 }}>
           <button aria-label="Upload a file" onClick={() => input.current?.click()}
             style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 9, padding: '8px 10px', border: 'none', background: 'transparent', cursor: 'pointer', borderRadius: 'var(--radius-sm)', textAlign: 'left', font: '500 13px/1 var(--font-sans)', color: 'var(--text-strong)' }}>
@@ -189,6 +198,16 @@ function AddMenu() {
             style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 9, padding: '8px 10px', border: 'none', background: 'transparent', cursor: 'pointer', borderRadius: 'var(--radius-sm)', textAlign: 'left', font: '500 13px/1 var(--font-sans)', color: 'var(--text-strong)' }}>
             <Icon as={Plug} size={15} color="var(--text-muted)" /> Connect a database
           </button>
+          {noAiCatalog && (
+            <div role="note" aria-label="Cataloguing without AI"
+              style={{ display: 'flex', gap: 7, margin: '5px 3px 3px', padding: '8px 9px', borderTop: '1px solid var(--border-subtle)', font: '400 11.5px/1.45 var(--font-sans)', color: 'var(--amber-600)' }}>
+              <Icon as={TriangleAlert} size={13} color="var(--amber-500)" />
+              <span>
+                Cataloguing without AI — new data gets profile-derived descriptions.
+                Set <span className="mono">ANTHROPIC_API_KEY</span> or <span className="mono">CLAUDE_CODE_OAUTH_TOKEN</span> for semantic descriptions.
+              </span>
+            </div>
+          )}
         </div>
       )}
       {menu === 'connect' && (

@@ -36,21 +36,37 @@ def fixtures_enabled() -> bool:
     return os.environ.get("ANALYST_FIXTURES", "0") == "1"
 
 
+def catalog_mode() -> str:
+    """How dataset descriptions are produced — surfaced on /api/health so the
+    UI can SAY when cataloguing runs without AI instead of degrading silently.
+
+    - "canned"  → fixtures mode (curated demo descriptions)
+    - "replay"  → recorded cassette (deterministic tests)
+    - "live"    → real Claude Agent SDK calls (the app)
+    - "off"     → no model: profile-derived descriptions only
+    """
+    if fixtures_enabled():
+        return "canned"
+    if os.environ.get("ANALYST_CATALOG_CASSETTE"):
+        return "replay"
+    if os.environ.get("ANALYST_CATALOG") == "live":
+        return "live"
+    return "off"
+
+
 def build_cataloguer() -> object | None:
     """The agent cataloguer for real ingestion — OPT-IN so CI/tests stay
-    deterministic and offline (golden-path fix M3):
-
-    - ANALYST_CATALOG_CASSETTE=<path> → replay recorded responses (deterministic).
-    - ANALYST_CATALOG=live            → real Claude Agent SDK calls (the app).
-    - otherwise                        → None (profiles only; no model calls).
-    """
+    deterministic and offline (golden-path fix M3). Modes per catalog_mode();
+    "off" (and fixtures' "canned") mean no cataloguer: profiles only."""
     from analyst.agentic.cataloguer import Cataloguer
     from analyst.agentic.gateway import LLMGateway, ReplayBackend
 
-    cassette = os.environ.get("ANALYST_CATALOG_CASSETTE")
-    if cassette:
-        return Cataloguer(LLMGateway(ReplayBackend(cassette)))
-    if os.environ.get("ANALYST_CATALOG") == "live":
+    mode = catalog_mode()
+    if mode == "replay":
+        return Cataloguer(
+            LLMGateway(ReplayBackend(os.environ["ANALYST_CATALOG_CASSETTE"]))
+        )
+    if mode == "live":
         from analyst.agentic.claude_backend import ClaudeAgentBackend
 
         return Cataloguer(LLMGateway(ClaudeAgentBackend()))

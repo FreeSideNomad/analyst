@@ -131,7 +131,16 @@ export type ChatMessage =
   | { id: string; type: 'result'; result: AnswerResult };
 
 // ── client interface ────────────────────────────────────────────────
+export interface Health {
+  ok: boolean;
+  fixtures: boolean;
+  qa: string;
+  /** How descriptions are produced: live | replay | canned | off ("off" = no AI, profile-derived text only). */
+  catalog: string;
+}
+
 export interface ApiClient {
+  health(): Promise<Health>;
   listDatasets(): Promise<Dataset[]>;
   getDataset(name: string): Promise<Dataset>;
   getCatalog(): Promise<Record<string, CatalogEntry>>;

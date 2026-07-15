@@ -48,6 +48,27 @@ def test_health_reports_mode(monkeypatch):
     assert body["ok"] is True and body["fixtures"] is True
 
 
+def test_health_reports_catalog_mode(monkeypatch, tmp_path):
+    """The UI needs to KNOW when cataloguing runs without AI (profile-derived
+    descriptions only) so it can say so instead of degrading silently."""
+    client = TestClient(create_app(StoreRepository(str(tmp_path / "data"))))
+
+    for env, expected in [
+        ({}, "off"),
+        ({"ANALYST_CATALOG": "live"}, "live"),
+        ({"ANALYST_CATALOG_CASSETTE": "some.json"}, "replay"),
+    ]:
+        monkeypatch.delenv("ANALYST_CATALOG", raising=False)
+        monkeypatch.delenv("ANALYST_CATALOG_CASSETTE", raising=False)
+        for k, v in env.items():
+            monkeypatch.setenv(k, v)
+        assert client.get("/api/health").json()["catalog"] == expected
+
+    monkeypatch.setenv("ANALYST_FIXTURES", "1")
+    body = TestClient(create_app(FixtureRepository())).get("/api/health").json()
+    assert body["catalog"] == "canned"
+
+
 # --------------------------------------------------------------------------- #
 # AC-1 — datasets served in domain-true wire shapes (fixtures mode)
 # --------------------------------------------------------------------------- #
