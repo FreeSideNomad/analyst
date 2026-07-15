@@ -333,6 +333,52 @@ class DatasetStore:
         return self._con.execute(f"SELECT * FROM {_quote_ident(dataset)}").fetchall()
 
     @_synchronized
+    def value_counts(self, dataset: str, column: str) -> dict[str, int]:
+        """Non-null value → row count for one column (feature 013 detection)."""
+        rows = self._con.execute(
+            f"SELECT {_quote_ident(column)}, COUNT(*) FROM {_quote_ident(dataset)} "
+            f"WHERE {_quote_ident(column)} IS NOT NULL GROUP BY 1"
+        ).fetchall()
+        return {str(value): int(count) for value, count in rows}
+
+    @_synchronized
+    def apply_normalization(
+        self, dataset: str, mappings: dict[str, dict[str, str]]
+    ) -> None:
+        """Point the dataset view at the latest Parquet with explicit value
+        mappings folded in (feature 013). The Parquet is never touched —
+        approve/revoke only ever rewrite this view. Empty mappings restore
+        the plain view."""
+        version = max(self.versions(dataset), default=0)
+        if version == 0:
+            raise KeyError(dataset)
+        path = _sql_str(str(self.base_dir / f"{dataset}.v{version}.parquet"))
+        columns = [
+            row[0]
+            for row in self._con.execute(
+                f"DESCRIBE SELECT * FROM read_parquet({path})"
+            ).fetchall()
+        ]
+        parts = []
+        for column in columns:
+            mapping = mappings.get(column)
+            if mapping:
+                whens = " ".join(
+                    f"WHEN {_sql_str(raw)} THEN {_sql_str(canonical)}"
+                    for raw, canonical in sorted(mapping.items())
+                )
+                parts.append(
+                    f"CASE {_quote_ident(column)} {whens} "
+                    f"ELSE {_quote_ident(column)} END AS {_quote_ident(column)}"
+                )
+            else:
+                parts.append(_quote_ident(column))
+        self._con.execute(
+            f"CREATE OR REPLACE VIEW {_quote_ident(dataset)} AS "
+            f"SELECT {', '.join(parts)} FROM read_parquet({path})"
+        )
+
+    @_synchronized
     def delete(self, dataset: str) -> None:
         """Drop the dataset's view and remove all its versions (AC-20)."""
         self._con.execute(f"DROP VIEW IF EXISTS {_quote_ident(dataset)}")

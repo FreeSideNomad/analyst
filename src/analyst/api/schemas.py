@@ -154,6 +154,48 @@ class CatalogEntrySchema(Camel):
         )
 
 
+class NormalizationVariantSchema(Camel):
+    value: str
+    rows: int
+
+
+class NormalizationGroupSchema(Camel):
+    canonical: str
+    variants: list[NormalizationVariantSchema]
+
+
+class NormalizationRuleSchema(Camel):
+    """Feature 013: one column's proposed/applied standardization rule."""
+
+    rule_id: str
+    column: str
+    description: str
+    groups: list[NormalizationGroupSchema] = []
+
+    @classmethod
+    def from_domain(cls, rule) -> "NormalizationRuleSchema":  # noqa: ANN001
+        return cls(
+            rule_id=rule.rule_id,
+            column=rule.column,
+            description=rule.description,
+            groups=[
+                NormalizationGroupSchema(
+                    canonical=group.canonical,
+                    variants=[
+                        NormalizationVariantSchema(value=v.value, rows=v.rows)
+                        for v in group.variants
+                    ],
+                )
+                for group in rule.groups
+            ],
+        )
+
+
+class NormalizationStateSchema(Camel):
+    proposals: list[NormalizationRuleSchema] = []
+    applied: list[NormalizationRuleSchema] = []
+
+
 class DatasetSchema(Camel):
     """API envelope: the pure domain profile/catalog + repository metadata."""
 

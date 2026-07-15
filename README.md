@@ -105,6 +105,7 @@ and handoffs.
 | 009 | Semantic depth — PK/FK discovery + data-grounded catalog |
 | 010 | Workspace-aware cataloguing (context, retroactive, persistent) |
 | 011 | Encrypted-at-rest credentials with seamless reconnect |
+| 013 | Data normalization detection — propose, approve, revoke (never silently applied) |
 
 ### Quality gate
 

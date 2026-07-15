@@ -2,7 +2,7 @@
 // Add data (upload files + connect databases) and browse everything as a
 // source-grouped tree (Files / Databases → sources → tables → columns) with
 // profile stats + the semantic catalog + a per-column drilldown.
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import {
   UploadCloud, FileText, CircleCheck, Table2, TriangleAlert,
   ChevronRight, ChevronDown, Braces, HelpCircle, Database, Trash2, Lock,
@@ -10,7 +10,7 @@ import {
 } from 'lucide-react';
 import { api } from '../api/client';
 import { useCatalog, useIngestion } from '../stores';
-import type { Dataset, CatalogEntry, ColumnDescription, Relationship } from '../api/types';
+import type { Dataset, CatalogEntry, ColumnDescription, NormalizationState, Relationship } from '../api/types';
 import { columnVM, type ColumnVM } from '../lib/adapt';
 import { nfmt, roleBadge } from '../lib/format';
 import { Icon, IconButton, Card, Badge, StatusPill, ProgressBar, Sparkline, EYEBROW } from '../components/ui';
@@ -360,7 +360,65 @@ function RelationshipsBlock({ table, rels }: { table: string; rels: Relationship
 }
 
 /* ── column drilldown (profile + semantic description + role + FK) ──── */
-function ColumnDrilldown({ d, col, rels }: { d: Dataset; col: ColumnDescription | undefined; rels: Relationship[] }) {
+/* ── normalization proposal / applied-rule cards (feature 013) ──────
+   The ONLY way a rule takes effect is the Approve button here — proposals
+   are never silently applied (charter invariant). */
+function NormalizationBlock({ column, norm, act }: {
+  column: string;
+  norm: NormalizationState | null;
+  act: (ruleId: string, action: 'approve' | 'dismiss' | 'revoke') => void;
+}) {
+  const proposal = norm?.proposals.find((p) => p.column === column);
+  const applied = norm?.applied.find((p) => p.column === column);
+  if (!proposal && !applied) return null;
+  const btn = (label: string, onClick: () => void, primary = false) => (
+    <button aria-label={label} onClick={onClick}
+      style={{ padding: '6px 12px', border: primary ? 'none' : '1px solid var(--border-default)', borderRadius: 'var(--radius-md)',
+        background: primary ? 'var(--brand)' : 'transparent', color: primary ? '#fff' : 'var(--text-body)',
+        cursor: 'pointer', font: '600 12px/1 var(--font-sans)' }}>{label.split(' ')[0]}</button>
+  );
+  return (
+    <div style={{ marginBottom: 14 }}>
+      {proposal && (
+        <div aria-label={`Normalization proposal for ${column}`}
+          style={{ padding: '12px 13px', border: '1px solid var(--amber-100)', borderRadius: 'var(--radius-md)', background: 'var(--amber-100)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+            <Icon as={TriangleAlert} size={14} color="var(--amber-500)" />
+            <span style={{ font: '600 12px/1 var(--font-sans)', letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--amber-600)' }}>Normalization proposal</span>
+          </div>
+          <div style={{ font: '500 13px/1.5 var(--font-sans)', color: 'var(--text-strong)', marginBottom: 9 }}>{proposal.description}</div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 11 }}>
+            {proposal.groups.flatMap((g) => g.variants).map((v) => (
+              <span key={v.value} className="mono" style={{ font: '500 12px/1 var(--font-mono)', color: 'var(--text-body)',
+                background: 'var(--surface-card)', border: '1px solid var(--border-default)', padding: '5px 9px', borderRadius: 'var(--radius-full)' }}>
+                {JSON.stringify(v.value)} · {v.rows} {v.rows === 1 ? 'row' : 'rows'}
+              </span>
+            ))}
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            {btn('Approve normalization proposal', () => act(proposal.ruleId, 'approve'), true)}
+            {btn('Dismiss normalization proposal', () => act(proposal.ruleId, 'dismiss'))}
+          </div>
+        </div>
+      )}
+      {applied && (
+        <div aria-label={`Applied normalization for ${column}`}
+          style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 13px', border: '1px solid var(--border-subtle)',
+            borderRadius: 'var(--radius-md)', background: 'var(--neutral-50)', marginTop: proposal ? 8 : 0 }}>
+          <Badge tone="success">Applied</Badge>
+          <span style={{ flex: 1, font: '400 12.5px/1.45 var(--font-sans)', color: 'var(--text-body)' }}>{applied.description}</span>
+          {btn('Revoke normalization rule', () => act(applied.ruleId, 'revoke'))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ColumnDrilldown({ d, col, rels, norm, act }: {
+  d: Dataset; col: ColumnDescription | undefined; rels: Relationship[];
+  norm: NormalizationState | null;
+  act: (ruleId: string, action: 'approve' | 'dismiss' | 'revoke') => void;
+}) {
   const { selectedColumn } = useCatalog();
   const profile = d.profile.columns.find((c) => c.name === selectedColumn?.name);
   if (!profile) return null;
@@ -374,6 +432,7 @@ function ColumnDrilldown({ d, col, rels }: { d: Dataset; col: ColumnDescription 
         <span className="mono" style={{ font: '700 15px/1 var(--font-mono)', color: 'var(--text-strong)' }}>{profile.name}</span>
         {rb && <Badge tone={rb.tone}>{rb.label}</Badge>}
       </div>
+      <NormalizationBlock column={profile.name} norm={norm} act={act} />
       {col && <p style={{ margin: '0 0 14px', font: '400 13px/1.55 var(--font-sans)', color: 'var(--text-body)', textWrap: 'pretty' }}>{col.description}</p>}
       {fk && (
         <div aria-label={`Column relationship referencing ${fk.parentTable}`} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14, padding: '8px 12px', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)', background: 'var(--neutral-50)' }}>
@@ -392,7 +451,18 @@ function ColumnDrilldown({ d, col, rels }: { d: Dataset; col: ColumnDescription 
 function TableDetail() {
   const { datasets, catalog, detailDatasetId, selectedColumn, selectColumn, clearColumn } = useCatalog();
   const d = datasets.find((x) => x.id === detailDatasetId) || datasets[0];
+  const dsId = d?.id;
+  // Feature 013: pending/applied normalization rules for this table.
+  const [norm, setNorm] = useState<NormalizationState | null>(null);
+  useEffect(() => {
+    if (!dsId) return;
+    let live = true;
+    api.getNormalization(dsId).then((s) => { if (live) setNorm(s); }).catch(() => { if (live) setNorm(null); });
+    return () => { live = false; };
+  }, [dsId]);
   if (!d) return null;
+  const act = (ruleId: string, action: 'approve' | 'dismiss' | 'revoke') =>
+    api.actOnNormalization(d.id, ruleId, action).then(setNorm).catch(() => {});
   const cat = catalog[d.id];
   const selCol = selectedColumn?.ds === d.id
     ? cat?.columns.find((c) => c.name === selectedColumn.name)
@@ -438,7 +508,7 @@ function TableDetail() {
               borderRadius: 'var(--radius-md)', background: 'transparent', cursor: 'pointer', font: '600 12px/1 var(--font-sans)', color: 'var(--text-muted)' }}>
             <Icon as={ChevronRight} size={13} style={{ transform: 'rotate(180deg)' }} /> All columns
           </button>
-          <ColumnDrilldown d={d} col={selCol} rels={rels} />
+          <ColumnDrilldown d={d} col={selCol} rels={rels} norm={norm} act={act} />
         </>
       ) : (
       <>
@@ -457,6 +527,11 @@ function TableDetail() {
                 outline: sel ? '1px solid var(--navy-100)' : 'none', cursor: 'pointer' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 3 }}>
                 <span className="mono" style={{ font: '600 13px/1 var(--font-mono)', color: 'var(--text-strong)', flex: 1 }}>{pc.name}</span>
+                {norm?.proposals.some((p) => p.column === pc.name) && (
+                  <span aria-label={`Normalization proposal pending for ${pc.name}`}>
+                    <Badge tone="warning">Proposal</Badge>
+                  </span>
+                )}
                 <Badge>{pc.inferredType}</Badge>
                 <span className="mono" style={{ font: '500 11.5px/1 var(--font-mono)', color: pc.nullRate >= 0.03 ? 'var(--amber-600)' : 'var(--text-muted)' }}>{nullPct}% null</span>
                 {rb && <Badge tone={rb.tone}>{rb.label}</Badge>}

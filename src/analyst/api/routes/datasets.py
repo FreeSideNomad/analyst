@@ -16,8 +16,11 @@ from analyst.api.schemas import (
     DatasetSchema,
     IngestionResultSchema,
     IngestionStatusSchema,
+    NormalizationRuleSchema,
+    NormalizationStateSchema,
     RefreshResultSchema,
 )
+from analyst.domain.normalization import UnknownNormalizationError
 from analyst.engine.reader import FileTooLargeError
 
 router = APIRouter(prefix="/api")
@@ -160,6 +163,49 @@ def refresh_dataset(
             DatasetProfileSchema.from_domain(result.profile) if result.profile else None
         ),
     ).dump()
+
+
+def _normalization_state(repo: DatasetRepository, name: str) -> dict:
+    proposals, applied = repo.normalization(name)
+    return NormalizationStateSchema(
+        proposals=[NormalizationRuleSchema.from_domain(r) for r in proposals],
+        applied=[NormalizationRuleSchema.from_domain(r) for r in applied],
+    ).dump()
+
+
+@router.get("/datasets/{name}/normalization")
+def get_normalization(
+    name: str, repo: DatasetRepository = Depends(get_repository)
+) -> dict:
+    _require(repo, name)
+    return _normalization_state(repo, name)
+
+
+@router.post("/datasets/{name}/normalization/{rule_id}/{action}")
+def act_on_normalization(
+    name: str,
+    rule_id: str,
+    action: str,
+    repo: DatasetRepository = Depends(get_repository),
+) -> dict:
+    """Approve, dismiss, or revoke one rule; returns the updated state so the
+    UI refreshes in a single round-trip. The ONLY paths that apply a rule —
+    the charter's never-silently-applied gate lives here."""
+    _require(repo, name)
+    handlers = {
+        "approve": repo.approve_normalization,
+        "dismiss": repo.dismiss_normalization,
+        "revoke": repo.revoke_normalization,
+    }
+    if action not in handlers:
+        raise HTTPException(404, f"Unknown action '{action}'")
+    try:
+        handlers[action](name, rule_id)
+    except UnknownNormalizationError:
+        raise HTTPException(
+            404, f"Normalization rule '{rule_id}' not found for '{name}'"
+        ) from None
+    return _normalization_state(repo, name)
 
 
 @router.get("/catalog")
