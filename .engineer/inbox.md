@@ -1,1 +1,0 @@
-- bug: profiling any dataset with a column literally named 'v' fails (profiler top-K SQL aliases 'AS v'/'GROUP BY v', binder resolves to the real column — engine/profiler.py); found 2026-07-15 while building 014 export tests | blocks_user=partial (ingest of such files errors)

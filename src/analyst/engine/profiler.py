@@ -62,8 +62,10 @@ def _distribution(
             )
         return tuple(bins)
     rows = con.execute(
-        f"SELECT CAST({col} AS VARCHAR) AS v, COUNT(*) AS c FROM {rel} "
-        f"WHERE {col} IS NOT NULL GROUP BY v ORDER BY c DESC, v LIMIT {DIST_TOPK}"
+        # Positional GROUP BY/ORDER BY: alias names would be shadowed by real
+        # columns named "v"/"c" (defect 2026-07-15).
+        f"SELECT CAST({col} AS VARCHAR), COUNT(*) FROM {rel} "
+        f"WHERE {col} IS NOT NULL GROUP BY 1 ORDER BY 2 DESC, 1 LIMIT {DIST_TOPK}"
     ).fetchall()
     return tuple(DistributionBin(label=str(v), count=int(c)) for v, c in rows)
 

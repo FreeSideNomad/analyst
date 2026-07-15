@@ -142,3 +142,23 @@ def test_empty_column_has_no_distribution(tmp_path):
     con.execute("CREATE TABLE t AS SELECT NULL::INT AS x WHERE 1=0")
     prof = profile_relation(con, "t")
     assert prof.columns[0].distribution == ()
+
+
+# --------------------------------------------------------------------------- #
+# Defect 2026-07-15: columns literally named "v" or "c" shadowed the top-K
+# distribution SQL's aliases (GROUP BY v bound to the real column) and broke
+# profiling of the whole dataset. Aliases must be immune to column names.
+# --------------------------------------------------------------------------- #
+def test_columns_named_after_sql_aliases_profile_fine(tmp_path):
+    import duckdb
+
+    from analyst.engine.profiler import profile_relation
+
+    con = duckdb.connect()
+    con.execute("CREATE TABLE t (v VARCHAR, c VARCHAR, k VARCHAR)")
+    con.execute("INSERT INTO t VALUES ('a','x','r1'), ('a','y','r2'), ('b','x','r3')")
+    profile = profile_relation(con, "t")
+    v = next(col for col in profile.columns if col.name == "v")
+    assert v.distinct_count == 2
+    bins = {b.label: b.count for b in v.distribution}
+    assert bins == {"a": 2, "b": 1}
