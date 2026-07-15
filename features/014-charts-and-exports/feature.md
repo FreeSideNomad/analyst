@@ -2,7 +2,7 @@
 slug: charts-and-exports
 title: Charts & data exports — save answers as charts, export result sets
 outcome: An answer in the Q&A thread can be KEPT — saved as a named chart whose query re-runs against current data whenever it is opened (a saved chart is a saved question + chart configuration, not a stale screenshot), with its trust trail intact. The chart's type is inferred (stat/bar/line/table) and the user can override it before or after saving. Result sets — an answer's result or a whole dataset — export to CSV, Parquet, or Excel with one click, generated locally by the engine (governance: exports never touch the model). Saved charts are the building block the dashboards feature (next roadmap item) will compose.
-status: ready
+status: done
 autonomy_level: high
 assignee: local
 owner: igormusic
