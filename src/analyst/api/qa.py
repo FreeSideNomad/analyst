@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import dataclasses
 import math
+import re
 import os
 import uuid
 from typing import Protocol
@@ -130,7 +131,15 @@ def _table_block(result: ResultTable) -> TableBlock:
     )
 
 
-def _shape_answer(plan: QueryPlan, result: ResultTable) -> AnswerResult:
+def _is_temporal(value: object) -> bool:
+    import datetime
+
+    if isinstance(value, (datetime.date, datetime.datetime)):
+        return True
+    return bool(re.fullmatch(r"\d{4}-\d{2}(-\d{2})?([T ].+)?", str(value)))
+
+
+def shape_answer(plan: QueryPlan, result: ResultTable) -> AnswerResult:
     """Deterministically shape the locally computed result (no second model
     call — no result rows need to cross to the model at all). Multi-cell results
     also carry the full table for the browser's paginated table view / export."""
@@ -181,10 +190,13 @@ def _shape_answer(plan: QueryPlan, result: ResultTable) -> AnswerResult:
         ]
         top = max(points, key=lambda p: p.value)
         nice_max = _nice_ceiling(top.value)
+        # Feature 014 (AC-1): a temporal category axis reads as a series over
+        # time — present it as a line; the user can still override.
+        chart = "line" if all(_is_temporal(row[0]) for row in result.rows) else "bar"
         return AnswerResult(
             query_id=_query_id(),
             summary=f"{title}. {top.label} leads at {_format_value(top.value)}.",
-            chart_type="bar",
+            chart_type=chart,
             chart_title=title,
             highlight=top.label,
             nice_max=nice_max,
@@ -372,7 +384,7 @@ class PlannerQAService:
                             for line in current.lineage
                         ),
                     )
-                    return _shape_answer(display, result)
+                    return shape_answer(display, result)
             problem = " ".join(problems)
             if attempt >= _MAX_REFINEMENTS:
                 break

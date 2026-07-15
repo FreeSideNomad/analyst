@@ -22,7 +22,7 @@ from analyst.api.repository import (
     FixtureRepository,
     StoreRepository,
 )
-from analyst.api.routes import auth, databases, datasets, qa, system
+from analyst.api.routes import auth, charts, databases, datasets, qa, system
 from analyst.engine.reader import (
     EmptyFileError,
     FileTooLargeError,
@@ -116,6 +116,7 @@ def create_app(repo: DatasetRepository | None = None) -> FastAPI:
 
     app.include_router(auth.router)
     app.include_router(auth.workspaces_router)
+    app.include_router(charts.router)
     app.include_router(databases.router)
     app.include_router(datasets.router)
     app.include_router(qa.router)
