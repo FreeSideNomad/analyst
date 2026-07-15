@@ -55,6 +55,12 @@ class DatasetRepository(Protocol):
     def status(self, name: str) -> tuple[IngestionStatus, str | None, int | None]: ...
     def refresh(self, name: str, file_name: str, content: bytes) -> RefreshResult: ...
 
+    # Feature 013 — normalization lifecycle
+    def normalization(self, name: str) -> tuple[list, list]: ...
+    def approve_normalization(self, name: str, rule_id: str) -> None: ...
+    def dismiss_normalization(self, name: str, rule_id: str) -> None: ...
+    def revoke_normalization(self, name: str, rule_id: str) -> None: ...
+
     # Feature 005 hooks — connection-backed datasets (routes/databases.py owns
     # the federation logic; these only add/remove the resulting records).
     def add_records(self, records: list[DatasetRecord]) -> None: ...
@@ -99,6 +105,19 @@ class FixtureRepository:
                 status=IngestionStatus.COMPLETE,
                 ingested_at=f"2025-12-1{i}",
             )
+        # Feature 013: one seeded proposal (sales.region case variants) so the
+        # workbench approve/dismiss flow is drivable in demos and browser e2e.
+        from analyst.domain.normalization import group_variants, rule_for
+
+        seeded = rule_for(
+            "billing_region",
+            group_variants(
+                {"East": 41, "east": 7, "EAST": 3, "North": 60, "South": 52, "West": 37}
+            ),
+        )
+        self._norm: dict[str, dict[str, list]] = {
+            "sales": {"proposals": [seeded], "applied": []}
+        }
 
     def list_datasets(self) -> list[DatasetRecord]:
         return list(self._records.values())
@@ -126,6 +145,38 @@ class FixtureRepository:
 
     def recatalogue_affected(self, new_names: list[str]) -> None:
         """No-op: fixture catalogs are static seed data (feature 010)."""
+
+    # Feature 013 — normalization lifecycle over the seeded in-memory state.
+    def normalization(self, name: str) -> tuple[list, list]:
+        state = self._norm.get(name, {"proposals": [], "applied": []})
+        return list(state["proposals"]), list(state["applied"])
+
+    def _take_proposal(self, name: str, rule_id: str):  # noqa: ANN202
+        from analyst.domain.normalization import UnknownNormalizationError
+
+        state = self._norm.setdefault(name, {"proposals": [], "applied": []})
+        rule = next((r for r in state["proposals"] if r.rule_id == rule_id), None)
+        if rule is None:
+            raise UnknownNormalizationError(rule_id)
+        state["proposals"].remove(rule)
+        return state, rule
+
+    def approve_normalization(self, name: str, rule_id: str) -> None:
+        state, rule = self._take_proposal(name, rule_id)
+        state["applied"].append(rule)
+
+    def dismiss_normalization(self, name: str, rule_id: str) -> None:
+        self._take_proposal(name, rule_id)
+
+    def revoke_normalization(self, name: str, rule_id: str) -> None:
+        from analyst.domain.normalization import UnknownNormalizationError
+
+        state = self._norm.setdefault(name, {"proposals": [], "applied": []})
+        rule = next((r for r in state["applied"] if r.rule_id == rule_id), None)
+        if rule is None:
+            raise UnknownNormalizationError(rule_id)
+        state["applied"].remove(rule)
+        state["proposals"].append(rule)
 
     def persist_catalog(
         self,
@@ -233,6 +284,12 @@ class StoreRepository:
         from analyst.domain.dataset import DatasetSummary
 
         for name in self.store.datasets():
+            # Feature 013: re-assert approved normalization rules BEFORE
+            # profiling, so the record's profile tells the standardized truth.
+            try:
+                self._apply_active_normalization(name)
+            except Exception:  # noqa: BLE001 - a broken overlay must not abort boot
+                _LOG.warning("could not re-apply normalization for %r", name)
             try:
                 profile = self.store.profile(name)
             except Exception:  # noqa: BLE001 - a broken relation shouldn't abort boot
@@ -414,7 +471,123 @@ class StoreRepository:
             import dataclasses
 
             record.summary = dataclasses.replace(record.summary, profile=result.profile)
+            # Feature 013: a refresh re-registers the plain view — re-assert the
+            # approved rules and re-profile so the standard holds across versions.
+            if self._apply_active_normalization(name):
+                self._reprofile(name)
         return result
+
+    # ------------------------------------------------------------------ #
+    # Feature 013 — normalization lifecycle (propose/approve/dismiss/revoke)
+    # ------------------------------------------------------------------ #
+    def normalization(self, name: str) -> tuple[list, list]:
+        """(pending proposals, applied rules) for one dataset."""
+        from analyst.domain.normalization import NormalizationRule
+        from analyst.engine.normalization import detect
+
+        if name not in self._records:
+            raise KeyError(name)
+        decisions = self._normalization_decisions(name)
+        rules = detect(self.store, name, self.store.profile(name))
+        proposals = [rule for rule in rules if rule.column not in decisions]
+        applied = [
+            NormalizationRule(
+                rule_id=f"norm:{column}",
+                column=column,
+                groups=(),
+                mapping=dict(decision["mapping"]),
+                description=str(decision["description"]),
+            )
+            for column, decision in sorted(decisions.items())
+            if decision["status"] == "approved"
+        ]
+        return proposals, applied
+
+    def approve_normalization(self, name: str, rule_id: str) -> None:
+        from analyst.domain.normalization import UnknownNormalizationError
+
+        proposals, _ = self.normalization(name)
+        rule = next((r for r in proposals if r.rule_id == rule_id), None)
+        if rule is None:
+            raise UnknownNormalizationError(rule_id)
+        decisions = self._normalization_decisions(name)
+        decisions[rule.column] = {
+            "status": "approved",
+            "mapping": rule.mapping,
+            "description": rule.description,
+        }
+        self._save_normalization(name, decisions)
+        self._apply_active_normalization(name)
+        self._reprofile(name)
+
+    def dismiss_normalization(self, name: str, rule_id: str) -> None:
+        from analyst.domain.normalization import UnknownNormalizationError
+
+        proposals, _ = self.normalization(name)
+        rule = next((r for r in proposals if r.rule_id == rule_id), None)
+        if rule is None:
+            raise UnknownNormalizationError(rule_id)
+        decisions = self._normalization_decisions(name)
+        decisions[rule.column] = {"status": "dismissed"}
+        self._save_normalization(name, decisions)
+
+    def revoke_normalization(self, name: str, rule_id: str) -> None:
+        from analyst.domain.normalization import UnknownNormalizationError
+
+        decisions = self._normalization_decisions(name)
+        column = rule_id.removeprefix("norm:")
+        if decisions.get(column, {}).get("status") != "approved":
+            raise UnknownNormalizationError(rule_id)
+        del decisions[column]
+        self._save_normalization(name, decisions)
+        self._apply_active_normalization(name)
+        self._reprofile(name)
+
+    def _normalization_decisions(self, name: str) -> dict:
+        import json
+
+        sidecar = _normalization_sidecar(self.store.base_dir, name)
+        if not sidecar.is_file():
+            return {}
+        try:
+            return dict(json.loads(sidecar.read_text())["columns"])
+        except Exception:  # noqa: BLE001 - corrupt sidecar = no decisions, never a crash
+            _LOG.warning("ignoring unreadable normalization sidecar for %r", name)
+            return {}
+
+    def _save_normalization(self, name: str, decisions: dict) -> None:
+        import json
+
+        sidecar = _normalization_sidecar(self.store.base_dir, name)
+        if decisions:
+            sidecar.write_text(json.dumps({"columns": decisions}, indent=2))
+        elif sidecar.is_file():
+            sidecar.unlink()
+
+    def _apply_active_normalization(self, name: str) -> bool:
+        """Re-assert the view overlay from persisted decisions. True if any
+        approved mapping is in effect."""
+        mappings = {
+            column: dict(decision["mapping"])
+            for column, decision in self._normalization_decisions(name).items()
+            if decision["status"] == "approved"
+        }
+        self.store.apply_normalization(name, mappings)
+        return bool(mappings)
+
+    def _reprofile(self, name: str) -> None:
+        import dataclasses
+
+        record = self._records[name]
+        record.summary = dataclasses.replace(
+            record.summary, profile=self.store.profile(name)
+        )
+
+
+def _normalization_sidecar(base_dir: object, name: str):  # noqa: ANN001
+    from pathlib import Path
+
+    return Path(str(base_dir)) / f"{name}.normalization.json"
 
 
 def _catalog_sidecar(base_dir: object, name: str):  # noqa: ANN001

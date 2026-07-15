@@ -2,7 +2,7 @@
 // HTTP-only. There is no TS mock any more — the mock lives in the backend
 // (src/analyst/api/fixtures.py) and is served through these same endpoints.
 // Dev: Vite proxies /api → http://localhost:8000 (see vite.config.ts).
-import type { ApiClient, IngestionResult, QueryResult, AnswerResult } from './types';
+import type { ApiClient, IngestionResult, NormalizationState, QueryResult, AnswerResult } from './types';
 
 const BASE = import.meta.env.VITE_API_BASE ?? '';
 
@@ -21,6 +21,9 @@ const JSON_HEADERS = { 'content-type': 'application/json' };
 
 export const api: ApiClient = {
   health: () => j('/api/health'),
+  getNormalization: (name) => j<NormalizationState>(`/api/datasets/${encodeURIComponent(name)}/normalization`),
+  actOnNormalization: (name, ruleId, action) =>
+    j<NormalizationState>(`/api/datasets/${encodeURIComponent(name)}/normalization/${encodeURIComponent(ruleId)}/${action}`, { method: 'POST' }),
   listDatasets: () => j('/api/datasets'),
   getDataset: (name) => j(`/api/datasets/${encodeURIComponent(name)}`),
   getCatalog: () => j('/api/catalog'),

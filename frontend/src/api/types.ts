@@ -131,6 +131,16 @@ export type ChatMessage =
   | { id: string; type: 'result'; result: AnswerResult };
 
 // ── client interface ────────────────────────────────────────────────
+export interface NormalizationVariant { value: string; rows: number }
+export interface NormalizationGroup { canonical: string; variants: NormalizationVariant[] }
+export interface NormalizationRule {
+  ruleId: string;
+  column: string;
+  description: string;
+  groups: NormalizationGroup[];
+}
+export interface NormalizationState { proposals: NormalizationRule[]; applied: NormalizationRule[] }
+
 export interface Health {
   ok: boolean;
   fixtures: boolean;
@@ -141,6 +151,8 @@ export interface Health {
 
 export interface ApiClient {
   health(): Promise<Health>;
+  getNormalization(name: string): Promise<NormalizationState>;
+  actOnNormalization(name: string, ruleId: string, action: 'approve' | 'dismiss' | 'revoke'): Promise<NormalizationState>;
   listDatasets(): Promise<Dataset[]>;
   getDataset(name: string): Promise<Dataset>;
   getCatalog(): Promise<Record<string, CatalogEntry>>;

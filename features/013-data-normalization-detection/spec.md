@@ -64,14 +64,14 @@ Feature: Data normalization detection
 
   # AC-6
   Scenario: Approving a rule standardizes what queries see
-    Given an ingested sales file where case variants of "East" carry amounts 10, 20 and 30 and "West" carries 40
+    Given an ingested sales file where case variants of "East" carry amounts 10, 20 and 30 and "West" carries 40 and 50
     When the user approves the proposed rule for column "region"
     And the user asks for the total amount by region
-    Then the totals show "East" at 60 and "West" at 40
+    Then the totals show "East" at 60 and "West" at 90
 
   # AC-7
   Scenario: Revoking an approved rule restores the original values
-    Given an ingested sales file where case variants of "East" carry amounts 10, 20 and 30 and "West" carries 40
+    Given an ingested sales file where case variants of "East" carry amounts 10, 20 and 30 and "West" carries 40 and 50
     And the proposed rule for column "region" is approved
     When the user revokes the approved rule for column "region"
     Then the distinct values of "region" are "East", "east", "EAST" and "West" again
@@ -86,14 +86,14 @@ Feature: Data normalization detection
 
   # AC-9
   Scenario: The profile reflects an approved standardization
-    Given an ingested sales file where case variants of "East" carry amounts 10, 20 and 30 and "West" carries 40
+    Given an ingested sales file where case variants of "East" carry amounts 10, 20 and 30 and "West" carries 40 and 50
     When the user approves the proposed rule for column "region"
     Then the "region" column's profile counts 2 distinct values
     And the profile's example values include "East" and no other case variant of it
 
   # AC-10
   Scenario: Approved rules survive a restart
-    Given an ingested sales file where case variants of "East" carry amounts 10, 20 and 30 and "West" carries 40
+    Given an ingested sales file where case variants of "East" carry amounts 10, 20 and 30 and "West" carries 40 and 50
     And the proposed rule for column "region" is approved
     When the app restarts
     Then the total amount by region still shows "East" at 60
@@ -111,8 +111,8 @@ Feature: Data normalization detection
   Scenario: The workbench carries the approval flow
     Given the analyst app is open in a browser
     When the user opens the sample sales table in the workbench
-    Then the column "region" visibly indicates a pending proposal
-    When the user opens the column "region"
+    Then the column "billing_region" visibly indicates a pending proposal
+    When the user opens the column "billing_region"
     Then the proposal is visible with its variants
     When the user approves the proposal in the workbench
     Then the workbench shows the proposal as applied without a page reload
@@ -120,6 +120,6 @@ Feature: Data normalization detection
   # AC-11
   Scenario: Dismissing in the workbench removes the proposal
     Given the analyst app is open in a browser
-    When the user opens the column "region" of the sample sales table
+    When the user opens the column "billing_region" of the sample sales table
     And the user dismisses its normalization proposal
     Then no normalization proposal remains on the column
