@@ -16,7 +16,7 @@
       Attach relational DBs and query through (federated, DuckDB attaches Postgres/MySQL/etc.) — nothing copied. Profile via the live connection.
 - [x] **PK/FK relationship discovery & validation** `id:pk-fk-relationship-discovery-validation` priority:2 status:shipped area:profiling → feature:semantic-depth
       Discover candidate PK/FK relationships not formally declared; validate via tests.
-- [ ] **Data normalization detection** `id:data-normalization-detection` priority:3 status:planned area:profiling → feature:—
+- [ ] **Data normalization detection** `id:data-normalization-detection` priority:3 status:in-progress area:profiling → feature:data-normalization-detection
       Detect normalization needs (case standardization upper/lower/proper, etc.) and propose rules.
 
 ## later
