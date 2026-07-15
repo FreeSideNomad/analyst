@@ -132,6 +132,9 @@ def when_review_findings(ctx: ScenarioContext) -> None:
 )
 def when_query_distinct_unapproved(ctx: ScenarioContext, column: str) -> None:
     state = _state(ctx)
+    # "Pending" implies the user has SEEN the proposals — review first, so a
+    # detect-time or review-time silent apply cannot hide from this scenario.
+    state["repo"].normalization(state["dataset"])
     state["counts"] = state["repo"].store.value_counts(state["dataset"], column)
 
 

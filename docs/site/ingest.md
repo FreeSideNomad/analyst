@@ -22,6 +22,21 @@ types, and encodings are detected and recorded, never silently mangled.
 Refreshing a dataset with new data validates it against the established
 schema first.
 
+## Normalization proposals
+
+Real data arrives inconsistent — `East`, `east`, and `EAST` in the same
+column, values with stray spaces. analyst detects these at profiling time
+and shows a **Proposal** badge on the affected column. Opening the column
+shows the proposed rule in plain language ("Standardize *region*: merge 3
+variants into \"East\" (51 rows)") with every variant and its row count.
+
+Nothing is ever applied silently. **Approve** and queries see the
+standardized values (totals group correctly, the profile reflects the merge)
+while your original file stays untouched; **Dismiss** and the proposal never
+returns; **Revoke** an applied rule and the original values come straight
+back. Decisions survive restarts and file refreshes. Detection is fully
+local — it works identically with no AI configured.
+
 ## The semantic catalog
 
 Every table gets a plain-English meaning, not just a schema dump:

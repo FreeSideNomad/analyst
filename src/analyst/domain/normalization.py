@@ -50,8 +50,8 @@ class NormalizationRule:
 
     mapping holds ONLY the non-canonical variants; values outside the
     mapping pass through untouched. New variants arriving later are NOT
-    covered — they must surface as a new proposal (never silently applied,
-    extended across time)."""
+    covered and stay visibly un-normalized until the rule is revoked and
+    re-approved — never silently applied, extended across time."""
 
     rule_id: str
     column: str
