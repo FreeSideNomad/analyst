@@ -24,7 +24,7 @@
       Answer questions spanning multiple datasets using discovered relationships.
 - [ ] **Interactive dashboards (agent-authored, filterable)** `id:exports-visualizations-dashboards` priority:2 status:planned area:output → feature:—
       Tableau-like: agent assembles a multi-widget dashboard from an NL request, then fully interactive (filters, cross-filtering, chart-type switching, drill-down). Built/refined via the agentic AskQuestion workflow. Each widget keeps its trust trail; queries run locally in DuckDB.
-- [ ] **Charts & data exports** `id:charts-and-exports` priority:3 status:planned area:output → feature:—
+- [ ] **Charts & data exports** `id:charts-and-exports` priority:3 status:in-progress area:output → feature:charts-and-exports
       Save answers as charts (type inferred, overridable); export result sets to CSV/Parquet/Excel.
 - [ ] **Joins across multiple connected databases** `id:cross-database-joins` priority:4 status:planned area:query → feature:—
       Residual of cross-dataset-joins (008 shipped file x DB pushdown, 009 file x file): one NL question joining tables from TWO different connected databases. Needs a local-join execution path (both sides remote) + governance-safe row capping.

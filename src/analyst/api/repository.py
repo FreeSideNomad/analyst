@@ -14,7 +14,7 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Any, Protocol
 
 from analyst.api import fixtures
 from analyst.domain.dataset import DatasetSummary, RefreshResult
@@ -60,6 +60,13 @@ class DatasetRepository(Protocol):
     def approve_normalization(self, name: str, rule_id: str) -> None: ...
     def dismiss_normalization(self, name: str, rule_id: str) -> None: ...
     def revoke_normalization(self, name: str, rule_id: str) -> None: ...
+
+    # Feature 014 — saved charts (saved question + config; re-run on open)
+    def charts(self) -> list: ...
+    def save_chart(self, **kwargs: Any) -> object: ...
+    def open_chart(self, chart_id: str) -> object: ...
+    def rename_chart(self, chart_id: str, name: str) -> None: ...
+    def delete_chart(self, chart_id: str) -> None: ...
 
     # Feature 005 hooks — connection-backed datasets (routes/databases.py owns
     # the federation logic; these only add/remove the resulting records).
@@ -118,6 +125,8 @@ class FixtureRepository:
         self._norm: dict[str, dict[str, list]] = {
             "sales": {"proposals": [seeded], "applied": []}
         }
+        # Feature 014: saved charts (in-memory).
+        self._charts: dict[str, Any] = {}
 
     def list_datasets(self) -> list[DatasetRecord]:
         return list(self._records.values())
@@ -145,6 +154,86 @@ class FixtureRepository:
 
     def recatalogue_affected(self, new_names: list[str]) -> None:
         """No-op: fixture catalogs are static seed data (feature 010)."""
+
+    # Feature 014 — saved charts (in-memory; open returns a canned answer
+    # shaped from fixture data so the browser flow is drivable in demos/e2e).
+    def charts(self) -> list:
+        return list(self._charts.values())
+
+    def save_chart(self, **kwargs: Any) -> object:
+        from analyst.domain.charts import SavedChart, chart_id_for
+
+        chart_id = chart_id_for(str(kwargs["name"]), set(self._charts))
+        chart = SavedChart(
+            chart_id=chart_id,
+            name=str(kwargs["name"]),
+            question=str(kwargs.get("question", "")),
+            sql=str(kwargs["sql"]),
+            chart_type=str(kwargs.get("chart_type", "bar")),
+            title=str(kwargs.get("title") or kwargs["name"]),
+            datasets=tuple(kwargs.get("datasets", ()) or ()),
+            assumptions=tuple(kwargs.get("assumptions", ()) or ()),
+            lineage=tuple(kwargs.get("lineage", ()) or ()),
+        )
+        self._charts[chart_id] = chart
+        return chart
+
+    def open_chart(self, chart_id: str) -> object:
+        from analyst.api.schemas import (
+            AnswerResult,
+            ChartPoint,
+            TableBlock,
+            TrustTrailSchema,
+        )
+        from analyst.domain.charts import UnknownChartError
+
+        chart = self._charts.get(chart_id)
+        if chart is None:
+            raise UnknownChartError(chart_id)
+        points = [
+            ("North", 96400.0),
+            ("East", 84200.0),
+            ("South", 61800.0),
+            ("West", 43900.0),
+        ]
+        return AnswerResult(
+            query_id=f"chart-{chart_id}",
+            summary=f"{chart.title}. North leads at 96,400.",
+            chart_type=chart.chart_type
+            if chart.chart_type in {"bar", "line"}
+            else "bar",
+            chart_title=chart.title,
+            highlight="North",
+            nice_max=100000.0,
+            tick_step=25000.0,
+            chart_data=[ChartPoint(label=k, value=v) for k, v in points],
+            table=TableBlock(
+                columns=["region", "total"], rows=[[k, v] for k, v in points]
+            ),
+            trust_trail=TrustTrailSchema(
+                assumptions=list(chart.assumptions)
+                or ["Saved chart — re-run against current data."],
+                lineage=list(chart.lineage)
+                or [f"datasets: {', '.join(chart.datasets) or 'sales'}"],
+                sql=chart.sql,
+            ),
+        )
+
+    def rename_chart(self, chart_id: str, name: str) -> None:
+        import dataclasses
+
+        from analyst.domain.charts import UnknownChartError
+
+        if chart_id not in self._charts:
+            raise UnknownChartError(chart_id)
+        self._charts[chart_id] = dataclasses.replace(self._charts[chart_id], name=name)
+
+    def delete_chart(self, chart_id: str) -> None:
+        from analyst.domain.charts import UnknownChartError
+
+        if chart_id not in self._charts:
+            raise UnknownChartError(chart_id)
+        del self._charts[chart_id]
 
     # Feature 013 — normalization lifecycle over the seeded in-memory state.
     def normalization(self, name: str) -> tuple[list, list]:
@@ -582,6 +671,123 @@ class StoreRepository:
         record.summary = dataclasses.replace(
             record.summary, profile=self.store.profile(name)
         )
+
+    # ------------------------------------------------------------------ #
+    # Feature 014 — saved charts: persist the validated SQL + config in a
+    # workspace sidecar; OPEN re-runs the SQL against current data (never a
+    # snapshot). The stored SQL is re-guarded on every open.
+    # ------------------------------------------------------------------ #
+    def charts(self) -> list:
+        from analyst.domain.charts import SavedChart
+
+        return [
+            SavedChart(chart_id=cid, **payload)
+            for cid, payload in self._load_charts().items()
+        ]
+
+    def save_chart(self, **kwargs: Any) -> object:
+        from analyst.domain.charts import SavedChart, chart_id_for
+
+        charts = self._load_charts()
+        name = str(kwargs["name"])
+        sql = str(kwargs["sql"])
+        payload: dict[str, Any] = {
+            "name": name,
+            "question": str(kwargs.get("question", "")),
+            "sql": sql,
+            "chart_type": str(kwargs.get("chart_type", "bar")),
+            "title": str(kwargs.get("title", name)),
+            "datasets": tuple(kwargs.get("datasets", ()) or ()),
+            "assumptions": tuple(kwargs.get("assumptions", ()) or ()),
+            "lineage": tuple(kwargs.get("lineage", ()) or ()),
+        }
+        problems = self.store.validation_problems(sql)
+        if problems:
+            raise ValueError(problems[0])
+        chart_id = chart_id_for(name, set(charts))
+        charts[chart_id] = payload
+        self._save_charts(charts)
+        return SavedChart(chart_id=chart_id, **payload)
+
+    def open_chart(self, chart_id: str) -> object:
+        """Re-run the stored, validated SQL and shape it exactly as Q&A
+        shapes answers — one interpretation path for both surfaces."""
+        from analyst.api.qa import shape_answer
+        from analyst.domain.charts import ChartDataGoneError
+        from analyst.domain.query import PlanAction, QueryPlan
+        from analyst.engine.query import run_select
+
+        chart = self._require_chart(chart_id)
+        problems = self.store.validation_problems(chart["sql"])
+        if problems:
+            raise ChartDataGoneError(
+                f"This chart's data is gone or has changed shape: {problems[0]}"
+            )
+        result = run_select(self.store, chart["sql"])
+        plan = QueryPlan(
+            action=PlanAction.ANSWER,
+            sql=chart["sql"],
+            title=chart["title"],
+            assumptions=tuple(chart.get("assumptions", ())),
+            lineage=tuple(chart.get("lineage", ())),
+        )
+        answer = shape_answer(plan, result)
+        if chart["chart_type"] in {"bar", "line"} and answer.chart_data:
+            answer.chart_type = chart["chart_type"]
+        return answer
+
+    def rename_chart(self, chart_id: str, name: str) -> None:
+        charts = self._load_charts()
+        self._require_chart(chart_id)
+        charts[chart_id]["name"] = name
+        self._save_charts(charts)
+
+    def delete_chart(self, chart_id: str) -> None:
+        charts = self._load_charts()
+        self._require_chart(chart_id)
+        del charts[chart_id]
+        self._save_charts(charts)
+
+    def _require_chart(self, chart_id: str) -> dict:
+        from analyst.domain.charts import UnknownChartError
+
+        charts = self._load_charts()
+        if chart_id not in charts:
+            raise UnknownChartError(chart_id)
+        return charts[chart_id]
+
+    def _load_charts(self) -> dict:
+        import json
+        from pathlib import Path
+
+        sidecar = Path(str(self.store.base_dir)) / "charts.json"
+        if not sidecar.is_file():
+            return {}
+        try:
+            raw = json.loads(sidecar.read_text())["charts"]
+        except Exception:  # noqa: BLE001 - corrupt sidecar = no charts, never a crash
+            _LOG.warning("ignoring unreadable charts sidecar")
+            return {}
+        for payload in raw.values():
+            for key in ("datasets", "assumptions", "lineage"):
+                payload[key] = tuple(payload.get(key, ()))
+        return raw
+
+    def _save_charts(self, charts: dict) -> None:
+        import json
+        from pathlib import Path
+
+        sidecar = Path(str(self.store.base_dir)) / "charts.json"
+        payload = {
+            cid: {
+                **data,
+                "datasets": list(data.get("datasets", ())),
+                "assumptions": list(data.get("assumptions", ())),
+                "lineage": list(data.get("lineage", ())),
+            }
+            for cid, data in charts.items()
+        }
+        sidecar.write_text(json.dumps({"charts": payload}, indent=2))
 
 
 def _normalization_sidecar(base_dir: object, name: str):  # noqa: ANN001

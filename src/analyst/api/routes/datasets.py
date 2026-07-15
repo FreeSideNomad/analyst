@@ -6,6 +6,7 @@ from __future__ import annotations
 import os
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile
+from fastapi.responses import FileResponse
 
 from analyst.api.deps import get_repository
 from analyst.api.repository import DatasetRecord, DatasetRepository
@@ -163,6 +164,39 @@ def refresh_dataset(
             DatasetProfileSchema.from_domain(result.profile) if result.profile else None
         ),
     ).dump()
+
+
+@router.get("/datasets/{name}/export")
+def export_dataset_route(
+    name: str,
+    format: str = "csv",
+    repo: DatasetRepository = Depends(get_repository),
+) -> FileResponse:
+    """Feature 014: full-fidelity local export of the dataset AS QUERIES SEE
+    IT (normalization overlay included). Never truncated by the display cap."""
+    import tempfile
+
+    from analyst.engine.exports import FORMATS, export_dataset
+
+    _require(repo, name)
+    if format not in FORMATS:
+        raise HTTPException(400, f"Unsupported export format '{format}'")
+    store = getattr(repo, "store", None)
+    if store is None:
+        raise HTTPException(400, "Exports need the real data store")
+    path = tempfile.NamedTemporaryFile(suffix=f".{format}", delete=False).name
+    export_dataset(store, name, format, path)
+    media = {
+        "csv": "text/csv",
+        "parquet": "application/vnd.apache.parquet",
+        "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    }[format]
+    return FileResponse(
+        path,
+        media_type=media,
+        filename=f"{name}.{format}",
+        content_disposition_type="attachment",
+    )
 
 
 def _normalization_state(repo: DatasetRepository, name: str) -> dict:

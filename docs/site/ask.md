@@ -47,3 +47,23 @@ hallucinating a number.
   questions.
 
 Next: [Administration →](admin.html)
+
+
+## Saved charts
+
+An answer worth keeping can be saved as a **chart**: pick a name on the
+answer's "Save as chart" control and it appears in the **Charts** area. A
+saved chart is a saved *question*, not a screenshot — opening it re-runs
+its query against your current data, so the numbers are always live, with
+the full trust trail attached. Presentation is yours: switch any charted
+answer between bar, line (inferred automatically for time series), and
+table. Charts survive restarts; if a chart's dataset is later deleted, the
+chart says so plainly and can be removed.
+
+## Exports
+
+Result tables and whole datasets export locally with one click — CSV,
+Parquet, or Excel. Exports are never truncated (the on-screen table may be
+capped; the file never is) and always reflect what queries see, including
+any approved normalization rules. Nothing about an export touches the
+model.

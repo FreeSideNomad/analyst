@@ -494,10 +494,18 @@ function TableDetail() {
         {cat?.tableDescription && (
           <p style={{ margin: 0, padding: '14px 18px 0', font: '400 13.5px/1.55 var(--font-sans)', color: 'var(--text-body)', textWrap: 'pretty' }}>{cat.tableDescription}</p>
         )}
-        <div style={{ display: 'flex', gap: 22, padding: '12px 18px 16px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 22, padding: '12px 18px 16px' }}>
           <span className="mono" style={{ font: '500 12.5px/1 var(--font-mono)', color: 'var(--text-muted)' }}>{nfmt(d.rowCount)} rows</span>
           <span className="mono" style={{ font: '500 12.5px/1 var(--font-mono)', color: 'var(--text-muted)' }}>{d.columnCount} columns</span>
           <span className="mono" style={{ font: '500 12.5px/1 var(--font-mono)', color: 'var(--text-muted)' }}>{d.profile.encoding || '—'}</span>
+          <span style={{ flex: 1 }} />
+          {d.sourceKind === 'file' && ['csv', 'parquet', 'xlsx'].map((fmt) => (
+            <a key={fmt} aria-label={`Download dataset as ${fmt}`}
+              href={`/api/datasets/${encodeURIComponent(d.id)}/export?format=${fmt}`}
+              style={{ font: '600 11.5px/1 var(--font-sans)', letterSpacing: '.04em', textTransform: 'uppercase', color: 'var(--brand)', textDecoration: 'none' }}>
+              {fmt}
+            </a>
+          ))}
         </div>
       </Card>
 

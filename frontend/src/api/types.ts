@@ -110,7 +110,7 @@ export interface AnswerResult {
   type: 'answer';
   queryId: string;
   summary: string;
-  chartType: 'bar' | 'stat' | 'none';
+  chartType: 'bar' | 'line' | 'stat' | 'none';
   abstain?: boolean;
   chartTitle?: string;
   highlight?: string;
@@ -141,6 +141,15 @@ export interface NormalizationRule {
 }
 export interface NormalizationState { proposals: NormalizationRule[]; applied: NormalizationRule[] }
 
+export interface SavedChartMeta {
+  chartId: string;
+  name: string;
+  question: string;
+  chartType: string;
+  title: string;
+  datasets: string[];
+}
+
 export interface Health {
   ok: boolean;
   fixtures: boolean;
@@ -152,6 +161,11 @@ export interface Health {
 export interface ApiClient {
   health(): Promise<Health>;
   getNormalization(name: string): Promise<NormalizationState>;
+  listCharts(): Promise<{ charts: SavedChartMeta[] }>;
+  saveChart(body: { name: string; question?: string; sql: string; chartType: string; title?: string; datasets?: string[]; assumptions?: string[]; lineage?: string[] }): Promise<SavedChartMeta>;
+  openChart(chartId: string): Promise<AnswerResult>;
+  renameChart(chartId: string, name: string): Promise<void>;
+  deleteChart(chartId: string): Promise<void>;
   actOnNormalization(name: string, ruleId: string, action: 'approve' | 'dismiss' | 'revoke'): Promise<NormalizationState>;
   listDatasets(): Promise<Dataset[]>;
   getDataset(name: string): Promise<Dataset>;

@@ -5,6 +5,7 @@ import {
   Download, ChevronLeft, Save,
 } from 'lucide-react';
 import type { AnswerResult, ChatMessage, ClarificationResult, TableBlock, TrustTrail as TrustTrailT } from '../api/types';
+import { api } from '../api/client';
 import { useQuery, useIngestion, useCatalog } from '../stores';
 import { money } from '../lib/format';
 import { Icon, Card, Button, Tag, SegmentedControl } from '../components/ui';
@@ -45,7 +46,7 @@ function SaveDatasetModal({ defaultStem, existing, onSave, onCancel }: {
 }
 
 /* ── Q&A chat ─────────────────────────────────────────────────────── */
-function BarChart({ result }: { result: AnswerResult }) {
+export function BarChart({ result }: { result: AnswerResult }) {
   const ticks: number[] = [];
   for (let v = result.niceMax!; v >= 0; v -= result.tickStep!) ticks.push(v);
   return (
@@ -77,7 +78,33 @@ function BarChart({ result }: { result: AnswerResult }) {
   );
 }
 
-function TrustTrail({ trail, defaultOpen }: { trail: TrustTrailT; defaultOpen?: boolean }) {
+/* Feature 014: temporal series render as a line; same data contract as bars. */
+export function LineChart({ result }: { result: AnswerResult }) {
+  const data = result.chartData!;
+  const max = result.niceMax || Math.max(...data.map((d) => d.value)) || 1;
+  const W = 620, H = 200, pad = 14;
+  const x = (i: number) => pad + (i * (W - 2 * pad)) / Math.max(1, data.length - 1);
+  const y = (v: number) => H - pad - (v / max) * (H - 2 * pad);
+  const points = data.map((d, i) => `${x(i)},${y(d.value)}`).join(' ');
+  return (
+    <div aria-label={`Line chart: ${result.chartTitle || ''}`}>
+      <div style={{ font: '600 15px/1.2 var(--font-sans)', color: 'var(--text-strong)', marginBottom: 12 }}>{result.chartTitle}</div>
+      <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: 200, display: 'block', borderLeft: '1px solid var(--border-default)', borderBottom: '1px solid var(--border-default)' }}>
+        <polyline points={points} fill="none" stroke="var(--brand)" strokeWidth={2.5} strokeLinejoin="round" strokeLinecap="round" />
+        {data.map((d, i) => (
+          <circle key={d.label} cx={x(i)} cy={y(d.value)} r={4}
+            fill={d.label === result.highlight ? 'var(--brand)' : 'var(--surface-card)'}
+            stroke="var(--brand)" strokeWidth={2} />
+        ))}
+      </svg>
+      <div style={{ display: 'flex', padding: '8px 4px 0' }}>
+        {data.map((d) => <div key={d.label} style={{ flex: 1, textAlign: 'center', font: '500 11.5px/1.2 var(--font-sans)', color: 'var(--text-body)' }}>{d.label}</div>)}
+      </div>
+    </div>
+  );
+}
+
+export function TrustTrail({ trail, defaultOpen }: { trail: TrustTrailT; defaultOpen?: boolean }) {
   const [open, setOpen] = useState(!!defaultOpen);
   const [tab, setTab] = useState('assumptions');
   return (
@@ -173,7 +200,7 @@ function toCsv(t: TableBlock): string {
   return [t.columns.map(esc).join(','), ...t.rows.map((row) => row.map(esc).join(','))].join('\n');
 }
 
-function ResultTableView({ table, title }: { table: TableBlock; title: string }) {
+export function ResultTableView({ table, title }: { table: TableBlock; title: string }) {
   const [page, setPage] = useState(0);
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -245,39 +272,93 @@ function ResultTableView({ table, title }: { table: TableBlock; title: string })
   );
 }
 
-function ResultMessage({ msg, isLast }: { msg: Extract<ChatMessage, { type: 'result' }>; isLast: boolean }) {
-  const r = msg.result;
+/* Feature 014: keep an answer — save its question+SQL+presentation as a chart. */
+export function SaveChartControl({ result, presentation }: { result: AnswerResult; presentation: string }) {
+  const [naming, setNaming] = useState(false);
+  const [name, setName] = useState(result.chartTitle || 'My chart');
+  const [saved, setSaved] = useState(false);
+  if (!result.trustTrail?.sql) return null;
+  const save = () => {
+    api.saveChart({
+      name,
+      question: result.summary,
+      sql: result.trustTrail!.sql,
+      chartType: presentation === 'table' ? 'bar' : presentation,
+      title: result.chartTitle || name,
+      assumptions: result.trustTrail?.assumptions,
+      lineage: result.trustTrail?.lineage,
+    }).then(() => { setSaved(true); setNaming(false); }).catch(() => {});
+  };
+  if (saved) {
+    return <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, font: '600 12px/1 var(--font-sans)', color: 'var(--green-600)' }}><Icon as={Check} size={13} /> Saved to Charts</span>;
+  }
+  if (!naming) {
+    return (
+      <button aria-label="Save as chart" onClick={() => setNaming(true)}
+        style={{ display: 'inline-flex', alignItems: 'center', gap: 6, border: '1px solid var(--border-default)', background: 'transparent', borderRadius: 'var(--radius-md)', padding: '5px 10px', cursor: 'pointer', font: '600 12px/1 var(--font-sans)', color: 'var(--text-body)' }}>
+        <Icon as={Save} size={13} /> Save as chart
+      </button>
+    );
+  }
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+      <input aria-label="Chart name" autoFocus value={name} onChange={(e) => setName(e.target.value)}
+        onKeyDown={(e) => e.key === 'Enter' && save()}
+        style={{ height: 28, padding: '0 9px', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-md)', font: '500 12.5px/1 var(--font-sans)', width: 180 }} />
+      <button aria-label="Confirm save chart" onClick={save}
+        style={{ display: 'inline-flex', alignItems: 'center', border: 'none', background: 'var(--brand)', color: '#fff', borderRadius: 'var(--radius-md)', padding: '6px 11px', cursor: 'pointer', font: '600 12px/1 var(--font-sans)' }}>Save</button>
+    </span>
+  );
+}
+
+/* Shared answer body: chart/table presentation + trust trail. Used by the
+   Q&A thread and by the Charts area (feature 014) — one renderer. */
+export function AnswerBody({ r, isLast, savable }: { r: AnswerResult; isLast: boolean; savable?: boolean }) {
   const table = r.table;
   const dataPoints = table ? table.rows.length * table.columns.length : 0;
-  const hasInterpreted = r.chartType === 'bar' || r.chartType === 'stat';
-  // Table view is the default when the result is more than ~10 data points.
-  const [view, setView] = useState<'view' | 'table'>(
-    table && (dataPoints > 10 || !hasInterpreted) ? 'table' : 'view',
+  const charted = r.chartType === 'bar' || r.chartType === 'line';
+  const hasInterpreted = charted || r.chartType === 'stat';
+  const [view, setView] = useState<string>(
+    table && (dataPoints > 10 || !hasInterpreted) ? 'table' : charted ? r.chartType : 'view',
   );
-  const showToggle = !!table && hasInterpreted;
+  const options = charted
+    ? [{ value: 'bar', label: 'Bar' }, { value: 'line', label: 'Line' }, ...(table ? [{ value: 'table', label: 'Table' }] : [])]
+    : [{ value: 'view', label: 'Stat' }, ...(table ? [{ value: 'table', label: 'Table' }] : [])];
+  const showToggle = hasInterpreted && options.length > 1;
+  return (
+    <>
+      <p style={{ margin: 0, font: '400 14.5px/1.55 var(--font-sans)', color: 'var(--text-body)', textWrap: 'pretty' }}>{r.summary}</p>
+      {showToggle && (
+        <div style={{ marginTop: 14, display: 'flex', alignItems: 'center', gap: 12 }}>
+          <SegmentedControl size="sm" value={view} onChange={setView} options={options} />
+          <span style={{ flex: 1 }} />
+          {savable && charted && <SaveChartControl result={r} presentation={view} />}
+        </div>
+      )}
+      {view === 'bar' && r.chartData && <div style={{ marginTop: 16 }}><BarChart result={r} /></div>}
+      {view === 'line' && r.chartData && <div style={{ marginTop: 16 }}><LineChart result={r} /></div>}
+      {view === 'view' && r.chartType === 'stat' && r.stat && (
+        <div style={{ marginTop: 16, padding: '18px 20px', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-lg)', background: 'var(--neutral-50)' }}>
+          <div style={{ font: '500 12px/1 var(--font-sans)', letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: 8 }}>{r.stat.label}</div>
+          <div className="mono" style={{ font: '700 40px/1 var(--font-mono)', color: 'var(--brand)', letterSpacing: '-.02em' }}>{r.stat.value}</div>
+          <div className="mono" style={{ font: '400 12.5px/1 var(--font-mono)', color: 'var(--text-muted)', marginTop: 8 }}>{r.stat.sub}</div>
+        </div>
+      )}
+      {view === 'table' && table && <ResultTableView table={table} title={r.chartTitle || 'result'} />}
+      {r.trustTrail && <TrustTrail trail={r.trustTrail} defaultOpen={isLast} />}
+    </>
+  );
+}
+
+function ResultMessage({ msg, isLast }: { msg: Extract<ChatMessage, { type: 'result' }>; isLast: boolean }) {
+  const r = msg.result;
   return (
     <div style={{ display: 'flex', gap: 12, maxWidth: 680 }} className="ana-in">
       <div style={{ width: 30, height: 30, flex: 'none', borderRadius: '50%', background: r.abstain ? 'var(--amber-100)' : 'var(--brand)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         <Icon as={r.abstain ? Info : Check} size={16} color={r.abstain ? 'var(--amber-600)' : '#fff'} />
       </div>
       <Card style={{ padding: 18, flex: 1 }}>
-        <p style={{ margin: 0, font: '400 14.5px/1.55 var(--font-sans)', color: 'var(--text-body)', textWrap: 'pretty' }}>{r.summary}</p>
-        {showToggle && (
-          <div style={{ marginTop: 14 }}>
-            <SegmentedControl size="sm" value={view} onChange={(v) => setView(v as 'view' | 'table')}
-              options={[{ value: 'view', label: r.chartType === 'stat' ? 'Stat' : 'Chart' }, { value: 'table', label: 'Table' }]} />
-          </div>
-        )}
-        {view === 'view' && r.chartType === 'bar' && <div style={{ marginTop: 16 }}><BarChart result={r} /></div>}
-        {view === 'view' && r.chartType === 'stat' && r.stat && (
-          <div style={{ marginTop: 16, padding: '18px 20px', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-lg)', background: 'var(--neutral-50)' }}>
-            <div style={{ font: '500 12px/1 var(--font-sans)', letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: 8 }}>{r.stat.label}</div>
-            <div className="mono" style={{ font: '700 40px/1 var(--font-mono)', color: 'var(--brand)', letterSpacing: '-.02em' }}>{r.stat.value}</div>
-            <div className="mono" style={{ font: '400 12.5px/1 var(--font-mono)', color: 'var(--text-muted)', marginTop: 8 }}>{r.stat.sub}</div>
-          </div>
-        )}
-        {view === 'table' && table && <ResultTableView table={table} title={r.chartTitle || 'result'} />}
-        {r.trustTrail && <TrustTrail trail={r.trustTrail} defaultOpen={isLast} />}
+        <AnswerBody r={r} isLast={isLast} savable />
       </Card>
     </div>
   );
