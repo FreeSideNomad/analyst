@@ -61,6 +61,18 @@ class DatasetRepository(Protocol):
     def dismiss_normalization(self, name: str, rule_id: str) -> None: ...
     def revoke_normalization(self, name: str, rule_id: str) -> None: ...
 
+    # Feature 015 — dashboards (agent-assembled, filterable widget grids)
+    def dashboards(self) -> list: ...
+    def put_dashboard(self, dashboard: Any) -> None: ...
+    def create_dashboard(self, request: str) -> dict: ...
+    def remove_widget(self, dashboard_id: str, widget_id: str) -> None: ...
+    def edit_dashboard(self, dashboard_id: str, request: str) -> dict: ...
+    def run_dashboard(self, dashboard_id: str, filters: list) -> dict: ...
+    def drill_dashboard(
+        self, dashboard_id: str, widget_id: str, filters: list
+    ) -> object: ...
+    def delete_dashboard(self, dashboard_id: str) -> None: ...
+
     # Feature 016 — catalog curation (answer clarifications, suggest corrections)
     def curation(self, name: str) -> dict: ...
     def answer_clarification(self, name: str, column: str, answer: str) -> None: ...
@@ -134,6 +146,8 @@ class FixtureRepository:
         self._charts: dict[str, Any] = {}
         # Feature 016: curation state (in-memory).
         self._curation: dict[str, dict] = {}
+        # Feature 015: dashboards (in-memory, canned assembly/run).
+        self._dashboards: dict[str, Any] = {}
 
     def list_datasets(self) -> list[DatasetRecord]:
         return list(self._records.values())
@@ -161,6 +175,179 @@ class FixtureRepository:
 
     def recatalogue_affected(self, new_names: list[str]) -> None:
         """No-op: fixture catalogs are static seed data (feature 010)."""
+
+    # Feature 015 — dashboards over canned data (assembly, run, drill are
+    # deterministic so demos and browser e2e are drivable).
+    def dashboards(self) -> list:
+        return list(self._dashboards.values())
+
+    def _canned_dashboard(self):  # noqa: ANN202
+        from analyst.domain.dashboards import (
+            Dashboard,
+            DashboardFilter,
+            DashboardWidget,
+        )
+
+        return Dashboard(
+            dashboard_id="sales-overview",
+            name="Sales overview",
+            widgets=(
+                DashboardWidget(
+                    widget_id="revenue-by-region",
+                    question="Revenue by region",
+                    sql='SELECT billing_region, SUM(quantity*unit_price) FROM "sales" WHERE /*FILTERS*/ 1=1 GROUP BY 1',
+                    chart_type="bar",
+                    title="Revenue by region",
+                    source="sales",
+                ),
+                DashboardWidget(
+                    widget_id="customer-count",
+                    question="How many customers?",
+                    sql='SELECT COUNT(*) FROM "customers" WHERE /*FILTERS*/ 1=1',
+                    chart_type="stat",
+                    title="Customers",
+                    source="customers",
+                ),
+            ),
+            filters=(DashboardFilter(column="billing_region", label="Region"),),
+        )
+
+    def put_dashboard(self, dashboard: Any) -> None:
+        self._dashboards[dashboard.dashboard_id] = dashboard
+
+    def create_dashboard(self, request: str) -> dict:
+        from analyst.agentic.dashboards import ClarificationSpec
+
+        if "performance" in request.lower():
+            return {
+                "dashboard": None,
+                "clarification": ClarificationSpec(
+                    question="Which performance do you mean?",
+                    options=["Sales performance", "Fulfilment performance"],
+                ),
+            }
+        dashboard = self._canned_dashboard()
+        self._dashboards[dashboard.dashboard_id] = dashboard
+        return {"dashboard": dashboard, "clarification": None}
+
+    def edit_dashboard(self, dashboard_id: str, request: str) -> dict:
+        from analyst.domain.dashboards import UnknownDashboardError
+
+        if dashboard_id not in self._dashboards:
+            raise UnknownDashboardError(dashboard_id)
+        return {"dashboard": self._dashboards[dashboard_id], "clarification": None}
+
+    def run_dashboard(self, dashboard_id: str, filters: list) -> dict:
+        from analyst.api.schemas import (
+            AnswerResult,
+            ChartPoint,
+            StatBlock,
+            TableBlock,
+            TrustTrailSchema,
+        )
+        from analyst.domain.dashboards import UnknownDashboardError
+
+        dashboard = self._dashboards.get(dashboard_id)
+        if dashboard is None:
+            raise UnknownDashboardError(dashboard_id)
+        filtered = bool(filters)
+        points = (
+            [("East", 84200.0)]
+            if filtered
+            else [
+                ("North", 96400.0),
+                ("East", 84200.0),
+                ("South", 61800.0),
+                ("West", 43900.0),
+            ]
+        )
+        trail = TrustTrailSchema(
+            assumptions=["Canned demo numbers."],
+            lineage=["source: sales"],
+            sql=dashboard.widgets[0].sql,
+        )
+        revenue = AnswerResult(
+            query_id="dash-revenue",
+            summary="Revenue by region.",
+            chart_type="bar",
+            chart_title="Revenue by region",
+            highlight=points[0][0],
+            nice_max=100000.0,
+            tick_step=25000.0,
+            chart_data=[ChartPoint(label=k, value=v) for k, v in points],
+            table=TableBlock(
+                columns=["region", "total"], rows=[[k, v] for k, v in points]
+            ),
+            trust_trail=trail,
+        )
+        customers = AnswerResult(
+            query_id="dash-customers",
+            summary="Customers: 11,204.",
+            chart_type="stat",
+            chart_title="Customers",
+            stat=StatBlock(value="11,204", label="Customers", sub="canned"),
+            trust_trail=TrustTrailSchema(
+                assumptions=["Canned demo numbers."],
+                lineage=["source: customers"],
+                sql=dashboard.widgets[1].sql,
+            ),
+        )
+        return {
+            "dashboard": dashboard,
+            "widgets": {
+                "revenue-by-region": {
+                    "answer": revenue,
+                    "error": None,
+                    "unaffected_by": [],
+                },
+                "customer-count": {
+                    "answer": customers,
+                    "error": None,
+                    "unaffected_by": ["billing_region"] if filtered else [],
+                },
+            },
+        }
+
+    def drill_dashboard(
+        self, dashboard_id: str, widget_id: str, filters: list
+    ) -> object:
+        from analyst.api.schemas import AnswerResult, TableBlock, TrustTrailSchema
+        from analyst.domain.dashboards import UnknownDashboardError
+
+        if dashboard_id not in self._dashboards:
+            raise UnknownDashboardError(dashboard_id)
+        return AnswerResult(
+            query_id="dash-drill",
+            summary="Rows behind the widget.",
+            chart_type="none",
+            table=TableBlock(
+                columns=["order_id", "billing_region", "amount"],
+                rows=[["ORD-100001", "East", 129.5], ["ORD-100002", "East", 88.0]],
+            ),
+            trust_trail=TrustTrailSchema(
+                assumptions=[], lineage=["source: sales"], sql="SELECT *"
+            ),
+        )
+
+    def delete_dashboard(self, dashboard_id: str) -> None:
+        from analyst.domain.dashboards import UnknownDashboardError
+
+        if dashboard_id not in self._dashboards:
+            raise UnknownDashboardError(dashboard_id)
+        del self._dashboards[dashboard_id]
+
+    def remove_widget(self, dashboard_id: str, widget_id: str) -> None:
+        import dataclasses
+
+        from analyst.domain.dashboards import UnknownDashboardError
+
+        dashboard = self._dashboards.get(dashboard_id)
+        if dashboard is None:
+            raise UnknownDashboardError(dashboard_id)
+        self._dashboards[dashboard_id] = dataclasses.replace(
+            dashboard,
+            widgets=tuple(w for w in dashboard.widgets if w.widget_id != widget_id),
+        )
 
     # Feature 016 — catalog curation over the in-memory entries (templated
     # completion; deterministic for demos and browser e2e).
@@ -428,7 +615,11 @@ class StoreRepository:
     """
 
     def __init__(
-        self, data_dir: str, cataloguer: object = None, curator: object = None
+        self,
+        data_dir: str,
+        cataloguer: object = None,
+        curator: object = None,
+        assembler: object = None,
     ) -> None:
         import tempfile
 
@@ -447,6 +638,7 @@ class StoreRepository:
             },
         )
         self.curator: Any = curator
+        self.assembler: Any = assembler
         self._records: dict[str, DatasetRecord] = {}
         self._rehydrate()
 
@@ -1051,6 +1243,250 @@ class StoreRepository:
 
         sidecar = Path(str(self.store.base_dir)) / f"{name}.curation.json"
         sidecar.write_text(json.dumps(decisions, indent=2))
+
+    # ------------------------------------------------------------------ #
+    # Feature 015 — dashboards. A widget is a saved-chart shape + source;
+    # filters substitute the /*FILTERS*/ marker BEFORE aggregation and the
+    # final SQL is re-guarded on every run. Widgets fail alone: one broken
+    # query yields a per-widget error, never a dead dashboard.
+    # ------------------------------------------------------------------ #
+    def dashboards(self) -> list:
+        from analyst.domain.dashboards import (
+            Dashboard,
+            DashboardFilter,
+            DashboardWidget,
+        )
+
+        out = []
+        for did, data in self._load_dashboards().items():
+            out.append(
+                Dashboard(
+                    dashboard_id=did,
+                    name=data["name"],
+                    widgets=tuple(
+                        DashboardWidget(**w) for w in data.get("widgets", [])
+                    ),
+                    filters=tuple(
+                        DashboardFilter(**f) for f in data.get("filters", [])
+                    ),
+                )
+            )
+        return out
+
+    def put_dashboard(self, dashboard: Any) -> None:
+        import dataclasses
+
+        from analyst.engine.dashboards import validate_widget_sql
+
+        for widget in dashboard.widgets:  # reject-whole (AC-13)
+            validate_widget_sql(widget.sql)
+            problems = self.store.validation_problems(
+                widget.sql.replace("/*FILTERS*/", "")
+            )
+            if problems:
+                raise ValueError(f"Widget '{widget.title}': {problems[0]}")
+        data = self._load_dashboards()
+        data[dashboard.dashboard_id] = {
+            "name": dashboard.name,
+            "widgets": [dataclasses.asdict(w) for w in dashboard.widgets],
+            "filters": [dataclasses.asdict(f) for f in dashboard.filters],
+        }
+        self._save_dashboards(data)
+
+    def run_dashboard(self, dashboard_id: str, filters: list) -> dict:
+        from analyst.api.qa import shape_answer
+        from analyst.domain.query import PlanAction, QueryPlan
+        from analyst.engine.dashboards import apply_filters
+        from analyst.engine.query import run_select
+
+        dashboard = self._require_dashboard(dashboard_id)
+        results: dict = {"dashboard": dashboard, "widgets": {}}
+        for widget in dashboard.widgets:
+            applicable, skipped = self._split_filters(widget.source, filters)
+            entry: dict = {"answer": None, "error": None, "unaffected_by": skipped}
+            try:
+                sql = apply_filters(widget.sql, applicable)
+                problems = self.store.validation_problems(sql)
+                if problems:
+                    raise ValueError(problems[0])
+                plan = QueryPlan(
+                    action=PlanAction.ANSWER,
+                    sql=sql,
+                    title=widget.title,
+                    assumptions=widget.assumptions,
+                    lineage=widget.lineage or (f"source: {widget.source}",),
+                )
+                answer = shape_answer(plan, run_select(self.store, sql))
+                if widget.chart_type in {"bar", "line"} and answer.chart_data:
+                    answer.chart_type = widget.chart_type
+                entry["answer"] = answer
+            except Exception as exc:  # noqa: BLE001 - widgets fail ALONE
+                entry["error"] = f"This widget's data is gone or invalid: {exc}"
+            results["widgets"][widget.widget_id] = entry
+        return results
+
+    def drill_dashboard(
+        self, dashboard_id: str, widget_id: str, filters: list
+    ) -> object:
+        from analyst.api.qa import shape_answer
+        from analyst.domain.dashboards import UnknownDashboardError
+        from analyst.domain.query import PlanAction, QueryPlan
+        from analyst.engine.dashboards import apply_filters
+        from analyst.engine.query import run_select
+        from analyst.engine.store import _quote_ident
+
+        dashboard = self._require_dashboard(dashboard_id)
+        widget = next((w for w in dashboard.widgets if w.widget_id == widget_id), None)
+        if widget is None:
+            raise UnknownDashboardError(widget_id)
+        applicable, _ = self._split_filters(widget.source, filters)
+        sql = apply_filters(
+            f"SELECT * FROM {_quote_ident(widget.source)} WHERE /*FILTERS*/ 1=1",
+            applicable,
+        )
+        plan = QueryPlan(
+            action=PlanAction.ANSWER,
+            sql=sql,
+            title=f"Rows behind: {widget.title}",
+            lineage=(f"source: {widget.source}",),
+        )
+        return shape_answer(plan, run_select(self.store, sql))
+
+    def delete_dashboard(self, dashboard_id: str) -> None:
+        data = self._load_dashboards()
+        self._require_dashboard(dashboard_id)
+        del data[dashboard_id]
+        self._save_dashboards(data)
+
+    def remove_widget(self, dashboard_id: str, widget_id: str) -> None:
+        from analyst.domain.dashboards import UnknownDashboardError
+
+        data = self._load_dashboards()
+        self._require_dashboard(dashboard_id)
+        widgets = data[dashboard_id].get("widgets", [])
+        if all(w["widget_id"] != widget_id for w in widgets):
+            raise UnknownDashboardError(widget_id)
+        data[dashboard_id]["widgets"] = [
+            w for w in widgets if w["widget_id"] != widget_id
+        ]
+        self._save_dashboards(data)
+
+    def _split_filters(self, source: str, filters: list) -> tuple[list, list]:
+        """(applicable, unaffected-column-names) for one widget's source."""
+        try:
+            columns = {name for name, _ in self.store.schema(source)}
+        except Exception:  # noqa: BLE001 - source gone: nothing applies
+            columns = set()
+        applicable = [(c, v) for c, v in filters if c in columns]
+        skipped = [c for c, _ in filters if c not in columns]
+        return applicable, skipped
+
+    def _require_dashboard(self, dashboard_id: str):  # noqa: ANN202
+        from analyst.domain.dashboards import UnknownDashboardError
+
+        data = self._load_dashboards()
+        if dashboard_id not in data:
+            raise UnknownDashboardError(dashboard_id)
+        return next(d for d in self.dashboards() if d.dashboard_id == dashboard_id)
+
+    def _load_dashboards(self) -> dict:
+        import json
+        from pathlib import Path
+
+        sidecar = Path(str(self.store.base_dir)) / "dashboards.json"
+        if not sidecar.is_file():
+            return {}
+        try:
+            return dict(json.loads(sidecar.read_text())["dashboards"])
+        except Exception:  # noqa: BLE001
+            _LOG.warning("ignoring unreadable dashboards sidecar")
+            return {}
+
+    def _save_dashboards(self, data: dict) -> None:
+        import json
+        from pathlib import Path
+
+        sidecar = Path(str(self.store.base_dir)) / "dashboards.json"
+        sidecar.write_text(json.dumps({"dashboards": data}, indent=2))
+
+    def create_dashboard(self, request: str) -> dict:
+        result = self._assemble(request, current_spec=None)
+        if result.clarification is not None:
+            return {"clarification": result.clarification, "dashboard": None}
+        dashboard = self._dashboard_from_spec(result, dashboard_id=None)
+        self.put_dashboard(dashboard)  # reject-whole on any invalid widget
+        return {"clarification": None, "dashboard": dashboard}
+
+    def edit_dashboard(self, dashboard_id: str, request: str) -> dict:
+        import json as _json
+
+        current = self._require_dashboard(dashboard_id)
+        spec = _json.dumps(self._load_dashboards()[dashboard_id], indent=1)
+        result = self._assemble(request, current_spec=spec)
+        if result.clarification is not None:
+            return {"clarification": result.clarification, "dashboard": None}
+        dashboard = self._dashboard_from_spec(
+            result, dashboard_id=dashboard_id, fallback_name=current.name
+        )
+        self.put_dashboard(dashboard)
+        return {"clarification": None, "dashboard": dashboard}
+
+    def _assemble(self, request: str, current_spec: str | None):  # noqa: ANN202
+        from analyst.agentic.dashboards import DashboardAssemblyError
+        from analyst.domain.query import query_table_from_summary
+
+        if self.assembler is None:
+            raise DashboardAssemblyError(
+                "Dashboard authoring needs the AI features — set "
+                "ANTHROPIC_API_KEY / CLAUDE_CODE_OAUTH_TOKEN and "
+                "ANALYST_CATALOG=live. Existing dashboards keep working."
+            )
+        tables = [
+            query_table_from_summary(record.summary)
+            for record in self._records.values()
+            if not record.federated or record.db_queryable
+        ]
+        return self.assembler.assemble(request, tables, current_spec)
+
+    def _dashboard_from_spec(
+        self,
+        result,  # noqa: ANN001 - AssemblyResult
+        dashboard_id: str | None,
+        fallback_name: str = "Dashboard",
+    ):  # noqa: ANN202
+        from analyst.domain.charts import chart_id_for
+        from analyst.domain.dashboards import (
+            Dashboard,
+            DashboardFilter,
+            DashboardWidget,
+        )
+
+        name = result.name or fallback_name
+        if dashboard_id is None:
+            dashboard_id = chart_id_for(name, set(self._load_dashboards()))
+        taken: set[str] = set()
+        widgets = []
+        for spec in result.widgets:
+            widget_id = chart_id_for(spec.title, taken)
+            taken.add(widget_id)
+            widgets.append(
+                DashboardWidget(
+                    widget_id=widget_id,
+                    question=spec.question,
+                    sql=spec.sql,
+                    chart_type=spec.chart_type,
+                    title=spec.title,
+                    source=spec.source,
+                )
+            )
+        return Dashboard(
+            dashboard_id=dashboard_id,
+            name=name,
+            widgets=tuple(widgets),
+            filters=tuple(
+                DashboardFilter(column=f.column, label=f.label) for f in result.filters
+            ),
+        )
 
 
 def _normalization_sidecar(base_dir: object, name: str):  # noqa: ANN001

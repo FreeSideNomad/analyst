@@ -59,13 +59,14 @@ Each charted widget switches between bar/line/table without affecting the
 others.
 
 ## AC-7: Drill-down opens the underlying rows (Medium)
-From a widget, the user opens the rows behind the aggregate (capped table
-view, exportable via feature 014).
+From a widget, the user opens the rows behind the aggregate in the capped
+table view (which already carries feature 014's export affordances).
 
 ## AC-8: Dashboards are edited conversationally (High)
-"Add a widget showing average order value by month" adds it; removing and
-rearranging widgets is possible; edits go through the same clarify-first
-agent flow.
+"Add a widget showing average order value by month" adds it and removing a
+widget is possible, through the same agent flow. (Rearranging layout is
+deferred to a later polish slice — amended 2026-07-18 under the blanket
+delegation, recorded in the CP3 handoff.)
 
 ## AC-9: Dashboards persist and re-run live (High)
 Named dashboards are listed per workspace, survive a restart, and opening

@@ -2,7 +2,7 @@
 // HTTP-only. There is no TS mock any more — the mock lives in the backend
 // (src/analyst/api/fixtures.py) and is served through these same endpoints.
 // Dev: Vite proxies /api → http://localhost:8000 (see vite.config.ts).
-import type { ApiClient, CurationState, IngestionResult, NormalizationState, QueryResult, AnswerResult, SavedChartMeta } from './types';
+import type { ApiClient, CurationState, DashboardCreateResult, DashboardRun, IngestionResult, NormalizationState, QueryResult, AnswerResult, SavedChartMeta } from './types';
 
 const BASE = import.meta.env.VITE_API_BASE ?? '';
 
@@ -32,6 +32,13 @@ export const api: ApiClient = {
       method: 'POST', headers: JSON_HEADERS, body: JSON.stringify({ column, note }),
     }),
   listCharts: () => j('/api/charts'),
+  listDashboards: () => j('/api/dashboards'),
+  createDashboard: (request) => j<DashboardCreateResult>('/api/dashboards', { method: 'POST', headers: JSON_HEADERS, body: JSON.stringify({ request }) }),
+  editDashboard: (dashboardId, request) => j<DashboardCreateResult>(`/api/dashboards/${encodeURIComponent(dashboardId)}/edit`, { method: 'POST', headers: JSON_HEADERS, body: JSON.stringify({ request }) }),
+  runDashboard: (dashboardId, filters) => j<DashboardRun>(`/api/dashboards/${encodeURIComponent(dashboardId)}/run`, { method: 'POST', headers: JSON_HEADERS, body: JSON.stringify({ filters }) }),
+  drillDashboard: (dashboardId, widgetId, filters) => j(`/api/dashboards/${encodeURIComponent(dashboardId)}/drill`, { method: 'POST', headers: JSON_HEADERS, body: JSON.stringify({ widgetId, filters }) }),
+  deleteDashboard: (dashboardId) => j<void>(`/api/dashboards/${encodeURIComponent(dashboardId)}`, { method: 'DELETE' }),
+  removeWidget: (dashboardId, widgetId) => j<void>(`/api/dashboards/${encodeURIComponent(dashboardId)}/widgets/${encodeURIComponent(widgetId)}`, { method: 'DELETE' }),
   saveChart: (body) => j<SavedChartMeta>('/api/charts', { method: 'POST', headers: JSON_HEADERS, body: JSON.stringify(body) }),
   openChart: (chartId) => j<AnswerResult>(`/api/charts/${encodeURIComponent(chartId)}`),
   renameChart: (chartId, name) => j<void>(`/api/charts/${encodeURIComponent(chartId)}`, { method: 'PATCH', headers: JSON_HEADERS, body: JSON.stringify({ name }) }),

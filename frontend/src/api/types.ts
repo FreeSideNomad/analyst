@@ -162,6 +162,33 @@ export interface CurationState {
   table: CurationStamp | null;
 }
 
+export interface DashboardWidgetMeta {
+  widgetId: string;
+  question: string;
+  title: string;
+  chartType: string;
+  source: string;
+}
+export interface DashboardMeta {
+  dashboardId: string;
+  name: string;
+  filters: { column: string; label: string }[];
+  widgets: DashboardWidgetMeta[];
+}
+export interface DashboardRunEntry {
+  answer: AnswerResult | null;
+  error: string | null;
+  unaffectedBy: string[];
+}
+export interface DashboardRun {
+  dashboard: DashboardMeta;
+  widgets: Record<string, DashboardRunEntry>;
+}
+export interface DashboardCreateResult {
+  dashboard?: DashboardMeta | null;
+  clarification?: { question: string; options: string[] } | null;
+}
+
 export interface Health {
   ok: boolean;
   fixtures: boolean;
@@ -177,6 +204,13 @@ export interface ApiClient {
   answerClarification(name: string, column: string, answer: string): Promise<CurationState>;
   suggestCorrection(name: string, column: string | null, note: string): Promise<CurationState>;
   listCharts(): Promise<{ charts: SavedChartMeta[] }>;
+  listDashboards(): Promise<{ dashboards: DashboardMeta[] }>;
+  createDashboard(request: string): Promise<DashboardCreateResult>;
+  editDashboard(dashboardId: string, request: string): Promise<DashboardCreateResult>;
+  runDashboard(dashboardId: string, filters: { column: string; value: string }[]): Promise<DashboardRun>;
+  drillDashboard(dashboardId: string, widgetId: string, filters: { column: string; value: string }[]): Promise<AnswerResult>;
+  deleteDashboard(dashboardId: string): Promise<void>;
+  removeWidget(dashboardId: string, widgetId: string): Promise<void>;
   saveChart(body: { name: string; question?: string; sql: string; chartType: string; title?: string; datasets?: string[]; assumptions?: string[]; lineage?: string[] }): Promise<SavedChartMeta>;
   openChart(chartId: string): Promise<AnswerResult>;
   renameChart(chartId: string, name: string): Promise<void>;

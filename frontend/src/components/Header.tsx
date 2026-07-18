@@ -22,8 +22,8 @@ export function Header() {
         <span style={{ font: '800 20px/1 var(--font-sans)', letterSpacing: '-.03em', color: 'var(--text-strong)' }}>analyst</span>
       </div>
       <div style={{ width: 1, height: 26, background: 'var(--border-subtle)' }} />
-      <SegmentedControl size="sm" value={view} onChange={(v) => setView(v as 'ingest' | 'workspace' | 'charts')}
-        options={[{ value: 'ingest', label: 'Ingest & profile' }, { value: 'workspace', label: 'Query' }, { value: 'charts', label: 'Charts' }]} />
+      <SegmentedControl size="sm" value={view} onChange={(v) => setView(v as 'ingest' | 'workspace' | 'charts' | 'dashboards')}
+        options={[{ value: 'ingest', label: 'Ingest & profile' }, { value: 'workspace', label: 'Query' }, { value: 'charts', label: 'Charts' }, { value: 'dashboards', label: 'Dashboards' }]} />
       <div style={{ flex: 1 }} />
       <span style={{ font: '400 12px/1 var(--font-mono)', color: 'var(--text-subtle)' }}>self-hosted · local DuckDB</span>
       <WorkspaceControls />
