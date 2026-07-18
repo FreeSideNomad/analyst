@@ -456,3 +456,24 @@ def test_unreachable_database_stays_visible_and_retryable(tmp_path):
     (schema2,) = manager2.list()
     assert schema2.status == "connected"
     assert repo2.get_dataset("crm.customers").summary.profile.row_count == 2
+
+
+def test_connection_fields_are_whitespace_tolerant():
+    """Defect 2026-07-18: a trailing space in the path field made SQLite
+    'unable to open database file'. Pasted values get stripped (passwords
+    excepted — theirs may legitimately contain spaces)."""
+    from analyst.api.routes.databases import ConnectRequest
+
+    spec = ConnectRequest(
+        name="  crm ",
+        engine=" sqlite ",
+        path=" /tmp/some.db  ",
+        host=" h ",
+        database=" d ",
+        user=" u ",
+        password=" p ",
+    ).to_spec()
+    assert spec.name == "crm"
+    assert spec.path == "/tmp/some.db"
+    assert spec.host == "h" and spec.database == "d" and spec.user == "u"
+    assert spec.password == " p "  # passwords are NEVER altered

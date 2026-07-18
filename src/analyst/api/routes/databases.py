@@ -95,20 +95,28 @@ class ConnectRequest(Camel):
 
     def to_spec(self) -> ConnectionSpec:
         try:
-            engine = DatabaseEngine(self.engine)
+            engine = DatabaseEngine((self.engine or "").strip())
         except ValueError:
             raise InvalidConnectionError(
                 f"Unknown database engine '{self.engine}'. "
                 f"Supported: {', '.join(e.value for e in DatabaseEngine)}."
             ) from None
+
+        # Pasted values arrive with stray whitespace (a trailing space in a
+        # SQLite path reads as a different, nonexistent file — defect
+        # 2026-07-18). Strip everything except the password, whose spaces
+        # may be real.
+        def clean(value: str | None) -> str | None:
+            return value.strip() if isinstance(value, str) else value
+
         return ConnectionSpec(
-            name=self.name,
+            name=clean(self.name) or "",
             engine=engine,
-            path=self.path,
-            host=self.host,
+            path=clean(self.path),
+            host=clean(self.host),
             port=self.port,
-            database=self.database,
-            user=self.user,
+            database=clean(self.database),
+            user=clean(self.user),
             password=self.password,
         )
 
