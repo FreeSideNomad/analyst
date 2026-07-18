@@ -52,4 +52,9 @@ input::placeholder { color:var(--text-subtle); }
 
 @media print {
   .no-print { display: none !important; }
+  /* When a print-area exists (dashboard print preview), print ONLY it —
+     app header, nav, and page chrome stay off the paper. */
+  body:has(.print-area) { visibility: hidden; }
+  .print-area, .print-area * { visibility: visible; }
+  .print-area { position: absolute; top: 0; left: 0; width: 100%; }
 }

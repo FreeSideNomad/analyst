@@ -111,7 +111,7 @@ function OpenDashboard({ meta, onBack }: { meta: DashboardMeta; onBack: () => vo
   };
   if (printing) {
     return (
-      <div>
+      <div className="print-area">
         <div className="no-print" style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
           <button aria-label="Print" onClick={() => window.print()}
             style={{ padding: '7px 14px', border: 'none', borderRadius: 'var(--radius-md)', background: 'var(--brand)', color: '#fff', cursor: 'pointer', font: '600 12.5px/1 var(--font-sans)' }}>Print</button>
