@@ -330,3 +330,61 @@ def test_fixture_repo_supports_curation_flow():
         json={"column": "billing_region", "note": "Region of the billing address"},
     ).json()
     assert body["columns"]["billing_region"]["kind"] == "correction"
+
+
+# --------------------------------------------------------------------------- #
+# Defect 2026-07-18: a raw SDK/backend exception (e.g. the transient
+# "Reached maximum number of turns (1)") surfaced as a 500 instead of the
+# designed plain 502 with the catalog untouched. ANY completion failure must
+# be a CurationError at the curator boundary.
+# --------------------------------------------------------------------------- #
+def test_backend_crash_is_a_plain_curation_error(tmp_path):
+    class CrashBackend:
+        def complete(self, request):
+            raise Exception(
+                "Claude Code returned an error result: Reached maximum number of turns (1)"
+            )
+
+    from analyst.agentic.gateway import LLMGateway
+
+    curator = Curator(LLMGateway(CrashBackend()))
+    with pytest.raises(CurationError):
+        curator.complete(payload_from_profile("t", _EMPTY_PROFILE), "c", None, "answer")
+
+
+def test_backend_crash_maps_to_502_and_leaves_catalog(tmp_path):
+    class CrashCurator:
+        def complete(self, *a, **k):
+            raise Exception("Reached maximum number of turns (1)")
+
+    repo = _repo(tmp_path, curator=CrashCurator())
+    name = _seed(repo)
+    before = repo.get_dataset(name).summary.catalog
+    client = TestClient(create_app(repo))
+    response = client.post(
+        f"/api/datasets/{name}/curation/answer",
+        json={"column": "status", "answer": "CAD"},
+    )
+    assert response.status_code == 502, response.status_code
+    assert "again" in response.json()["detail"].lower()
+    assert repo.get_dataset(name).summary.catalog == before
+
+
+def test_claude_backend_retries_the_transient_max_turns_error(monkeypatch):
+    from analyst.agentic.claude_backend import ClaudeAgentBackend
+    from analyst.agentic.gateway import LLMRequest
+
+    backend = ClaudeAgentBackend()
+    attempts = {"n": 0}
+
+    async def flaky(request):
+        attempts["n"] += 1
+        if attempts["n"] == 1:
+            raise Exception(
+                "Claude Code returned an error result: Reached maximum number of turns (1)"
+            )
+        return "recovered"
+
+    monkeypatch.setattr(backend, "_acomplete", flaky)
+    result = backend.complete(LLMRequest(system_prompt="s", prompt="p"))
+    assert result == "recovered" and attempts["n"] == 2

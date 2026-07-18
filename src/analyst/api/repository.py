@@ -1155,19 +1155,28 @@ class StoreRepository:
             (c.description for c in entry.columns if c.name == column), ""
         )
         if self.curator is not None:
+            from analyst.agentic.curation import CurationError
             from analyst.domain.catalog import payload_from_profile
 
-            result = self.curator.complete(
-                payload_from_profile(name, self._records[name].summary.profile),
-                column,
-                question,
-                user_input,
-                current_column_description=current_column,
-                current_table_description=entry.table_description,
-            )
-            column_description = result.column_description
-            table_description = result.table_description
-            pending = False
+            try:
+                result = self.curator.complete(
+                    payload_from_profile(name, self._records[name].summary.profile),
+                    column,
+                    question,
+                    user_input,
+                    current_column_description=current_column,
+                    current_table_description=entry.table_description,
+                )
+                column_description = result.column_description
+                table_description = result.table_description
+                pending = False
+            except CurationError:
+                raise
+            except Exception as exc:  # noqa: BLE001 - never a raw 500
+                raise CurationError(
+                    f"The semantic analysis could not be completed ({exc}). "
+                    "Nothing was changed — please try again."
+                ) from exc
         else:
             # Offline: the person's words apply verbatim (still sticky),
             # marked for reconciliation when AI is next available.

@@ -19,8 +19,18 @@ class ClaudeAgentBackend:
     def __init__(self, model: str = MODEL):
         self.model = model
 
+    # The CLI occasionally dies with "Reached maximum number of turns (1)"
+    # on a perfectly ordinary single-turn request — observed in recording
+    # sessions and live curation (defect 2026-07-18). One retry absorbs it.
+    _TRANSIENT = "maximum number of turns"
+
     def complete(self, request: LLMRequest) -> str:
-        return asyncio.run(self._acomplete(request))
+        try:
+            return asyncio.run(self._acomplete(request))
+        except Exception as exc:  # noqa: BLE001 - retry only the known transient
+            if self._TRANSIENT not in str(exc):
+                raise
+            return asyncio.run(self._acomplete(request))
 
     async def _acomplete(self, request: LLMRequest) -> str:
         from claude_agent_sdk import (
@@ -33,7 +43,9 @@ class ClaudeAgentBackend:
         options = ClaudeAgentOptions(
             model=self.model,
             allowed_tools=[],  # governance: model sees only the prompt
-            max_turns=1,
+            # 2x the original single-turn budget (owner request 2026-07-18):
+            # the CLI sometimes needs a second turn to emit its final text.
+            max_turns=2,
             system_prompt=request.system_prompt,
         )
         parts: list[str] = []

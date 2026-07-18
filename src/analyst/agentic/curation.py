@@ -99,18 +99,24 @@ class Curator:
         current_column_description: str = "",
         current_table_description: str = "",
     ) -> CurationResult:
-        raw = self.gateway.run(
-            payload,
-            SYSTEM_PROMPT,
-            lambda capped: render_curation_prompt(
-                capped,
-                column,
-                question,
-                user_input,
-                current_column_description,
-                current_table_description,
-            ),
-        )
+        try:
+            raw = self.gateway.run(
+                payload,
+                SYSTEM_PROMPT,
+                lambda capped: render_curation_prompt(
+                    capped,
+                    column,
+                    question,
+                    user_input,
+                    current_column_description,
+                    current_table_description,
+                ),
+            )
+        except Exception as exc:  # noqa: BLE001 - ANY failure ends plainly
+            raise CurationError(
+                f"The semantic analysis could not be completed ({exc}). "
+                "Nothing was changed — please try again."
+            ) from exc
         try:
             return CurationResult.model_validate_json(_extract_json(raw))
         except (ValidationError, json.JSONDecodeError) as exc:

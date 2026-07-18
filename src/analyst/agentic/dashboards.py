@@ -116,11 +116,17 @@ class DashboardAssembler:
         current_spec: str | None = None,
     ) -> AssemblyResult:
         ordered = tuple(sorted(tables, key=lambda t: t.name))
-        raw = self.gateway.run(
-            _flatten(ordered),
-            SYSTEM_PROMPT,
-            lambda _capped: render_assembly_prompt(request, ordered, current_spec),
-        )
+        try:
+            raw = self.gateway.run(
+                _flatten(ordered),
+                SYSTEM_PROMPT,
+                lambda _capped: render_assembly_prompt(request, ordered, current_spec),
+            )
+        except Exception as exc:  # noqa: BLE001 - ANY failure ends plainly
+            raise DashboardAssemblyError(
+                f"The dashboard could not be assembled ({exc}). "
+                "Nothing was created — please try again."
+            ) from exc
         try:
             return AssemblyResult.model_validate_json(_extract_json(raw))
         except (ValidationError, json.JSONDecodeError) as exc:
