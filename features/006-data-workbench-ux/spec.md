@@ -105,8 +105,11 @@ Feature: Two-surface workbench — Ingest & Profile (data + catalog) and Query (
     When the user opens the Query view
     Then the Q&A conversation is shown
 
-  # AC-12
-  Scenario: The catalog is read-only
+  # AC-12 — amended by feature 016 (catalog curation, owner-approved
+  # 2026-07-18): descriptions remain non-editable as raw text, but curation
+  # affordances (answer a clarification, suggest a correction) now exist —
+  # every change flows through the agent pipeline, never a direct edit.
+  Scenario: The catalog is never directly editable
     Given the app is open on the Ingest & Profile view
     When the user selects the table "sales"
-    Then the semantic descriptions are shown without an edit control
+    Then the semantic descriptions are shown without a direct edit control

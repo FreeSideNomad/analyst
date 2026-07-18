@@ -37,6 +37,23 @@ returns; **Revoke** an applied rule and the original values come straight
 back. Decisions survive restarts and file refreshes. Detection is fully
 local — it works identically with no AI configured.
 
+## Curating the catalog
+
+The catalog is agent-built but **human-curatable**. When cataloguing left an
+open question ("What does the `status` column describe?"), the *Needs
+review* card is a real form: pick one of the offered meanings or write your
+own under *Something else*, and submit. Your answer is treated as ground
+truth — the agent completes the semantic analysis, updating at most that
+column's description and the table's own summary, and the question is
+settled for good.
+
+Every description also carries **Suggest a correction**: say what the data
+actually means in your words and the agent folds it in the same way.
+Settled meanings show a **Confirmed** badge, survive restarts and automatic
+re-cataloguing (they are never silently overwritten), and immediately
+sharpen natural-language answers, which plan against the catalog. Offline,
+your words are applied verbatim and reconciled when AI is next available.
+
 ## The semantic catalog
 
 Every table gets a plain-English meaning, not just a schema dump:
