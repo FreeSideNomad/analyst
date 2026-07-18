@@ -323,3 +323,29 @@ def test_C3_redact_secrets_scrubs_password_and_dsn():
     out = _redact_secrets(text, spec)
     assert "hunter2secret" not in out
     assert "password=***" in out or "password=[redacted]" in out
+
+
+# --------------------------------------------------------------------------- #
+# Defect 2026-07-18 (found by the 017 board): re-attaching a connection —
+# credential-restore in the same process, or a reconnect retry — collided
+# with "__fed_<name> already exists" and silently disabled within-DB Q&A.
+# attach_database must be idempotent.
+# --------------------------------------------------------------------------- #
+def test_attach_database_is_idempotent(tmp_path):
+    import sqlite3
+
+    from analyst.domain.connection import ConnectionSpec, DatabaseEngine
+    from analyst.engine.store import DatasetStore
+
+    db = tmp_path / "one.db"
+    con = sqlite3.connect(db)
+    con.execute("CREATE TABLE t (id TEXT, v INTEGER)")
+    con.execute("INSERT INTO t VALUES ('a', 1), ('b', 2)")
+    con.commit()
+    con.close()
+
+    store = DatasetStore(tmp_path / "data")
+    spec = ConnectionSpec(name="one", engine=DatabaseEngine.SQLITE, path=str(db))
+    store.attach_database("one", spec, ("t",))
+    store.attach_database("one", spec, ("t",))  # reconnect: must not collide
+    assert store.value_counts("one.t", "id") == {"a": 1, "b": 1}
