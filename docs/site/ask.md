@@ -67,3 +67,17 @@ Parquet, or Excel. Exports are never truncated (the on-screen table may be
 capped; the file never is) and always reflect what queries see, including
 any approved normalization rules. Nothing about an export touches the
 model.
+
+
+## Dashboards
+
+Describe the dashboard you want — *"a sales and staffing overview
+dashboard"* — and the agent assembles it: a grid of widgets, each with its
+own trust trail, over your local data. Too vague a request gets a
+clarifying question, never a guess. The dashboard is live: a shared filter
+re-scopes every widget **before aggregation**, clicking a bar cross-filters
+the others (the active filter shows as a chip you clear in one click), and
+*Rows* opens the underlying records behind any widget. Edit
+conversationally ("add a widget showing the row count by region"), remove
+widgets, and everything persists per workspace. Viewing and filtering run
+fully locally — an existing dashboard works with no AI configured.
