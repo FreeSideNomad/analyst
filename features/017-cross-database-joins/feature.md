@@ -2,7 +2,7 @@
 slug: cross-database-joins
 title: Joins across multiple connected databases
 outcome: One plain-English question can join tables living in TWO different connected databases — "which customer segment generates the most revenue?" where customers live in the CRM database and invoices in the billing database. The join executes locally in DuckDB over both attachments (nothing is copied between the remote systems; the standing governance invariant holds — only capped results and metadata leave the box), the trust trail's SQL names both connections, relationship discovery surfaces the cross-database key that makes the join plannable, and the capability survives restart + credential-based reconnect (011). Single-database behavior is unchanged. Ships with a deterministic synthetic two-database sample kit (generator script) because join mechanics need controlled keys, not organic signal.
-status: ready
+status: done
 autonomy_level: high
 assignee: local
 owner: igormusic
