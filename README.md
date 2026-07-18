@@ -109,6 +109,7 @@ and handoffs.
 | 014 | Charts & exports — saved charts that re-run on open; CSV/Parquet/Excel exports |
 | 015 | Interactive dashboards — agent-assembled, filterable, cross-filtering, drill-down |
 | 016 | Catalog curation — answer clarifications, correct meanings; human-settled and sticky |
+| 017 | Cross-database joins — one question spanning two connected databases, joined locally |
 
 ### Quality gate
 

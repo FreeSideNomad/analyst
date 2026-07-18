@@ -264,6 +264,12 @@ class DatasetStore:
                 self._con.execute(f"INSTALL {ext}; LOAD {ext};")
             except duckdb.Error:
                 pass  # already present, or offline — ATTACH surfaces a clean error
+        # Idempotent: a reconnect (credential restore, retry after an outage)
+        # must not collide with a previous attach (defect 2026-07-18).
+        try:
+            self._con.execute(f"DETACH DATABASE IF EXISTS {_quote_ident(alias)}")
+        except duckdb.Error:
+            pass
         self._con.execute(build_attach_sql(spec, alias))  # type: ignore[arg-type]
         schema = source_schema(spec.engine)  # type: ignore[attr-defined]
         for table in tables:

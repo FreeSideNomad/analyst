@@ -81,3 +81,15 @@ the others (the active filter shows as a chip you clear in one click), and
 conversationally ("add a widget showing the row count by region"), remove
 widgets, and everything persists per workspace. Viewing and filtering run
 fully locally — an existing dashboard works with no AI configured.
+
+
+## Questions across databases
+
+With more than one database connected, a single question can span them —
+*"which customer segment generates the most revenue?"* where customers
+live in your CRM database and invoices in billing. analyst discovers the
+cross-database key, plans the join, and executes it **locally** over both
+connections; neither system ever receives the other's data, and the trust
+trail's SQL names both. Try it with the synthetic sample pair
+(`uv run python scripts/make_cross_dbs.py`, then connect both SQLite
+files): enterprise should total 150, smb 50.

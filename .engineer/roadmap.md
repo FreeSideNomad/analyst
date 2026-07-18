@@ -28,7 +28,7 @@
       Tableau-like: agent assembles a multi-widget dashboard from an NL request, then fully interactive (filters, cross-filtering, chart-type switching, drill-down). Built/refined via the agentic AskQuestion workflow. Each widget keeps its trust trail; queries run locally in DuckDB.
 - [x] **Charts & data exports** `id:charts-and-exports` priority:3 status:shipped area:output → feature:charts-and-exports
       Save answers as charts (type inferred, overridable); export result sets to CSV/Parquet/Excel.
-- [ ] **Joins across multiple connected databases** `id:cross-database-joins` priority:4 status:planned area:query → feature:—
+- [ ] **Joins across multiple connected databases** `id:cross-database-joins` priority:4 status:in-progress area:query → feature:cross-database-joins
       Residual of cross-dataset-joins (008 shipped file x DB pushdown, 009 file x file): one NL question joining tables from TWO different connected databases. Needs a local-join execution path (both sides remote) + governance-safe row capping.
 - [x] **React/Tailwind/shadcn frontend app shell** `id:react-tailwind-shadcn-frontend-app-shell` priority:4 status:shipped area:frontend → feature:data-workbench-ux
       Swiss International Design System UI; zustand state; renders the AskQuestion primitive, trust trail, and interactive dashboards; consumes FastAPI backend.
