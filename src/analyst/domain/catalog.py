@@ -9,6 +9,10 @@ from analyst.domain.relationships import Relationship
 from analyst.domain.types import ColumnType
 
 
+class UnknownCurationError(KeyError):
+    """Curating a clarification/column that does not exist (feature 016)."""
+
+
 @dataclass(frozen=True)
 class ColumnDescription:
     """Agent-authored description + inferred role for a column."""

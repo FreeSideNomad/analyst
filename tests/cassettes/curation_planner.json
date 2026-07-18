@@ -1,0 +1,3 @@
+{
+  "eea752381393cc8536748343ed3a7b04c431df396f2306a4410ce45b0c7ca850": "{\"action\": \"answer\", \"confidence\": 0.95, \"sql\": \"SELECT order_id, status, amount FROM q_orders_csv WHERE status = 'unfulfilled'\", \"title\": \"Unfulfilled orders\", \"assumptions\": [\"'not yet fulfilled' means status = 'unfulfilled', the only non-fulfilled value present in the status column\"], \"lineage\": [\"q_orders_csv.order_id\", \"q_orders_csv.status\", \"q_orders_csv.amount\"], \"clarification\": null, \"reason\": null}"
+}

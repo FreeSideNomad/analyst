@@ -127,8 +127,8 @@ Feature: Catalog curation
   # AC-10 + AC-1
   Scenario: Answering a clarification in the workbench
     Given the analyst app is open in a browser
-    When the user opens the sample transactions table in the workbench
-    And the user answers its open clarification with the canonical-name option
+    When the user opens the sample sales table in the workbench
+    And the user answers its open clarification with the sales-channel option
     Then the clarification disappears without a page reload
     And the settled column shows a human-confirmed badge
 

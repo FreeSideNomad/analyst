@@ -1,0 +1,6 @@
+{
+  "78a01e6c059cb65331206d277e467f35f5d88f24cf97509e09d258f206399b1b": "{\"column_description\": \"Fulfillment state of a sale or order — 2 distinct values across 6 rows (fulfilled, unfulfilled), no nulls.\", \"table_description\": null}",
+  "a303c1713b534907f88432c1b18e6b8cba53152a080a431bc7f453cd75726d3a": "{\"column_description\": \"Stage of the returns process for each order — categorical with 2 distinct values across 6 rows (fulfilled, unfulfilled), no nulls.\", \"table_description\": null}",
+  "3df42331f513d62f6458b603758cf65cf336a4ddcb37e348b0125374ecaaa597": "{\"column_description\": \"Settlement date of the order, despite the order_date column name. Type date, no nulls, one distinct value per row across the 3 sampled rows (e.g., 2026-01-05, 2026-02-06, 2026-03-07).\", \"table_description\": null}",
+  "b0c0be992bea123945a25edefe38732ee7fcb4b4b7cfb4d88af8e578f0a2e633": "{\"column_description\": null, \"table_description\": \"orders.csv: 3 rows, 3 columns. Each row is a wholesale transaction (wholesale orders only).\"}"
+}

@@ -61,6 +61,11 @@ class DatasetRepository(Protocol):
     def dismiss_normalization(self, name: str, rule_id: str) -> None: ...
     def revoke_normalization(self, name: str, rule_id: str) -> None: ...
 
+    # Feature 016 — catalog curation (answer clarifications, suggest corrections)
+    def curation(self, name: str) -> dict: ...
+    def answer_clarification(self, name: str, column: str, answer: str) -> None: ...
+    def suggest_correction(self, name: str, column: str | None, note: str) -> None: ...
+
     # Feature 014 — saved charts (saved question + config; re-run on open)
     def charts(self) -> list: ...
     def save_chart(self, **kwargs: Any) -> object: ...
@@ -127,6 +132,8 @@ class FixtureRepository:
         }
         # Feature 014: saved charts (in-memory).
         self._charts: dict[str, Any] = {}
+        # Feature 016: curation state (in-memory).
+        self._curation: dict[str, dict] = {}
 
     def list_datasets(self) -> list[DatasetRecord]:
         return list(self._records.values())
@@ -154,6 +161,83 @@ class FixtureRepository:
 
     def recatalogue_affected(self, new_names: list[str]) -> None:
         """No-op: fixture catalogs are static seed data (feature 010)."""
+
+    # Feature 016 — catalog curation over the in-memory entries (templated
+    # completion; deterministic for demos and browser e2e).
+    def curation(self, name: str) -> dict:
+        state = self._curation.get(name, {})
+        return {"columns": state.get("columns", {}), "table": state.get("table")}
+
+    def answer_clarification(self, name: str, column: str, answer: str) -> None:
+        import dataclasses
+
+        from analyst.domain.catalog import UnknownCurationError
+
+        if not answer.strip():
+            raise ValueError("An answer is required.")
+        record = self._records[name]
+        entry = record.summary.catalog
+        if entry is None:
+            raise UnknownCurationError(name)
+        clarification = next(
+            (c for c in entry.clarifications if c.column == column), None
+        )
+        if clarification is None:
+            raise UnknownCurationError(column)
+        columns = tuple(
+            dataclasses.replace(
+                c, description=f"{answer.strip()} (settled by the user)."
+            )
+            if c.name == column
+            else c
+            for c in entry.columns
+        )
+        clars = tuple(c for c in entry.clarifications if c is not clarification)
+        record.summary = dataclasses.replace(
+            record.summary,
+            catalog=dataclasses.replace(entry, columns=columns, clarifications=clars),
+        )
+        self._curation.setdefault(name, {}).setdefault("columns", {})[column] = {
+            "kind": "answer",
+            "input": answer.strip(),
+            "description": f"{answer.strip()} (settled by the user).",
+            "pending_reconciliation": False,
+        }
+
+    def suggest_correction(self, name: str, column: str | None, note: str) -> None:
+        import dataclasses
+
+        from analyst.domain.catalog import UnknownCurationError
+
+        if not note.strip():
+            raise ValueError("A suggestion is required.")
+        record = self._records[name]
+        entry = record.summary.catalog
+        if entry is None:
+            raise UnknownCurationError(name)
+        stamp = {
+            "kind": "correction",
+            "input": note.strip(),
+            "description": note.strip(),
+            "pending_reconciliation": False,
+        }
+        if column is None:
+            record.summary = dataclasses.replace(
+                record.summary,
+                catalog=dataclasses.replace(entry, table_description=note.strip()),
+            )
+            self._curation.setdefault(name, {})["table"] = stamp
+            return
+        if all(c.name != column for c in entry.columns):
+            raise UnknownCurationError(column)
+        columns = tuple(
+            dataclasses.replace(c, description=note.strip()) if c.name == column else c
+            for c in entry.columns
+        )
+        record.summary = dataclasses.replace(
+            record.summary, catalog=dataclasses.replace(entry, columns=columns)
+        )
+        self._curation.setdefault(name, {}).setdefault("columns", {})[column] = stamp
 
     # Feature 014 — saved charts (in-memory; open returns a canned answer
     # shaped from fixture data so the browser flow is drivable in demos/e2e).
@@ -343,7 +427,9 @@ class StoreRepository:
     the service returns. Requires ANALYST_DATA_DIR.
     """
 
-    def __init__(self, data_dir: str, cataloguer: object = None) -> None:
+    def __init__(
+        self, data_dir: str, cataloguer: object = None, curator: object = None
+    ) -> None:
         import tempfile
 
         from analyst.engine.store import DatasetStore
@@ -360,6 +446,7 @@ class StoreRepository:
                 name: record.summary.catalog for name, record in self._records.items()
             },
         )
+        self.curator: Any = curator
         self._records: dict[str, DatasetRecord] = {}
         self._rehydrate()
 
@@ -391,6 +478,9 @@ class StoreRepository:
             except Exception:  # noqa: BLE001
                 _LOG.warning("ignoring unreadable catalog sidecar for %r", name)
                 catalog = None
+            if catalog is not None:
+                # Feature 016: human-settled meanings are sticky across boots.
+                catalog = self._apply_curation_overlay(name, catalog)
             self._records[name] = DatasetRecord(
                 summary=DatasetSummary(name=name, profile=profile, catalog=catalog),
                 file_name=f"{name}.csv",
@@ -788,6 +878,179 @@ class StoreRepository:
             for cid, data in charts.items()
         }
         sidecar.write_text(json.dumps({"charts": payload}, indent=2))
+
+    # ------------------------------------------------------------------ #
+    # Feature 016 — catalog curation. Human-settled meanings live in a
+    # per-dataset sidecar and are applied as an OVERLAY wherever a catalog
+    # entry is (re)derived — that single choke point is the stickiness
+    # guarantee. The agent's blast radius is the synthesis output schema:
+    # at most the column's and its own table's description.
+    # ------------------------------------------------------------------ #
+    def curation(self, name: str) -> dict:
+        decisions = self._curation_decisions(name)
+        return {
+            "columns": decisions.get("columns", {}),
+            "table": decisions.get("table"),
+        }
+
+    def attach_catalog(self, name: str, entry: object) -> None:
+        """Attach a (re)derived catalog entry to a dataset record, applying
+        the curation overlay and persisting the sidecar — THE single path
+        by which catalog entries reach records (feature 016 stickiness)."""
+        import dataclasses
+
+        record = self._records[name]
+        curated = self._apply_curation_overlay(name, entry)
+        record.summary = dataclasses.replace(record.summary, catalog=curated)
+        _save_catalog_sidecar(self.store.base_dir, name, curated)
+
+    def answer_clarification(self, name: str, column: str, answer: str) -> None:
+        from analyst.domain.catalog import UnknownCurationError
+
+        if not answer.strip():
+            raise ValueError("An answer is required.")
+        entry = self._catalog_or_raise(name)
+        clarification = next(
+            (c for c in entry.clarifications if c.column == column), None
+        )
+        if clarification is None:
+            raise UnknownCurationError(column)
+        self._curate(
+            name,
+            column=column,
+            question=clarification.question,
+            user_input=answer.strip(),
+            kind="answer",
+        )
+
+    def suggest_correction(self, name: str, column: str | None, note: str) -> None:
+        from analyst.domain.catalog import UnknownCurationError
+
+        if not note.strip():
+            raise ValueError("A suggestion is required.")
+        entry = self._catalog_or_raise(name)
+        if column is not None and all(c.name != column for c in entry.columns):
+            raise UnknownCurationError(column)
+        self._curate(
+            name,
+            column=column,
+            question=None,
+            user_input=note.strip(),
+            kind="correction",
+        )
+
+    def _catalog_or_raise(self, name: str):  # noqa: ANN202
+        from analyst.domain.catalog import UnknownCurationError
+
+        record = self._records.get(name)
+        if record is None:
+            raise KeyError(name)
+        entry = record.summary.catalog
+        if entry is None:
+            raise UnknownCurationError(name)
+        return entry
+
+    def _curate(
+        self,
+        name: str,
+        column: str | None,
+        question: str | None,
+        user_input: str,
+        kind: str,
+    ) -> None:
+        entry = self._catalog_or_raise(name)
+        current_column = next(
+            (c.description for c in entry.columns if c.name == column), ""
+        )
+        if self.curator is not None:
+            from analyst.domain.catalog import payload_from_profile
+
+            result = self.curator.complete(
+                payload_from_profile(name, self._records[name].summary.profile),
+                column,
+                question,
+                user_input,
+                current_column_description=current_column,
+                current_table_description=entry.table_description,
+            )
+            column_description = result.column_description
+            table_description = result.table_description
+            pending = False
+        else:
+            # Offline: the person's words apply verbatim (still sticky),
+            # marked for reconciliation when AI is next available.
+            pending = True
+            if kind == "answer":
+                column_description = f"{question} Settled by the user: {user_input}."
+                table_description = None
+            elif column is not None:
+                column_description, table_description = user_input, None
+            else:
+                column_description, table_description = None, user_input
+        decisions = self._curation_decisions(name)
+        stamp = {"kind": kind, "input": user_input, "pending_reconciliation": pending}
+        if column is not None and column_description:
+            decisions.setdefault("columns", {})[column] = {
+                **stamp,
+                "description": column_description,
+            }
+        if table_description:
+            decisions["table"] = {**stamp, "description": table_description}
+        if kind == "answer" and question:
+            decisions.setdefault("answered", []).append(question)
+        self._save_curation(name, decisions)
+        self.attach_catalog(name, entry)
+
+    def _apply_curation_overlay(self, name: str, entry):  # noqa: ANN001, ANN202
+        import dataclasses
+
+        decisions = self._curation_decisions(name)
+        if not decisions:
+            return entry
+        curated_columns = decisions.get("columns", {})
+        answered = set(decisions.get("answered", []))
+        columns = tuple(
+            dataclasses.replace(
+                c, description=str(curated_columns[c.name]["description"])
+            )
+            if c.name in curated_columns
+            else c
+            for c in entry.columns
+        )
+        table = entry.table_description
+        if decisions.get("table"):
+            table = str(decisions["table"]["description"])
+        clarifications = tuple(
+            c
+            for c in entry.clarifications
+            if c.question not in answered and c.column not in curated_columns
+        )
+        return dataclasses.replace(
+            entry,
+            columns=columns,
+            table_description=table,
+            clarifications=clarifications,
+        )
+
+    def _curation_decisions(self, name: str) -> dict:
+        import json
+        from pathlib import Path
+
+        sidecar = Path(str(self.store.base_dir)) / f"{name}.curation.json"
+        if not sidecar.is_file():
+            return {}
+        try:
+            return dict(json.loads(sidecar.read_text()))
+        except Exception:  # noqa: BLE001 - corrupt sidecar = no curation, never a crash
+            _LOG.warning("ignoring unreadable curation sidecar for %r", name)
+            return {}
+
+    def _save_curation(self, name: str, decisions: dict) -> None:
+        import json
+        from pathlib import Path
+
+        sidecar = Path(str(self.store.base_dir)) / f"{name}.curation.json"
+        sidecar.write_text(json.dumps(decisions, indent=2))
 
 
 def _normalization_sidecar(base_dir: object, name: str):  # noqa: ANN001
