@@ -46,7 +46,7 @@ function SaveDatasetModal({ defaultStem, existing, onSave, onCancel }: {
 }
 
 /* ── Q&A chat ─────────────────────────────────────────────────────── */
-export function BarChart({ result }: { result: AnswerResult }) {
+export function BarChart({ result, onBarClick }: { result: AnswerResult; onBarClick?: (label: string) => void }) {
   const ticks: number[] = [];
   for (let v = result.niceMax!; v >= 0; v -= result.tickStep!) ticks.push(v);
   return (
@@ -61,7 +61,9 @@ export function BarChart({ result }: { result: AnswerResult }) {
             {result.chartData!.map((d) => {
               const hl = d.label === result.highlight;
               return (
-                <div key={d.label} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-end', gap: 6, height: '100%' }}>
+                <div key={d.label} role={onBarClick ? 'button' : undefined} aria-label={onBarClick ? `Bar ${d.label}` : undefined}
+                  onClick={onBarClick ? () => onBarClick(d.label) : undefined}
+                  style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-end', gap: 6, height: '100%', cursor: onBarClick ? 'pointer' : 'default' }}>
                   <span className="mono" style={{ font: '600 10.5px/1 var(--font-mono)', color: 'var(--text-muted)' }}>{money(d.value)}</span>
                   <div style={{ width: '62%', maxWidth: 54, height: (d.value / result.niceMax! * 100).toFixed(1) + '%',
                     background: hl ? 'var(--brand)' : 'var(--neutral-400)', borderRadius: '2px 2px 0 0', transition: 'height .5s var(--ease-standard)' }} />

@@ -6,6 +6,7 @@ import { Header } from './components/Header';
 import { IngestionPage } from './pages/IngestionPage';
 import { WorkspacePage } from './pages/WorkspacePage';
 import { ChartsPage } from './pages/ChartsPage';
+import { DashboardsPage } from './pages/DashboardsPage';
 import { LoginPage } from './pages/LoginPage';
 
 const SHELL: CSSProperties = { height: '100%', display: 'flex', flexDirection: 'column' };
@@ -63,6 +64,8 @@ export default function App() {
         <IngestionPage />
       ) : view === 'charts' ? (
         <ChartsPage />
+      ) : view === 'dashboards' ? (
+        <DashboardsPage />
       ) : (
         <WorkspacePage />
       )}

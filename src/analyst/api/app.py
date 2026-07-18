@@ -22,7 +22,7 @@ from analyst.api.repository import (
     FixtureRepository,
     StoreRepository,
 )
-from analyst.api.routes import auth, charts, databases, datasets, qa, system
+from analyst.api.routes import auth, charts, dashboards, databases, datasets, qa, system
 from analyst.engine.reader import (
     EmptyFileError,
     FileTooLargeError,
@@ -91,6 +91,24 @@ def build_curator() -> object | None:
     return None
 
 
+def build_assembler() -> object | None:
+    """Dashboard assembly (feature 015) — same opt-in modes; None means
+    authoring is unavailable (viewing existing dashboards still works)."""
+    from analyst.agentic.dashboards import DashboardAssembler
+    from analyst.agentic.gateway import LLMGateway, ReplayBackend
+
+    mode = catalog_mode()
+    if mode == "replay":
+        return DashboardAssembler(
+            LLMGateway(ReplayBackend(os.environ["ANALYST_CATALOG_CASSETTE"]))
+        )
+    if mode == "live":
+        from analyst.agentic.claude_backend import ClaudeAgentBackend
+
+        return DashboardAssembler(LLMGateway(ClaudeAgentBackend()))
+    return None
+
+
 def _build_repository() -> DatasetRepository:
     if fixtures_enabled():
         return FixtureRepository()
@@ -98,6 +116,7 @@ def _build_repository() -> DatasetRepository:
         os.environ.get("ANALYST_DATA_DIR", ".analyst-data"),
         cataloguer=build_cataloguer(),
         curator=build_curator(),
+        assembler=build_assembler(),
     )
 
 
@@ -136,6 +155,7 @@ def create_app(repo: DatasetRepository | None = None) -> FastAPI:
     app.include_router(auth.router)
     app.include_router(auth.workspaces_router)
     app.include_router(charts.router)
+    app.include_router(dashboards.router)
     app.include_router(databases.router)
     app.include_router(datasets.router)
     app.include_router(qa.router)

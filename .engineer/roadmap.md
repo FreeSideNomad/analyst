@@ -24,7 +24,7 @@
 ## later
 - [x] **Cross-dataset joins via discovered FKs** `id:cross-dataset-joins-via-discovered-fks` priority:1 status:shipped area:query → feature:files-x-db-qa
       Answer questions spanning multiple datasets using discovered relationships.
-- [ ] **Interactive dashboards (agent-authored, filterable)** `id:exports-visualizations-dashboards` priority:2 status:planned area:output → feature:—
+- [ ] **Interactive dashboards (agent-authored, filterable)** `id:exports-visualizations-dashboards` priority:2 status:in-progress area:output → feature:dashboards
       Tableau-like: agent assembles a multi-widget dashboard from an NL request, then fully interactive (filters, cross-filtering, chart-type switching, drill-down). Built/refined via the agentic AskQuestion workflow. Each widget keeps its trust trail; queries run locally in DuckDB.
 - [x] **Charts & data exports** `id:charts-and-exports` priority:3 status:shipped area:output → feature:charts-and-exports
       Save answers as charts (type inferred, overridable); export result sets to CSV/Parquet/Excel.
