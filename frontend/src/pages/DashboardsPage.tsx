@@ -33,7 +33,7 @@ function WidgetCard({ dashId, meta, entry, filters, onCross, onChanged }: {
             <Badge>Not filtered</Badge>
           </span>
         )}
-        {answer?.table && (
+        {answer?.table && (answer.chartData || answer.stat) && (
           <button aria-label={`Toggle table for ${meta.title}`} onClick={() => setView(view === 'chart' ? 'table' : 'chart')}
             style={{ border: '1px solid var(--border-default)', background: 'transparent', borderRadius: 'var(--radius-md)', padding: '3px 8px', cursor: 'pointer', font: '600 11px/1 var(--font-sans)', color: 'var(--text-muted)' }}>
             {view === 'chart' ? 'Table' : 'Chart'}

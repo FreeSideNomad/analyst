@@ -282,3 +282,69 @@ def test_edit_replaces_in_place_with_current_spec_in_view(tmp_path):
     assert len(out["dashboard"].widgets) == 3
     assert stub.calls[0]["current"] is not None
     assert len(repo.dashboards()) == 1
+
+
+# --------------------------------------------------------------------------- #
+# Defect 2026-07-18: a widget DECLARED bar whose result exceeds the 12-bar
+# cap shaped as "none" -> the workbench showed a dead chart/table toggle.
+# Now: chart the first 12 rows (the widget's own ordering) with an honest
+# title note; the table keeps every row. Uncharitable shapes stay tables.
+# --------------------------------------------------------------------------- #
+def test_declared_bar_widget_charts_top_rows_when_over_the_cap(tmp_path):
+    repo = _repo(tmp_path)
+    rows = "\n".join(f"emp{i:02d},{100 - i}" for i in range(20))
+    repo.ingest("salaries.csv", f"name,salary\n{rows}\n".encode())
+    from analyst.domain.dashboards import Dashboard, DashboardWidget
+
+    repo.put_dashboard(
+        Dashboard(
+            dashboard_id="salaries",
+            name="Salaries",
+            widgets=(
+                DashboardWidget(
+                    widget_id="highest",
+                    question="Salaries highest first",
+                    sql='SELECT name, salary FROM "salaries.csv" WHERE /*FILTERS*/ 1=1 ORDER BY salary DESC',
+                    chart_type="bar",
+                    title="Salaries (Highest First)",
+                    source="salaries.csv",
+                ),
+            ),
+        )
+    )
+    entry = repo.run_dashboard("salaries", [])["widgets"]["highest"]
+    answer = entry["answer"]
+    assert answer.chart_type == "bar"
+    assert len(answer.chart_data) == 12
+    assert answer.chart_data[0].label == "emp00"  # the widget's own ordering
+    assert len(answer.table.rows) == 20  # the table keeps every row
+    assert "12 of 20" in (answer.chart_title or "")
+
+
+def test_unchartable_widget_stays_a_table_without_a_chart(tmp_path):
+    repo = _repo(tmp_path)
+    repo.ingest(
+        "emps.csv",
+        b"name,dept,salary,hired\nAna,ops,10,2020\nBo,sales,20,2021\nCy,ops,30,2022\n",
+    )
+    from analyst.domain.dashboards import Dashboard, DashboardWidget
+
+    repo.put_dashboard(
+        Dashboard(
+            dashboard_id="emps",
+            name="Employees",
+            widgets=(
+                DashboardWidget(
+                    widget_id="all",
+                    question="Employee list",
+                    sql='SELECT * FROM "emps.csv" WHERE /*FILTERS*/ 1=1',
+                    chart_type="bar",
+                    title="Employee List",
+                    source="emps.csv",
+                ),
+            ),
+        )
+    )
+    answer = repo.run_dashboard("emps", [])["widgets"]["all"]["answer"]
+    assert answer.chart_type == "none" and answer.chart_data is None
+    assert len(answer.table.rows) == 3

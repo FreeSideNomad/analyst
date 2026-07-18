@@ -1325,9 +1325,17 @@ class StoreRepository:
                     assumptions=widget.assumptions,
                     lineage=widget.lineage or (f"source: {widget.source}",),
                 )
-                answer = shape_answer(plan, run_select(self.store, sql))
-                if widget.chart_type in {"bar", "line"} and answer.chart_data:
-                    answer.chart_type = widget.chart_type
+                result = run_select(self.store, sql)
+                answer = shape_answer(plan, result)
+                if widget.chart_type in {"bar", "line"}:
+                    if answer.chart_data:
+                        answer.chart_type = widget.chart_type
+                    else:
+                        # The widget DECLARED a chart but the result exceeds
+                        # the chart cap: chart the first rows in the widget's
+                        # own ordering, honestly labelled; the table keeps
+                        # every row (defect 2026-07-18: dead toggle).
+                        answer = self._truncated_chart(plan, result, widget, answer)
                 entry["answer"] = answer
             except Exception as exc:  # noqa: BLE001 - widgets fail ALONE
                 entry["error"] = f"This widget's data is gone or invalid: {exc}"
@@ -1379,6 +1387,22 @@ class StoreRepository:
             w for w in widgets if w["widget_id"] != widget_id
         ]
         self._save_dashboards(data)
+
+    def _truncated_chart(self, plan, result, widget, fallback):  # noqa: ANN001, ANN202
+        from analyst.api.qa import shape_answer
+        from analyst.domain.query import ResultTable
+
+        if len(result.columns) != 2 or len(result.rows) <= 12:
+            return fallback
+        head = ResultTable(columns=result.columns, rows=result.rows[:12])
+        shaped = shape_answer(plan, head)
+        if not shaped.chart_data:
+            return fallback
+        total = f"{len(result.rows)}{'+' if result.truncated else ''}"
+        shaped.chart_type = widget.chart_type
+        shaped.chart_title = f"{widget.title} (first 12 of {total})"
+        shaped.table = fallback.table  # every row stays available
+        return shaped
 
     def _split_filters(self, source: str, filters: list) -> tuple[list, list]:
         """(applicable, unaffected-column-names) for one widget's source."""
