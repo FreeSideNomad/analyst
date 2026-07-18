@@ -56,7 +56,8 @@ export function BarChart({ result, onBarClick }: { result: AnswerResult; onBarCl
         <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', height: 200, textAlign: 'right' }}>
           {ticks.map((v, i) => <span key={i} className="mono" style={{ font: '400 10.5px/1 var(--font-mono)', color: 'var(--text-subtle)' }}>{money(v)}</span>)}
         </div>
-        <div>
+        <div style={{ overflowX: result.chartData!.length > 12 ? 'auto' : 'visible' }}>
+        <div style={{ minWidth: result.chartData!.length > 12 ? result.chartData!.length * 56 : undefined }}>
           <div style={{ display: 'flex', alignItems: 'flex-end', gap: 16, height: 200, borderLeft: '1px solid var(--border-default)', borderBottom: '1px solid var(--border-default)', padding: '0 10px' }}>
             {result.chartData!.map((d) => {
               const hl = d.label === result.highlight;
@@ -74,6 +75,7 @@ export function BarChart({ result, onBarClick }: { result: AnswerResult; onBarCl
           <div style={{ display: 'flex', gap: 16, padding: '8px 10px 0' }}>
             {result.chartData!.map((d) => <div key={d.label} style={{ flex: 1, textAlign: 'center', font: '500 12px/1.2 var(--font-sans)', color: 'var(--text-body)' }}>{d.label}</div>)}
           </div>
+        </div>
         </div>
       </div>
     </div>

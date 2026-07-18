@@ -12,13 +12,14 @@ import { BarChart, LineChart, ResultTableView, TrustTrail } from './WorkspacePag
 
 type Filter = { column: string; value: string };
 
-function WidgetCard({ dashId, meta, entry, filters, onCross, onChanged }: {
+function WidgetCard({ dashId, meta, entry, filters, onCross, onChanged, plain }: {
   dashId: string;
   meta: { widgetId: string; title: string; chartType: string };
   entry: { answer: AnswerResult | null; error: string | null; unaffectedBy: string[] };
   filters: Filter[];
   onCross: (column: string, value: string) => void;
   onChanged: () => void;
+  plain?: boolean;
 }) {
   const [view, setView] = useState<'chart' | 'table'>('chart');
   const [drill, setDrill] = useState<AnswerResult | null>(null);
@@ -33,22 +34,22 @@ function WidgetCard({ dashId, meta, entry, filters, onCross, onChanged }: {
             <Badge>Not filtered</Badge>
           </span>
         )}
-        {answer?.table && (answer.chartData || answer.stat) && (
+        {!plain && answer?.table && (answer.chartData || answer.stat) && (
           <button aria-label={`Toggle table for ${meta.title}`} onClick={() => setView(view === 'chart' ? 'table' : 'chart')}
             style={{ border: '1px solid var(--border-default)', background: 'transparent', borderRadius: 'var(--radius-md)', padding: '3px 8px', cursor: 'pointer', font: '600 11px/1 var(--font-sans)', color: 'var(--text-muted)' }}>
             {view === 'chart' ? 'Table' : 'Chart'}
           </button>
         )}
-        <button aria-label={`Drill into ${meta.title}`}
+        {!plain && <button aria-label={`Drill into ${meta.title}`}
           onClick={() => api.drillDashboard(dashId, meta.widgetId, filters).then(setDrill).catch(() => {})}
           style={{ border: '1px solid var(--border-default)', background: 'transparent', borderRadius: 'var(--radius-md)', padding: '3px 8px', cursor: 'pointer', font: '600 11px/1 var(--font-sans)', color: 'var(--text-muted)' }}>
           Rows
-        </button>
-        <button aria-label={`Remove widget ${meta.title}`}
+        </button>}
+        {!plain && <button aria-label={`Remove widget ${meta.title}`}
           onClick={() => api.removeWidget(dashId, meta.widgetId).then(onChanged).catch(() => {})}
           style={{ border: 'none', background: 'transparent', cursor: 'pointer', padding: 2 }}>
           <Icon as={Trash2} size={13} color="var(--text-subtle)" />
-        </button>
+        </button>}
       </div>
       {entry.error && (
         <div role="alert" style={{ padding: '10px 12px', border: '1px solid var(--amber-100)', background: 'var(--amber-100)', borderRadius: 'var(--radius-md)', font: '500 12.5px/1.5 var(--font-sans)', color: 'var(--amber-600)' }}>
@@ -68,7 +69,7 @@ function WidgetCard({ dashId, meta, entry, filters, onCross, onChanged }: {
       {answer && (view === 'table' || answer.chartType === 'none') && answer.table && (
         <ResultTableView table={answer.table} title={meta.title} />
       )}
-      {answer?.trustTrail && <TrustTrail trail={answer.trustTrail} />}
+      {!plain && answer?.trustTrail && <TrustTrail trail={answer.trustTrail} />}
       {drill && (
         <div role="dialog" aria-label={`Rows behind ${meta.title}`} onClick={() => setDrill(null)}
           style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 40 }}>
@@ -89,10 +90,48 @@ function OpenDashboard({ meta, onBack }: { meta: DashboardMeta; onBack: () => vo
   const [run, setRun] = useState<DashboardRun | null>(null);
   const [filters, setFilters] = useState<Filter[]>([]);
   const [draft, setDraft] = useState<Record<string, string>>({});
+  const [edit, setEdit] = useState('');
+  const [editBusy, setEditBusy] = useState(false);
+  const [editAsk, setEditAsk] = useState<{ question: string; options: string[] } | null>(null);
+  const [printing, setPrinting] = useState(false);
   const refresh = (f: Filter[]) => api.runDashboard(meta.dashboardId, f).then(setRun).catch(() => {});
   useEffect(() => { refresh([]); }, [meta.dashboardId]);
   const apply = (f: Filter[]) => { setFilters(f); refresh(f); };
   const dash = run?.dashboard ?? meta;
+  const applyEdit = (text: string) => {
+    if (!text.trim()) return;
+    setEditBusy(true); setEditAsk(null);
+    api.editDashboard(meta.dashboardId, text.trim())
+      .then((out) => {
+        if (out.clarification) { setEditAsk(out.clarification); return; }
+        setEdit(''); refresh(filters);
+      })
+      .catch(() => {})
+      .finally(() => setEditBusy(false));
+  };
+  if (printing) {
+    return (
+      <div>
+        <div className="no-print" style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+          <button aria-label="Print" onClick={() => window.print()}
+            style={{ padding: '7px 14px', border: 'none', borderRadius: 'var(--radius-md)', background: 'var(--brand)', color: '#fff', cursor: 'pointer', font: '600 12.5px/1 var(--font-sans)' }}>Print</button>
+          <button aria-label="Exit print preview" onClick={() => setPrinting(false)}
+            style={{ padding: '7px 14px', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-md)', background: 'transparent', cursor: 'pointer', font: '600 12.5px/1 var(--font-sans)', color: 'var(--text-body)' }}>Exit preview</button>
+        </div>
+        <h2 style={{ margin: '0 0 14px', font: '800 20px/1.05 var(--font-sans)' }}>{dash.name}</h2>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: 14 }}>
+          {dash.widgets.map((w) => {
+            const entry = run?.widgets[w.widgetId];
+            if (!entry) return null;
+            return (
+              <WidgetCard key={w.widgetId} dashId={dash.dashboardId} meta={w} entry={entry}
+                filters={filters} onCross={() => {}} onChanged={() => {}} plain />
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
@@ -101,6 +140,10 @@ function OpenDashboard({ meta, onBack }: { meta: DashboardMeta; onBack: () => vo
           <Icon as={ChevronLeft} size={13} /> All dashboards
         </button>
         <h2 style={{ margin: 0, font: '800 19px/1.05 var(--font-sans)', flex: 1 }}>{dash.name}</h2>
+        <button aria-label="Print preview" onClick={() => setPrinting(true)}
+          style={{ padding: '5px 11px', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-md)', background: 'transparent', cursor: 'pointer', font: '600 12px/1 var(--font-sans)', color: 'var(--text-muted)' }}>
+          Print preview
+        </button>
         {dash.filters.map((f) => (
           <span key={f.column} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             <input aria-label={`Filter ${f.label}`} placeholder={f.label} value={draft[f.column] ?? ''}
@@ -123,6 +166,28 @@ function OpenDashboard({ meta, onBack }: { meta: DashboardMeta; onBack: () => vo
             </span>
           ))}
         </div>
+      )}
+      <div style={{ display: 'flex', gap: 8, maxWidth: 640, marginBottom: 14 }}>
+        <input aria-label="Edit dashboard request" value={edit} onChange={(e) => setEdit(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && applyEdit(edit)}
+          placeholder='edit by prompt, e.g. "add a widget showing average salary by department"'
+          style={{ flex: 1, height: 34, padding: '0 11px', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-md)', font: '400 13px/1 var(--font-sans)' }} />
+        <button aria-label="Apply dashboard edit" disabled={editBusy || !edit.trim()} onClick={() => applyEdit(edit)}
+          style={{ padding: '0 14px', border: 'none', borderRadius: 'var(--radius-md)', background: 'var(--brand)', color: '#fff', cursor: 'pointer', font: '600 12.5px/1 var(--font-sans)', opacity: editBusy ? 0.6 : 1 }}>
+          {editBusy ? 'Editing…' : 'Apply edit'}
+        </button>
+      </div>
+      {editAsk && (
+        <Card style={{ maxWidth: 640, padding: 14, marginBottom: 12 }}>
+          <div style={{ font: '700 11px/1 var(--font-sans)', letterSpacing: '.1em', textTransform: 'uppercase', color: 'var(--brand)', marginBottom: 6 }}>AskQuestion</div>
+          <div style={{ font: '500 13.5px/1.4 var(--font-sans)', marginBottom: 10 }}>{editAsk.question}</div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+            {editAsk.options.map((o) => (
+              <button key={o} onClick={() => applyEdit(o)}
+                style={{ padding: '7px 12px', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-full)', background: 'var(--surface-card)', cursor: 'pointer', font: '500 12.5px/1 var(--font-sans)' }}>{o}</button>
+            ))}
+          </div>
+        </Card>
       )}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: 14 }}>
         {dash.widgets.map((w) => {

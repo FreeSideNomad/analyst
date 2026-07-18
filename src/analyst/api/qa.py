@@ -139,7 +139,9 @@ def _is_temporal(value: object) -> bool:
     return bool(re.fullmatch(r"\d{4}-\d{2}(-\d{2})?([T ].+)?", str(value)))
 
 
-def shape_answer(plan: QueryPlan, result: ResultTable) -> AnswerResult:
+def shape_answer(
+    plan: QueryPlan, result: ResultTable, max_chart_rows: int = 12
+) -> AnswerResult:
     """Deterministically shape the locally computed result (no second model
     call — no result rows need to cross to the model at all). Multi-cell results
     also carry the full table for the browser's paginated table view / export."""
@@ -180,7 +182,7 @@ def shape_answer(plan: QueryPlan, result: ResultTable) -> AnswerResult:
 
     bar_worthy = (
         len(result.columns) == 2
-        and 2 <= len(result.rows) <= 12
+        and 2 <= len(result.rows) <= max_chart_rows
         and all(_is_number(row[1]) for row in result.rows)
     )
     if bar_worthy:

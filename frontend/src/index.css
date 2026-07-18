@@ -49,3 +49,7 @@ input::placeholder { color:var(--text-subtle); }
 @keyframes ana-blink { 0%,80%,100%{opacity:.2;transform:translateY(0)} 40%{opacity:1;transform:translateY(-2px)} }
 @keyframes ana-in { from{opacity:0;transform:translateY(6px)} to{opacity:1;transform:none} }
 .ana-in { animation:ana-in .28s var(--ease-standard) both; }
+
+@media print {
+  .no-print { display: none !important; }
+}

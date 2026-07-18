@@ -285,12 +285,11 @@ def test_edit_replaces_in_place_with_current_spec_in_view(tmp_path):
 
 
 # --------------------------------------------------------------------------- #
-# Defect 2026-07-18: a widget DECLARED bar whose result exceeds the 12-bar
-# cap shaped as "none" -> the workbench showed a dead chart/table toggle.
-# Now: chart the first 12 rows (the widget's own ordering) with an honest
-# title note; the table keeps every row. Uncharitable shapes stay tables.
+# Defect 2026-07-18 + owner request: a widget DECLARED bar charts EVERY row
+# (the workbench scrolls horizontally past ~12 bars); the table keeps every
+# row too. Genuinely unchartable shapes stay tables with no toggle.
 # --------------------------------------------------------------------------- #
-def test_declared_bar_widget_charts_top_rows_when_over_the_cap(tmp_path):
+def test_declared_bar_widget_charts_every_row(tmp_path):
     repo = _repo(tmp_path)
     rows = "\n".join(f"emp{i:02d},{100 - i}" for i in range(20))
     repo.ingest("salaries.csv", f"name,salary\n{rows}\n".encode())
@@ -315,10 +314,9 @@ def test_declared_bar_widget_charts_top_rows_when_over_the_cap(tmp_path):
     entry = repo.run_dashboard("salaries", [])["widgets"]["highest"]
     answer = entry["answer"]
     assert answer.chart_type == "bar"
-    assert len(answer.chart_data) == 12
+    assert len(answer.chart_data) == 20  # EVERY row is charted
     assert answer.chart_data[0].label == "emp00"  # the widget's own ordering
-    assert len(answer.table.rows) == 20  # the table keeps every row
-    assert "12 of 20" in (answer.chart_title or "")
+    assert len(answer.table.rows) == 20
 
 
 def test_unchartable_widget_stays_a_table_without_a_chart(tmp_path):
