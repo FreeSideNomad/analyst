@@ -523,5 +523,6 @@ def when_drill_first(ctx: ScenarioContext) -> None:
 @step(r"the underlying rows are shown")
 def then_rows_shown(ctx: ScenarioContext) -> None:
     expect = _expect()
-    expect(ctx.page.get_by_label("Rows behind Revenue by region")).to_be_visible()
-    expect(ctx.page.get_by_role("columnheader", name="order_id")).to_be_visible()
+    dialog = ctx.page.get_by_label("Rows behind Revenue by region")
+    expect(dialog).to_be_visible()
+    expect(dialog.get_by_role("columnheader", name="order_id")).to_be_visible()
