@@ -3,12 +3,10 @@ ac_count: 13
 high_priority_count: 8
 discovered: 2026-07-15
 mode: greenfield
-status: PROPOSED — awaiting owner review before CP3 (spec)
+status: approved (blanket in-session delegation, 2026-07-18 — owner: "work autonomously, assume everything approved")
 note: >
-  Drafted in the 2026-07-15 autonomous session. Deliberately NOT
-  self-approved under the standing delegation: dashboards carry the most
-  product-taste risk of any feature so far, so the AC contract stops here
-  for the owner. Review, adjust, then /engineer.atdd.
+  Drafted 2026-07-15 and held at the review gate; approved 2026-07-18
+  under the owner's blanket delegation ("assume everything approved").
 ---
 
 # Acceptance criteria — 015 interactive dashboards (PROPOSED)
