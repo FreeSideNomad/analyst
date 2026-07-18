@@ -2,7 +2,7 @@
 slug: catalog-curation
 title: Catalog curation — answerable clarifications & meaning corrections
 outcome: The semantic catalog becomes genuinely human-curatable (charter promise). A "Needs review" clarification is a real form — selectable options plus a free-form "Something else" answer — and submitting it sends the answer through the Claude Agent SDK as ground truth to COMPLETE the semantic analysis, updating at most that column's description and its own table's description, clearing the clarification, and recording the answer as provenance. Any column/table description carries a "suggest a correction" affordance with the same pipeline; curated entries are badged human-confirmed and are STICKY — later automatic re-cataloguing never silently overwrites a human-settled meaning. Offline fallback applies the user's words verbatim (still sticky) and reconciles when AI is next available. Settled meanings immediately sharpen NL Q&A, which plans against the catalog.
-status: ready
+status: done
 autonomy_level: high
 assignee: local
 owner: igormusic
