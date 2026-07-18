@@ -2,7 +2,7 @@
 slug: dashboards
 title: Interactive dashboards — agent-authored, filterable, widget-composed
 outcome: A user describes the dashboard they want in plain English and the agent assembles it as a grid of widgets — each widget a saved chart (feature 014's unit) with its trust trail intact. The dashboard is then genuinely interactive — a shared filter bar (e.g. date range, region) re-scopes every widget, clicking a chart segment cross-filters the others, chart types remain switchable per widget, and drill-down opens the underlying rows. Dashboards are named, listed, editable (add/remove/rearrange widgets via the agentic AskQuestion workflow), persist per workspace, and every number on screen remains locally computed with an inspectable trail.
-status: ready
+status: done
 autonomy_level: high
 assignee: local
 owner: igormusic
