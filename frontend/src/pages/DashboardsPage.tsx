@@ -67,7 +67,7 @@ function WidgetCard({ dashId, meta, entry, filters, onCross, onChanged, plain }:
         </div>
       )}
       {answer && (view === 'table' || answer.chartType === 'none') && answer.table && (
-        <ResultTableView table={answer.table} title={meta.title} />
+        <ResultTableView table={answer.table} title={meta.title} plain={plain} />
       )}
       {!plain && answer?.trustTrail && <TrustTrail trail={answer.trustTrail} />}
       {drill && (

@@ -204,14 +204,15 @@ function toCsv(t: TableBlock): string {
   return [t.columns.map(esc).join(','), ...t.rows.map((row) => row.map(esc).join(','))].join('\n');
 }
 
-export function ResultTableView({ table, title }: { table: TableBlock; title: string }) {
+export function ResultTableView({ table, title, plain }: { table: TableBlock; title: string; plain?: boolean }) {
   const [page, setPage] = useState(0);
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
   const startIngestion = useIngestion((s) => s.startIngestion);
   const existing = useCatalog((s) => s.datasets.map((d) => d.id));
-  const pages = Math.max(1, Math.ceil(table.rows.length / PAGE_SIZE));
-  const rows = table.rows.slice(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE);
+  const pages = plain ? 1 : Math.max(1, Math.ceil(table.rows.length / PAGE_SIZE));
+  // Print/plain mode: every row on paper, no pagination.
+  const rows = plain ? table.rows : table.rows.slice(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE);
   const fileStem = title.replace(/\W+/g, '_').toLowerCase() || 'result';
   const download = () => {
     const blob = new Blob([toCsv(table)], { type: 'text/csv' });
@@ -253,6 +254,7 @@ export function ResultTableView({ table, title }: { table: TableBlock; title: st
         <span style={{ font: '400 12px/1 var(--font-sans)', color: 'var(--text-muted)', flex: 1 }}>
           {table.rows.length} row{table.rows.length === 1 ? '' : 's'}{table.truncated ? ' (capped)' : ''} · {table.columns.length} cols
         </span>
+        {!plain && <>
         {pages > 1 && (
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             <button aria-label="Previous page" disabled={page === 0} onClick={() => setPage((p) => Math.max(0, p - 1))}
@@ -270,6 +272,7 @@ export function ResultTableView({ table, title }: { table: TableBlock; title: st
           style={{ display: 'inline-flex', alignItems: 'center', gap: 6, border: '1px solid var(--border-default)', background: 'transparent', borderRadius: 'var(--radius-md)', padding: '5px 10px', cursor: 'pointer', font: '600 12px/1 var(--font-sans)', color: 'var(--text-body)' }}>
           <Icon as={Download} size={13} /> CSV
         </button>
+        </>}
       </div>
       {saving && <SaveDatasetModal defaultStem={fileStem} existing={existing} onCancel={() => setSaving(false)} onSave={saveAsDataset} />}
     </div>

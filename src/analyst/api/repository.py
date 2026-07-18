@@ -208,6 +208,14 @@ class FixtureRepository:
                     title="Customers",
                     source="customers",
                 ),
+                DashboardWidget(
+                    widget_id="recent-orders",
+                    question="Recent orders",
+                    sql='SELECT * FROM "sales" WHERE /*FILTERS*/ 1=1 ORDER BY order_date DESC',
+                    chart_type="none",
+                    title="Recent orders",
+                    source="sales",
+                ),
             ),
             filters=(DashboardFilter(column="billing_region", label="Region"),),
         )
@@ -304,6 +312,29 @@ class FixtureRepository:
                     "answer": customers,
                     "error": None,
                     "unaffected_by": ["billing_region"] if filtered else [],
+                },
+                "recent-orders": {
+                    "answer": AnswerResult(
+                        query_id="dash-orders",
+                        summary="Recent orders.",
+                        chart_type="none",
+                        table=TableBlock(
+                            columns=["order_id", "billing_region", "amount"],
+                            rows=[
+                                [f"ORD-1000{i:02d}", region, 50.0 + i]
+                                for i, region in enumerate(
+                                    ["East", "North", "South", "West"] * 3
+                                )
+                            ],
+                        ),
+                        trust_trail=TrustTrailSchema(
+                            assumptions=["Canned demo numbers."],
+                            lineage=["source: sales"],
+                            sql=dashboard.widgets[2].sql,
+                        ),
+                    ),
+                    "error": None,
+                    "unaffected_by": [],
                 },
             },
         }
