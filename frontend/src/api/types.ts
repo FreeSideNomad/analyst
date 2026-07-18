@@ -150,6 +150,18 @@ export interface SavedChartMeta {
   datasets: string[];
 }
 
+export interface CurationStamp {
+  kind: 'answer' | 'correction';
+  input: string;
+  description: string;
+  pending_reconciliation?: boolean;
+}
+export interface CurationState {
+  clarifications: Clarification[];
+  columns: Record<string, CurationStamp>;
+  table: CurationStamp | null;
+}
+
 export interface Health {
   ok: boolean;
   fixtures: boolean;
@@ -161,6 +173,9 @@ export interface Health {
 export interface ApiClient {
   health(): Promise<Health>;
   getNormalization(name: string): Promise<NormalizationState>;
+  getCuration(name: string): Promise<CurationState>;
+  answerClarification(name: string, column: string, answer: string): Promise<CurationState>;
+  suggestCorrection(name: string, column: string | null, note: string): Promise<CurationState>;
   listCharts(): Promise<{ charts: SavedChartMeta[] }>;
   saveChart(body: { name: string; question?: string; sql: string; chartType: string; title?: string; datasets?: string[]; assumptions?: string[]; lineage?: string[] }): Promise<SavedChartMeta>;
   openChart(chartId: string): Promise<AnswerResult>;

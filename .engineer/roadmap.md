@@ -12,6 +12,8 @@
       Google + Microsoft OAuth; first-user-becomes-admin; admin creates workspaces and permissions users; per-workspace isolation of sources/catalog/conversations. Foundational for real team use (MVP value-loop can be built workspace-light before this lands).
 
 ## next
+- [ ] **Catalog curation — answerable clarifications + meaning corrections** `id:catalog-curation` priority:1 status:in-progress area:profiling → feature:catalog-curation
+      Completes the charter promise of a human-curatable semantic catalog: clarifications become answerable (options + free-form + agent re-synthesis), descriptions get suggest-a-correction; human answers sticky/authoritative; v1 blast radius = column + own table. Sequenced ahead of dashboards (015 stays at AC-review).
 - [x] **Relational database federation** `id:relational-database-ingestion` priority:1 status:shipped area:ingestion → feature:db-federation
       Attach relational DBs and query through (federated, DuckDB attaches Postgres/MySQL/etc.) — nothing copied. Profile via the live connection.
 - [x] **PK/FK relationship discovery & validation** `id:pk-fk-relationship-discovery-validation` priority:2 status:shipped area:profiling → feature:semantic-depth

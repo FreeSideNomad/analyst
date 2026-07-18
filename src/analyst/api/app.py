@@ -73,12 +73,31 @@ def build_cataloguer() -> object | None:
     return None
 
 
+def build_curator() -> object | None:
+    """Curation synthesis (feature 016) — same opt-in modes as cataloguing;
+    None means the honest offline fallback (verbatim edits, reconciled later)."""
+    from analyst.agentic.curation import Curator
+    from analyst.agentic.gateway import LLMGateway, ReplayBackend
+
+    mode = catalog_mode()
+    if mode == "replay":
+        return Curator(
+            LLMGateway(ReplayBackend(os.environ["ANALYST_CATALOG_CASSETTE"]))
+        )
+    if mode == "live":
+        from analyst.agentic.claude_backend import ClaudeAgentBackend
+
+        return Curator(LLMGateway(ClaudeAgentBackend()))
+    return None
+
+
 def _build_repository() -> DatasetRepository:
     if fixtures_enabled():
         return FixtureRepository()
     return StoreRepository(
         os.environ.get("ANALYST_DATA_DIR", ".analyst-data"),
         cataloguer=build_cataloguer(),
+        curator=build_curator(),
     )
 
 

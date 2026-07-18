@@ -11,6 +11,7 @@ from fastapi.responses import FileResponse
 from analyst.api.deps import get_repository
 from analyst.api.repository import DatasetRecord, DatasetRepository
 from analyst.api.schemas import (
+    Camel,
     CatalogEntrySchema,
     ClarificationSchema,
     DatasetProfileSchema,
@@ -21,6 +22,7 @@ from analyst.api.schemas import (
     NormalizationStateSchema,
     RefreshResultSchema,
 )
+from analyst.domain.catalog import UnknownCurationError
 from analyst.domain.normalization import UnknownNormalizationError
 from analyst.engine.reader import FileTooLargeError
 
@@ -197,6 +199,72 @@ def export_dataset_route(
         filename=f"{name}.{format}",
         content_disposition_type="attachment",
     )
+
+
+def _curation_state(repo: DatasetRepository, name: str) -> dict:
+    record = _require(repo, name)
+    entry = record.summary.catalog
+    state = repo.curation(name)
+    return {
+        "clarifications": [
+            ClarificationSchema.from_domain(c).dump()
+            for c in (entry.clarifications if entry else ())
+        ],
+        "columns": state["columns"],
+        "table": state["table"],
+    }
+
+
+@router.get("/datasets/{name}/curation")
+def get_curation(name: str, repo: DatasetRepository = Depends(get_repository)) -> dict:
+    return _curation_state(repo, name)
+
+
+class AnswerClarificationRequest(Camel):
+    column: str
+    answer: str
+
+
+class SuggestCorrectionRequest(Camel):
+    column: str | None = None
+    note: str
+
+
+@router.post("/datasets/{name}/curation/answer")
+def answer_clarification_route(
+    name: str,
+    body: AnswerClarificationRequest,
+    repo: DatasetRepository = Depends(get_repository),
+) -> dict:
+    """Feature 016: the user's answer COMPLETES the semantic analysis —
+    the only path by which a clarification is settled."""
+    _require(repo, name)
+    _run_curation(lambda: repo.answer_clarification(name, body.column, body.answer))
+    return _curation_state(repo, name)
+
+
+@router.post("/datasets/{name}/curation/correct")
+def suggest_correction_route(
+    name: str,
+    body: SuggestCorrectionRequest,
+    repo: DatasetRepository = Depends(get_repository),
+) -> dict:
+    _require(repo, name)
+    _run_curation(lambda: repo.suggest_correction(name, body.column, body.note))
+    return _curation_state(repo, name)
+
+
+def _run_curation(call) -> None:  # noqa: ANN001
+    from analyst.agentic.curation import CurationError
+
+    try:
+        call()
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from None
+    except UnknownCurationError as exc:
+        raise HTTPException(404, f"Nothing to curate: {exc}") from None
+    except CurationError as exc:
+        raise HTTPException(502, str(exc)) from None
 
 
 def _normalization_state(repo: DatasetRepository, name: str) -> dict:

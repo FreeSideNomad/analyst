@@ -319,16 +319,19 @@ def then_drilldown(ctx: ScenarioContext) -> None:
     expect(ctx.page.get_by_text(order_id["description"]).first).to_be_visible()
 
 
-@step(r"the semantic descriptions are shown without an edit control")
+@step(r"the semantic descriptions are shown without a direct edit control")
 def then_read_only(ctx: ScenarioContext) -> None:
     expect = _expect()
     description = httpx.get(f"{ctx.api}/api/catalog").json()["sales"][
         "tableDescription"
     ]
     expect(ctx.page.get_by_text(description).first).to_be_visible()
-    # Read-only: no edit affordance and no editable field in the detail.
+    # Amended by feature 016: descriptions are never DIRECTLY editable — no
+    # edit control and no editable description field. (Curation affordances
+    # — clarification answers, suggested corrections — are agent-mediated
+    # and pinned by the 016 board, so inputs belonging to them are allowed.)
     expect(ctx.page.get_by_role("button", name="Edit")).to_have_count(0)
-    expect(ctx.page.get_by_role("textbox")).to_have_count(0)
+    expect(ctx.page.get_by_label("Edit description")).to_have_count(0)
 
 
 # --------------------------------------------------------------------------- #

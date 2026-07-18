@@ -121,7 +121,19 @@ _SALES = DatasetSummary(
             ("billing_region", "Region from the billing address.", "category"),
             ("channel", "Sales channel: online, retail, wholesale.", "category"),
         ),
-        clarifications=(),
+        # Feature 016 — a seeded open question so curation is drivable in
+        # demos and browser e2e.
+        clarifications=(
+            Clarification(
+                question="What does the 'channel' column describe?",
+                options=(
+                    "Sales channel the order was placed through",
+                    "Marketing acquisition channel",
+                    "Payment method used",
+                ),
+                column="channel",
+            ),
+        ),
         # Feature 009 — discovered relationships surfaced on focus (AC-12/13):
         # sales references customers and products (customer_id fully populated →
         # required; product_id is optional).
