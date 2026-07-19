@@ -63,6 +63,35 @@ one row per record with the actual value, the predicted value, and whether
 that row was held out. Query it, chart it, join it like anything else.
 Models and predictions persist across restarts.
 
+## Relational models — learning across linked tables (ML variant)
+
+Where 012-style models learn from one flat table, the **relational tier**
+learns from the *links themselves*: pick the Berka banking bundle from the
+gallery (nine real linked tables — accounts, loans, a million
+transactions — downloaded on demand from public mirrors) and choose a
+question like *"Will this loan end in default?"*. Three models train
+locally on the same honest time split:
+
+- the **simple approach** — engineered features from the linked tables
+  into gradient boosting;
+- the **graph approach** — a graph neural network that passes messages
+  along the validated table links;
+- the **combined approach** — the graph model's learned representations
+  fed to the boosting model (usually the strongest).
+
+The framing is decisions, not code: the prediction moment is explained,
+and the columns that record the outcome are *named and hidden* — because
+predicting with them would be answering the question with the answer.
+Scores are AUROC (0.5 = coin flip, 1.0 = perfect ranking), reported for
+all three tiers truthfully — when the simple approach wins, the registry
+says so. The implementation is validated by reproducing the reference
+results of published research on this exact dataset, deterministically.
+
+The torch stack is heavy, so it ships as a separate image target — build
+with `docker build --target ml` (linux/amd64). The default image stays
+lean; in it, the relational tier explains plainly that the ML variant is
+needed while everything else keeps working.
+
 ## Governance, as always
 
 The model only ever guides: it sees schema, profile facts, and catalog text —

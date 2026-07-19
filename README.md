@@ -52,6 +52,7 @@ configuration reference.
 | **Human-curatable catalog** | Open cataloguing questions are real forms (pick an option or answer in your own words) and every description takes corrections; the agent completes the analysis with your answer as ground truth, and settled meanings are sticky — never overwritten by automation. |
 | **Interactive dashboards** | Describe a dashboard in plain English and the agent assembles it: filterable (before aggregation), cross-filtering on click, drill-down to rows, conversational editing, print preview — every widget with its own trust trail. |
 | **Guided predictive models** | Train a real model without writing code: pick a dataset and a target, the agent proposes features with plain-language reasons, and a committed deterministic trainer (linear baseline + LightGBM) runs locally. Honest holdout evaluation in dollars, predictions land as an ordinary queryable dataset, and the registry tells each model's full story. The LLM never writes training code and never sees rows. |
+| **Relational graph models (ML variant)** | A GNN tier that learns across *linked* tables — accounts→transactions→counterparties — plus an engineered-feature baseline and a hybrid (GNN embeddings → boosting) that combines them. Validated by reproducing the reference results of real published research on the Berka banking dataset, deterministically. Honest by design: outcome columns are named and hidden, the split is by time, and when the simple tier wins the registry says so. Ships as the `ml` image target (torch stays out of the default image). |
 | **Database federation** | PostgreSQL, SQLite, SQL Server, DB2 — queried read-only **in place**, nothing copied. Encrypted-at-rest credential storage (operator-supplied key, Docker-secret friendly) with automatic reconnect after restarts. |
 | **Team-ready** | Google/Microsoft OAuth; first user becomes admin; isolated workspaces. |
 
@@ -118,6 +119,7 @@ and handoffs.
 | 016 | Catalog curation — answer clarifications, correct meanings; human-settled and sticky |
 | 017 | Cross-database joins — one question spanning two connected databases, joined locally |
 | 012 | Guided predictive models — real sample data on demand, agent-proposed features, deterministic local training, honest evaluation |
+| 018 | Relational graph (GNN) models — three tiers on linked tables, reference-validated against published results on Berka; `ml` image variant |
 
 ### Quality gate
 
