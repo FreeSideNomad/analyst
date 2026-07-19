@@ -374,7 +374,7 @@ export function ModelsPage() {
                 <div style={{ display: 'flex', gap: 8 }}>
                   <input aria-label="Authoring question" placeholder="ask about your own linked data… e.g. which loans will default?" value={authQuestion} onChange={(e) => setAuthQuestion(e.target.value)}
                     style={{ width: 380, height: 36, padding: '0 10px', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-md)', font: '400 13px/1 var(--font-sans)' }} />
-                  <button aria-label="Author relational task" disabled={!authQuestion.trim() || busy === 'author'} onClick={startAuthoring}
+                  <button aria-label="Author from question" disabled={!authQuestion.trim() || busy === 'author'} onClick={startAuthoring}
                     style={{ padding: '0 16px', border: 'none', borderRadius: 'var(--radius-md)', background: 'var(--brand)', color: '#fff', cursor: 'pointer', font: '600 13px/1 var(--font-sans)', opacity: !authQuestion.trim() ? 0.5 : 1 }}>
                     {busy === 'author' ? 'Authoring…' : 'Author'}
                   </button>

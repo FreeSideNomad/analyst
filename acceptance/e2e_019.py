@@ -667,7 +667,7 @@ def when_authoring_journey(ctx: ScenarioContext) -> None:
     page.goto(url)
     page.get_by_role("button", name="Models", exact=True).click()
     page.get_by_label("Authoring question").fill(QUESTION)
-    page.get_by_label("Author relational task").click()
+    page.get_by_label("Author from question").click()
     expect(page.get_by_label("Authored decisions")).to_be_visible(timeout=120000)
     expect(page.get_by_label("Hidden outcome columns")).to_be_visible()
     page.get_by_label("Confirm decisions").click()
