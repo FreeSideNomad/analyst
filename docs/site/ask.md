@@ -46,7 +46,7 @@ hallucinating a number.
   catalog (profiled and catalogued like any ingest), ready for follow-up
   questions.
 
-Next: [Administration →](admin.html)
+Next: [Guided models →](models.html)
 
 
 ## Saved charts

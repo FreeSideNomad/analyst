@@ -13,9 +13,14 @@ Bindings land per slice; unbound steps fail NOT YET IMPLEMENTED.
 
 from __future__ import annotations
 
+import atexit
 import os
+import subprocess
+import time as _time
 from pathlib import Path
 from typing import Any
+
+import httpx
 
 os.environ.setdefault("ANALYST_ML_CACHE", "tests/.ml_cache")
 
@@ -434,3 +439,121 @@ def then_not_found(ctx: ScenarioContext) -> None:
 @step(r"it is rejected with a message")
 def then_rejected_message(ctx: ScenarioContext) -> None:
     assert isinstance(_state(ctx)["error"], ValueError)
+
+
+# --------------------------------------------------------------------------- #
+# AC-13 — the deployed-container journey (the owner's autonomy condition).
+# Builds the real image, runs it in full replay mode with the pre-warmed ML
+# cache mounted, and drives the whole journey with Playwright.
+# --------------------------------------------------------------------------- #
+
+_CONTAINER = "analyst-container-e2e"
+
+
+def _docker_cleanup() -> None:
+    subprocess.run(["docker", "rm", "-f", _CONTAINER], capture_output=True)
+
+
+@step(r"the analyst container is built and running in replay mode")
+def given_container_running(ctx: ScenarioContext) -> None:
+    state = _state(ctx)
+    _docker_cleanup()
+    atexit.register(_docker_cleanup)
+    build = subprocess.run(
+        ["docker", "build", "-q", "-t", "analyst:e2e", str(REPO_ROOT)],
+        capture_output=True,
+        text=True,
+        timeout=900,
+    )
+    assert build.returncode == 0, build.stderr[-800:]
+    import socket
+
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        port = sock.getsockname()[1]
+    run = subprocess.run(
+        [
+            "docker",
+            "run",
+            "-d",
+            "--name",
+            _CONTAINER,
+            "-p",
+            f"{port}:8000",
+            "-v",
+            f"{REPO_ROOT}/tests/cassettes:/cassettes:ro",
+            "-v",
+            f"{REPO_ROOT}/tests/.ml_cache:/mlcache:ro",
+            "-e",
+            "ANALYST_CATALOG_CASSETTE=/cassettes/models_guidance.json",
+            "-e",
+            "ANALYST_ML_CACHE=/mlcache",
+            "analyst:e2e",
+        ],
+        capture_output=True,
+        text=True,
+    )
+    assert run.returncode == 0, run.stderr[-500:]
+    url = f"http://127.0.0.1:{port}"
+    deadline = _time.monotonic() + 120
+    while _time.monotonic() < deadline:
+        try:
+            if httpx.get(f"{url}/api/health", timeout=2).status_code == 200:
+                break
+        except Exception:  # noqa: BLE001 - booting
+            _time.sleep(1)
+    else:
+        raise AssertionError("container did not become healthy")
+    state["container_url"] = url
+    state["container_page"] = _STACK["browser"].new_page(
+        viewport={"width": 1440, "height": 900}
+    )
+
+
+@step(r"the user completes the model journey in a browser")
+def when_container_journey(ctx: ScenarioContext) -> None:
+    state = _state(ctx)
+    page = state["container_page"]
+    expect = _expect()
+    page.goto(state["container_url"])
+    page.get_by_role("button", name="Models", exact=True).click()
+    page.get_by_label("Add sample Ames house prices").click()
+    # real 1,460-row ingest + replayed cataloguing inside the container
+    deadline = _time.monotonic() + 120
+    while _time.monotonic() < deadline:
+        datasets = httpx.get(f"{state['container_url']}/api/datasets", timeout=5).json()
+        if any(d["name"] == "ames.csv" for d in datasets):
+            break
+        _time.sleep(2)
+    page.get_by_label("Model dataset").select_option("ames.csv")
+    page.get_by_label("Model target").select_option("SalePrice")
+    page.get_by_label("Start model").click()
+    expect(page.get_by_label("Teaching note")).to_be_visible(timeout=60000)
+    expect(page.get_by_label("Split note")).to_be_visible()
+    page.get_by_label("Accept features and train").click()
+    expect(page.get_by_label("Model evaluation")).to_be_visible(timeout=180000)
+    expect(page.get_by_text("Trained model", exact=False).first).to_be_visible()
+
+
+@step(r"the predictions dataset is visible in the deployed app")
+def then_container_predictions(ctx: ScenarioContext) -> None:
+    state = _state(ctx)
+    expect = _expect()
+    expect(
+        state["container_page"].get_by_label("Predictions dataset", exact=False)
+    ).to_be_visible()
+    datasets = httpx.get(f"{state['container_url']}/api/datasets", timeout=10).json()
+    predictions = [d for d in datasets if "predictions" in d["name"]]
+    assert predictions and predictions[0]["rowCount"] == 1460
+
+
+@step(r"the model's metrics are shown in its registry card")
+def then_container_registry(ctx: ScenarioContext) -> None:
+    state = _state(ctx)
+    page = state["container_page"]
+    expect = _expect()
+    page.get_by_label("Back to models").click()
+    expect(page.get_by_label("metrics", exact=False).first).to_be_visible()
+    expect(page.get_by_text("typical miss $", exact=False).first).to_be_visible()
+    page.close()
+    _docker_cleanup()

@@ -18,8 +18,9 @@ RUN bun run build
 # ── 2. python runtime ────────────────────────────────────────────────
 FROM python:3.14-slim AS runtime
 # Node.js powers the Claude Agent SDK (live LLM mode); harmless when unused.
+# libgomp1 is LightGBM's OpenMP runtime (feature 012 model training).
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends curl ca-certificates gnupg \
+    && apt-get install -y --no-install-recommends curl ca-certificates gnupg libgomp1 \
     && curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
     && apt-get install -y --no-install-recommends nodejs \
     && npm install -g @anthropic-ai/claude-code \

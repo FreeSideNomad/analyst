@@ -67,7 +67,7 @@ function TaskFlow({ task: initial, onDone }: { task: ModelTask; onDone: () => vo
             Predictions saved as <span className="mono">{task.predictions_dataset}</span> — query, chart, or export it like any dataset.
           </div>
         )}
-        <button aria-label="Back to models" onClick={onDone}
+        <button aria-label="Finish model" onClick={onDone}
           style={{ marginTop: 14, padding: '7px 13px', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-md)', background: 'transparent', cursor: 'pointer', font: '600 12.5px/1 var(--font-sans)' }}>
           Done
         </button>

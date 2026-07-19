@@ -266,3 +266,27 @@ def test_model_route_errors(tmp_path):
         ).status_code
         == 400
     )
+
+
+def test_predictions_ingest_never_calls_the_cataloguer(tmp_path):
+    """Defect (container e2e): training 500'd in replay mode because the
+    predictions ingest invoked agent cataloguing. System-generated
+    prediction datasets are catalogued deterministically, never by agent."""
+
+    class BoomCataloguer:
+        def catalog(self, *a, **k):
+            raise AssertionError("agent cataloguing invoked for predictions")
+
+    repo = StoreRepository(
+        str(tmp_path / "data"),
+        cataloguer=BoomCataloguer(),
+        model_guide=StubGuide(),
+    )
+    # sample ingest bypasses too? No — only predictions must; add the sample
+    # with the cataloguer temporarily absent to keep this test focused.
+    repo.service.cataloguer = None
+    repo.add_sample("ames")
+    repo.service.cataloguer = BoomCataloguer()
+    task = repo.create_model_task("ames.csv", "SalePrice")
+    trained = repo.train_model(task["task_id"])  # must not raise
+    assert trained["status"] == "trained"

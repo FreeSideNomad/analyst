@@ -1646,9 +1646,17 @@ class StoreRepository:
         if previous and previous in self._records:
             self.delete(previous)
         # Ingestion sanitizes file names — store the ACTUAL dataset name.
-        (predictions_record,) = self.ingest(
-            f"{task_id}.predictions.v{version}.csv", buffer.getvalue().encode()
-        )
+        # Predictions are SYSTEM-GENERATED: catalogue them deterministically,
+        # never via the agent (no model cost; replay mode must not require a
+        # recorded turn — defect found by the container e2e).
+        agent_cataloguer = self.service.cataloguer
+        self.service.cataloguer = None
+        try:
+            (predictions_record,) = self.ingest(
+                f"{task_id}.predictions.v{version}.csv", buffer.getvalue().encode()
+            )
+        finally:
+            self.service.cataloguer = agent_cataloguer
         gbm = result.metrics["gbm"]
         task["evaluation"] = (
             f"Typically off by ${gbm['mae']:,.0f} on a home. The upgraded "
