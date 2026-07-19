@@ -2,7 +2,7 @@
 slug: guided-predictive-models
 title: Guided predictive models — the Models area (MVP)
 outcome: A user who understands concepts but writes no code (no Python, no SQL, no ML functions) trains a trustworthy predictive model on real ingested data through an LLM-guided conversation — task definition, feature selection, honest evaluation — with every mechanical step done by the app, every concept taught at the moment of decision, and every result carrying a trust trail. Predictions land as ordinary queryable datasets. MVP: single-table regression (house prices) on one-click real sample data; the relational/temporal depth, Q&A integration, discovery accelerators, and the relational-graph backend follow as separate features.
-status: ready
+status: done
 autonomy_level: high
 owner: igormusic
 area: models

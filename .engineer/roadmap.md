@@ -32,7 +32,7 @@
       Residual of cross-dataset-joins (008 shipped file x DB pushdown, 009 file x file): one NL question joining tables from TWO different connected databases. Needs a local-join execution path (both sides remote) + governance-safe row capping.
 - [x] **React/Tailwind/shadcn frontend app shell** `id:react-tailwind-shadcn-frontend-app-shell` priority:4 status:shipped area:frontend → feature:data-workbench-ux
       Swiss International Design System UI; zustand state; renders the AskQuestion primitive, trust trail, and interactive dashboards; consumes FastAPI backend.
-- [ ] **Guided predictive models (Models area MVP)** `id:guided-predictive-models-mvp` priority:5 status:in-progress area:models → feature:guided-predictive-models
+- [x] **Guided predictive models (Models area MVP)** `id:guided-predictive-models-mvp` priority:5 status:shipped area:models → feature:guided-predictive-models
       Parked feature 012: LLM-guided no-code ML — task definition, feature selection, local linear+LightGBM training, honest eval, predictions as datasets. MVP = single-table regression on Ames. Resume via /engineer.discuss guided-predictive-models.
 - [ ] **Relational features, temporal splits & classification** `id:relational-temporal-models` priority:6 status:planned area:models → feature:—
       Models ladder 2: multi-table feature building along validated relationships, out-of-time splits with horizons, binary classification. Makes Home Credit runnable. Depends on feature 012 MVP.
