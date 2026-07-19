@@ -45,6 +45,13 @@ docker run -d --name analyst \
   ghcr.io/freesidenomad/analyst:latest
 ```
 
+## Learn it hands-on
+
+**[The tutorial](tutorial/)** walks the whole product end to end in about
+an hour — every feature's happy path, on real data, with one `make`
+command for anything the UI can't do. It doubles as a live re-enactment
+of the acceptance criteria each feature shipped behind.
+
 ## The manual
 
 1. **[Getting started](getting-started.html)** — run the container, configure

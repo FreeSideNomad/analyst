@@ -1,0 +1,32 @@
+# The tutorial's ML stack: the analyst ML-variant app and a Postgres that
+# `make berka-db` seeds with the real PKDD'99 Berka banking data.
+# The app reaches the database at host `berka-db` (same network).
+name: analyst-tutorial
+
+services:
+  analyst-ml:
+    image: analyst:ml
+    platform: linux/amd64   # pyg-lib ships no linux/arm64 wheel (emulated on Apple Silicon)
+    ports:
+      - "8001:8000"
+    volumes:
+      - analyst-tutorial-ml:/data
+    environment:
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN:-}
+      ANALYST_CATALOG: ${ANALYST_CATALOG:-live}
+      ANALYST_SECRET_KEY: ${ANALYST_SECRET_KEY:-tutorial-secret}
+    depends_on:
+      - berka-db
+
+  berka-db:
+    image: postgres:16-alpine
+    container_name: analyst-tutorial-berka
+    environment:
+      POSTGRES_PASSWORD: tutorial
+      POSTGRES_DB: berka
+    ports:
+      - "55433:5432"
+
+volumes:
+  analyst-tutorial-ml:
