@@ -97,6 +97,9 @@ jobs:
           target: ml
           platforms: linux/amd64
           push: true
-          tags: ghcr.io/${{ github.repository }}:ml
+          # Hardcoded lowercase — ${{ github.repository }} is FreeSideNomad/...
+          # and docker rejects uppercase repo names (metadata-action lowercases
+          # the main tags; this manual tag must do it itself).
+          tags: ghcr.io/freesidenomad/analyst:ml
           cache-from: type=gha
           cache-to: type=gha,mode=max
