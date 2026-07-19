@@ -1,5 +1,14 @@
 name: CI
 
+# Tiered pipeline: test impact follows the dependency arrows.
+#   docs-only     -> nothing heavy runs
+#   standard code -> backend + frontend + non-ML boards (~10 min)
+#   ML-adjacent   -> + ML units, ML boards, container journeys
+#   spine modules -> everything (repository/app/store fan out to all)
+# Pushes to main always run everything; the nightly workflow adds the
+# ML_FULL reference matrix. Conservative by design: when in doubt a
+# change escalates a tier, never down.
+
 on:
   push:
     branches: [main]
@@ -10,8 +19,75 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  changes:
+    name: Classify the change
+    runs-on: ubuntu-latest
+    outputs:
+      docs_only: ${{ steps.filter.outputs.code != 'true' }}
+      ml: ${{ steps.filter.outputs.ml == 'true' || steps.filter.outputs.spine == 'true' || github.ref == 'refs/heads/main' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            code:
+              - 'src/**'
+              - 'frontend/**'
+              - 'tests/**'
+              - 'acceptance/**'
+              - 'scripts/**'
+              - 'features/**/spec.md'
+              - 'features/**/.handlers'
+              - 'Dockerfile'
+              - 'pyproject.toml'
+              - 'uv.lock'
+              - 'run-acceptance-tests.sh'
+              - '.github/workflows/**'
+              - 'docker-compose*.yml'
+              - 'tutorial/Makefile'
+              - 'tutorial/docker-compose.yml'
+              - 'tutorial/*.py'
+            ml:
+              - 'src/analyst/engine/relgraph/**'
+              - 'src/analyst/engine/mltrain.py'
+              - 'src/analyst/engine/mlsamples.py'
+              - 'src/analyst/agentic/models.py'
+              - 'src/analyst/agentic/graphauthor.py'
+              - 'src/analyst/api/routes/models.py'
+              - 'frontend/src/pages/ModelsPage.tsx'
+              - 'acceptance/e2e_012.py'
+              - 'acceptance/e2e_018.py'
+              - 'acceptance/e2e_019.py'
+              - 'features/012-*/spec.md'
+              - 'features/018-*/spec.md'
+              - 'features/019-*/spec.md'
+              - 'tests/unit/test_mltrain.py'
+              - 'tests/unit/test_relgraph.py'
+              - 'tests/unit/test_graphauthoring.py'
+              - 'tests/cassettes/models_guidance.json'
+              - 'tests/cassettes/graph_authoring.json'
+              - 'scripts/seed_berka_db.py'
+              - 'Dockerfile'
+              - 'pyproject.toml'
+              - 'uv.lock'
+            spine:
+              - 'src/analyst/api/repository.py'
+              - 'src/analyst/api/app.py'
+              - 'src/analyst/api/deps.py'
+              - 'src/analyst/engine/store.py'
+              - 'src/analyst/service/**'
+              - 'src/analyst/agentic/gateway.py'
+              - 'acceptance/e2e_base.py'
+              - 'acceptance/generator.py'
+              - 'acceptance/vendor/**'
+              - 'run-acceptance-tests.sh'
+              - '.github/workflows/**'
+
   backend:
     name: Backend — lint · format · types · tests
+    needs: changes
+    if: needs.changes.outputs.docs_only != 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -21,14 +97,20 @@ jobs:
         with:
           enable-cache: true
 
-      - name: Install dependencies (uv provisions Python 3.14)
-        run: uv sync --extra ml
+      - name: Install dependencies (ml extra only when the change can reach it)
+        run: |
+          if [ "${{ needs.changes.outputs.ml }}" = "true" ]; then
+            uv sync --extra ml
+          else
+            uv sync
+          fi
 
-      - name: Cache the on-demand ML datasets (feature 012 real-data tests)
+      - name: Cache the on-demand ML datasets
+        if: needs.changes.outputs.ml == 'true'
         uses: actions/cache@v4
         with:
           path: tests/.ml_cache
-          key: ml-cache-v2  # v2: + the Berka relational bundle (feature 018)
+          key: ml-cache-v2
 
       - name: Lint (ruff)
         run: uv run ruff check src tests acceptance
@@ -40,10 +122,14 @@ jobs:
         run: uv run mypy src/analyst
 
       - name: Unit tests (pytest)
+        # Without the ml extra the ML test modules skip themselves
+        # (available() guards) — no torch download for non-ML changes.
         run: uv run pytest tests/unit -q
 
   frontend:
     name: Frontend — lint · typecheck · build
+    needs: changes
+    if: needs.changes.outputs.docs_only != 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -63,8 +149,37 @@ jobs:
       - name: Type-check & build
         run: bun run build
 
-  acceptance:
-    name: Acceptance — GWT boards (in-process + Playwright e2e)
+  acceptance-core:
+    name: Acceptance — non-ML boards
+    needs: changes
+    if: needs.changes.outputs.docs_only != 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install dependencies
+        run: |
+          uv sync
+          cd frontend && bun install --frozen-lockfile
+
+      - name: Install Playwright Chromium
+        run: uv run playwright install --with-deps chromium
+
+      - name: Run the non-ML boards
+        run: BOARD_EXCLUDE='012|018|019' ./run-acceptance-tests.sh -q
+
+  acceptance-ml:
+    name: Acceptance — ML boards (in-process)
+    needs: changes
+    if: needs.changes.outputs.docs_only != 'true' && needs.changes.outputs.ml == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -85,16 +200,49 @@ jobs:
       - name: Install Playwright Chromium
         run: uv run playwright install --with-deps chromium
 
-      - name: Cache the on-demand ML datasets (feature 012 real-data board)
+      - name: Cache the on-demand ML datasets
         uses: actions/cache@v4
         with:
           path: tests/.ml_cache
-          key: ml-cache-v2  # v2: + the Berka relational bundle (feature 018)
+          key: ml-cache-v2
 
-      - name: Set up Docker Buildx (container e2e, feature 012)
+      - name: Run the ML boards without the container journeys
+        run: BOARD_FILTER='012|018|019' ./run-acceptance-tests.sh -q -k "not deployed"
+
+  acceptance-containers:
+    name: Acceptance — deployed-container journeys
+    needs: changes
+    if: needs.changes.outputs.docs_only != 'true' && needs.changes.outputs.ml == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install dependencies
+        run: |
+          uv sync --extra ml
+          cd frontend && bun install --frozen-lockfile
+
+      - name: Install Playwright Chromium
+        run: uv run playwright install --with-deps chromium
+
+      - name: Cache the on-demand ML datasets
+        uses: actions/cache@v4
+        with:
+          path: tests/.ml_cache
+          key: ml-cache-v2
+
+      - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Pre-build the app image with layer cache (container e2e)
+      - name: Pre-build the app image with layer cache
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -103,7 +251,7 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Pre-build the ML image variant (container e2e, feature 018)
+      - name: Pre-build the ML image variant
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -113,5 +261,13 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Run acceptance boards (all features, incl. the deployed-container journey)
-        run: ./run-acceptance-tests.sh
+      - name: Run only the deployed-container journeys
+        run: BOARD_FILTER='012|018|019' ./run-acceptance-tests.sh -q -k "deployed"
+
+  docs-ok:
+    name: Docs-only change — heavy suites not applicable
+    needs: changes
+    if: needs.changes.outputs.docs_only == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Documentation-only change — code, boards and containers unaffected."
