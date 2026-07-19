@@ -5,9 +5,9 @@
 // locally, read an honest evaluation. Predictions land as ordinary
 // datasets; the agent never writes code — a committed trainer does it all.
 import { useEffect, useState } from 'react';
-import { Brain, Trash2, ChevronLeft, Download } from 'lucide-react';
+import { Brain, Network, Trash2, ChevronLeft, Download } from 'lucide-react';
 import { api } from '../api/client';
-import type { ModelSample, ModelTask } from '../api/types';
+import type { ModelSample, ModelTask, RelationalBundle, RelationalTask } from '../api/types';
 import { Icon, Card, Badge, EYEBROW } from '../components/ui';
 import { useCatalog } from '../stores';
 
@@ -103,17 +103,88 @@ function TaskFlow({ task: initial, onDone }: { task: ModelTask; onDone: () => vo
   );
 }
 
+function RelationalFlow({ task: initial, onDone }: { task: RelationalTask; onDone: () => void }) {
+  const [task, setTask] = useState(initial);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const train = async () => {
+    setBusy(true); setError(null);
+    try {
+      setTask(await api.trainRelational(task.task_id));
+      useCatalog.getState().refresh();
+    } catch (e) {
+      setError((e as Error).message || 'Training failed.');
+    } finally {
+      setBusy(false);
+    }
+  };
+  if (task.status === 'trained' && task.metrics && task.story) {
+    return (
+      <Card style={{ padding: 18, maxWidth: 720 }} aria-label={`Relational model ${task.task_id} trained`}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 10 }}>
+          <span style={EYEBROW}>Trained relational model</span>
+          <span className="mono" style={{ font: '700 14px/1 var(--font-mono)' }}>{task.task_id} v{task.version}</span>
+          <Badge tone="success">trained</Badge>
+        </div>
+        <p aria-label="Relational evaluation" style={{ margin: '0 0 12px', font: '500 14px/1.55 var(--font-sans)', color: 'var(--text-strong)' }}>{task.evaluation}</p>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 14 }}>
+          <MetricBar label="Simple approach" value={task.metrics.baseline.test_auroc} />
+          <MetricBar label="Graph approach" value={task.metrics.graph.test_auroc} />
+          <MetricBar label="Combined" value={task.metrics.hybrid.test_auroc} />
+        </div>
+        <div aria-label="Relational story" style={{ marginBottom: 14, padding: '10px 12px', background: 'var(--brand-subtle)', borderRadius: 'var(--radius-md)', font: '400 12.5px/1.6 var(--font-sans)', color: 'var(--text-strong)' }}>
+          Learned from {task.story.tables.length} linked tables ({task.story.tables.join(', ')}) across {task.story.edges.length} validated links, {task.story.num_layers} hops deep. Split {task.story.split}: {task.story.split_sizes.train} to learn from, {task.story.split_sizes.val} to tune on, {task.story.split_sizes.test} future rows as the honest test. Seed {task.seed} — the same seed always gives the same result.
+        </div>
+        {task.predictions_dataset && (
+          <div aria-label={`Predictions dataset ${task.predictions_dataset}`}
+            style={{ display: 'flex', alignItems: 'center', gap: 8, font: '500 13px/1.4 var(--font-sans)', color: 'var(--text-body)' }}>
+            <Icon as={Download} size={14} color="var(--brand)" />
+            Predictions saved as <span className="mono">{task.predictions_dataset}</span> — query, chart, or export it like any dataset.
+          </div>
+        )}
+        <button aria-label="Finish relational model" onClick={onDone}
+          style={{ marginTop: 14, padding: '7px 13px', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-md)', background: 'transparent', cursor: 'pointer', font: '600 12.5px/1 var(--font-sans)' }}>
+          Done
+        </button>
+      </Card>
+    );
+  }
+  return (
+    <Card style={{ padding: 18, maxWidth: 720 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 10 }}>
+        <span style={EYEBROW}>New relational model</span>
+        <span className="mono" style={{ font: '700 14px/1 var(--font-mono)' }}>{task.dataset} → {task.task}</span>
+      </div>
+      <p aria-label="Task framing" style={{ margin: '0 0 8px', font: '600 14px/1.5 var(--font-sans)', color: 'var(--text-strong)' }}>{task.framing.question}</p>
+      <p style={{ margin: '0 0 8px', font: '400 13px/1.6 var(--font-sans)', color: 'var(--text-body)' }}>{task.framing.moment}</p>
+      <p aria-label="Honesty note" style={{ margin: '0 0 10px', padding: '10px 12px', background: 'var(--brand-subtle)', borderRadius: 'var(--radius-md)', font: '400 13px/1.55 var(--font-sans)', color: 'var(--text-strong)' }}>{task.framing.honesty}</p>
+      <div aria-label="Excluded outcomes" style={{ marginBottom: 14, font: '500 12.5px/1.5 var(--font-sans)', color: 'var(--text-muted)' }}>
+        Hidden from the model: {task.excluded_outcomes.map((c) => <span key={c} className="mono" style={{ marginRight: 8 }}>{c}</span>)}
+      </div>
+      {error && <div role="alert" style={{ marginBottom: 10, font: '500 12.5px/1.4 var(--font-sans)', color: 'var(--amber-600)' }}>{error}</div>}
+      <button aria-label="Train relational model" disabled={busy} onClick={train}
+        style={{ padding: '9px 16px', border: 'none', borderRadius: 'var(--radius-md)', background: 'var(--brand)', color: '#fff', cursor: 'pointer', font: '600 13px/1 var(--font-sans)', opacity: busy ? 0.6 : 1 }}>
+        {busy ? 'Training locally (graph + simple + combined)…' : 'Train locally'}
+      </button>
+    </Card>
+  );
+}
+
 export function ModelsPage() {
   const datasets = useCatalog((s) => s.datasets);
   const [samples, setSamples] = useState<ModelSample[]>([]);
-  const [models, setModels] = useState<ModelTask[]>([]);
+  const [bundle, setBundle] = useState<RelationalBundle | null>(null);
+  const [models, setModels] = useState<(ModelTask | RelationalTask)[]>([]);
   const [task, setTask] = useState<ModelTask | null>(null);
+  const [relTask, setRelTask] = useState<RelationalTask | null>(null);
   const [dataset, setDataset] = useState('');
   const [target, setTarget] = useState('');
+  const [relChoice, setRelChoice] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const refresh = () => {
     api.modelGallery().then((r) => setSamples(r.samples)).catch(() => {});
+    api.relationalBundle().then(setBundle).catch(() => {});
     api.listModels().then((r) => setModels(r.models)).catch(() => {});
   };
   useEffect(() => { refresh(); }, []);
@@ -121,6 +192,13 @@ export function ModelsPage() {
     setBusy(key); setError(null);
     api.addModelSample(key)
       .then(() => useCatalog.getState().refresh())
+      .catch((e) => setError(e.message))
+      .finally(() => setBusy(null));
+  };
+  const addBundle = () => {
+    setBusy('bundle'); setError(null);
+    api.addRelationalBundle()
+      .then(() => { useCatalog.getState().refresh(); refresh(); })
       .catch((e) => setError(e.message))
       .finally(() => setBusy(null));
   };
@@ -132,6 +210,25 @@ export function ModelsPage() {
       .catch((e) => setError(e.message || 'Could not start the model.'))
       .finally(() => setBusy(null));
   };
+  const startRelational = () => {
+    if (!relChoice) return;
+    setBusy('rel-start'); setError(null);
+    api.createRelationalTask(relChoice)
+      .then(setRelTask)
+      .catch((e) => setError(e.message || 'Could not start the relational model.'))
+      .finally(() => setBusy(null));
+  };
+  if (relTask) {
+    return (
+      <section style={{ flex: 1, overflow: 'auto', padding: '26px 30px' }}>
+        <button aria-label="Back to models" onClick={() => { setRelTask(null); refresh(); }}
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginBottom: 12, padding: '5px 9px', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-md)', background: 'transparent', cursor: 'pointer', font: '600 12px/1 var(--font-sans)', color: 'var(--text-muted)' }}>
+          <Icon as={ChevronLeft} size={13} /> Models
+        </button>
+        <RelationalFlow task={relTask} onDone={() => { setRelTask(null); refresh(); }} />
+      </section>
+    );
+  }
   if (task) {
     return (
       <section style={{ flex: 1, overflow: 'auto', padding: '26px 30px' }}>
@@ -168,6 +265,42 @@ export function ModelsPage() {
         ))}
       </div>
 
+      {bundle && (
+        <>
+          <div style={{ ...EYEBROW, marginBottom: 8 }}>Relational — learn across linked tables</div>
+          <div style={{ display: 'flex', gap: 10, marginBottom: 20, flexWrap: 'wrap', alignItems: 'flex-start' }}>
+            <Card style={{ padding: 14, width: 300 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 5 }}>
+                <Icon as={Network} size={15} color="var(--brand)" />
+                <span style={{ font: '700 13.5px/1.2 var(--font-sans)' }}>{bundle.title}</span>
+              </div>
+              <div style={{ font: '400 12px/1.5 var(--font-sans)', color: 'var(--text-muted)', marginBottom: 10 }}>{bundle.description}</div>
+              {bundle.available ? (
+                <button aria-label={`Add bundle ${bundle.title}`} disabled={busy === 'bundle' || bundle.added} onClick={addBundle}
+                  style={{ padding: '6px 12px', border: 'none', borderRadius: 'var(--radius-md)', background: 'var(--brand)', color: '#fff', cursor: 'pointer', font: '600 12px/1 var(--font-sans)', opacity: busy === 'bundle' ? 0.6 : 1 }}>
+                  {bundle.added ? 'In workspace' : busy === 'bundle' ? 'Downloading…' : 'Add to workspace'}
+                </button>
+              ) : (
+                <div aria-label="Relational tier unavailable" style={{ font: '500 12px/1.5 var(--font-sans)', color: 'var(--amber-600)' }}>{bundle.message}</div>
+              )}
+            </Card>
+            {bundle.available && (
+              <div style={{ display: 'flex', gap: 8 }}>
+                <select aria-label="Relational task" value={relChoice} onChange={(e) => setRelChoice(e.target.value)}
+                  style={{ width: 300, height: 36, padding: '0 9px', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-md)', font: '400 13px/1 var(--font-sans)' }}>
+                  <option value="">choose a question…</option>
+                  {bundle.tasks.map((t) => <option key={t.name} value={t.name}>{t.question}</option>)}
+                </select>
+                <button aria-label="Start relational model" disabled={!relChoice || busy === 'rel-start'} onClick={startRelational}
+                  style={{ padding: '0 16px', border: 'none', borderRadius: 'var(--radius-md)', background: 'var(--brand)', color: '#fff', cursor: 'pointer', font: '600 13px/1 var(--font-sans)', opacity: !relChoice ? 0.5 : 1 }}>
+                  {busy === 'rel-start' ? 'Preparing…' : 'Start'}
+                </button>
+              </div>
+            )}
+          </div>
+        </>
+      )}
+
       <div style={{ ...EYEBROW, marginBottom: 8 }}>New model</div>
       <div style={{ display: 'flex', gap: 8, maxWidth: 680, marginBottom: 22 }}>
         <select aria-label="Model dataset" value={dataset} onChange={(e) => { setDataset(e.target.value); setTarget(''); }}
@@ -189,29 +322,39 @@ export function ModelsPage() {
       <div style={{ ...EYEBROW, marginBottom: 8 }}>Trained models</div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxWidth: 680 }}>
         {models.length === 0 && <p style={{ font: '400 13px/1.5 var(--font-sans)', color: 'var(--text-muted)' }}>No models yet — add a sample above and start one.</p>}
-        {models.map((m) => (
-          <Card key={m.task_id} style={{ padding: 0 }}>
-            <div style={{ display: 'flex', alignItems: 'center' }}>
-              <button aria-label={`Open model ${m.task_id}`} onClick={() => setTask(m)}
-                style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 11, padding: '13px 15px', border: 'none', background: 'transparent', cursor: 'pointer', textAlign: 'left' }}>
-                <Icon as={Brain} size={17} color="var(--brand)" />
-                <span style={{ flex: 1 }}>
-                  <span className="mono" style={{ display: 'block', font: '600 13px/1.2 var(--font-mono)', color: 'var(--text-strong)' }}>{m.dataset} → {m.target}</span>
-                  {m.metrics && (
-                    <span aria-label={`Model ${m.task_id} metrics`} style={{ display: 'block', font: '400 12px/1.4 var(--font-sans)', color: 'var(--text-muted)', marginTop: 3 }}>
-                      fit {(m.metrics.gbm.r2 * 100).toFixed(0)}% · typical miss ${Math.round(m.metrics.gbm.mae).toLocaleString()}
+        {models.map((m) => {
+          const rel = 'kind' in m && m.kind === 'relational' ? (m as RelationalTask) : null;
+          return (
+            <Card key={m.task_id} style={{ padding: 0 }}>
+              <div style={{ display: 'flex', alignItems: 'center' }}>
+                <button aria-label={`Open model ${m.task_id}`} onClick={() => (rel ? setRelTask(rel) : setTask(m as ModelTask))}
+                  style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 11, padding: '13px 15px', border: 'none', background: 'transparent', cursor: 'pointer', textAlign: 'left' }}>
+                  <Icon as={rel ? Network : Brain} size={17} color="var(--brand)" />
+                  <span style={{ flex: 1 }}>
+                    <span className="mono" style={{ display: 'block', font: '600 13px/1.2 var(--font-mono)', color: 'var(--text-strong)' }}>
+                      {rel ? `${rel.dataset} → ${rel.task}` : `${(m as ModelTask).dataset} → ${(m as ModelTask).target}`}
                     </span>
-                  )}
-                </span>
-                <Badge tone={m.status === 'trained' ? 'success' : 'neutral'}>{m.status}</Badge>
-              </button>
-              <button aria-label={`Delete model ${m.task_id}`} onClick={() => api.deleteModel(m.task_id).then(refresh)}
-                style={{ border: 'none', background: 'transparent', cursor: 'pointer', padding: '0 14px' }}>
-                <Icon as={Trash2} size={15} color="var(--text-subtle)" />
-              </button>
-            </div>
-          </Card>
-        ))}
+                    {rel && rel.metrics && (
+                      <span aria-label={`Model ${m.task_id} metrics`} style={{ display: 'block', font: '400 12px/1.4 var(--font-sans)', color: 'var(--text-muted)', marginTop: 3 }}>
+                        simple {rel.metrics.baseline.test_auroc.toFixed(2)} · graph {rel.metrics.graph.test_auroc.toFixed(2)} · combined {rel.metrics.hybrid.test_auroc.toFixed(2)} · seed {rel.seed}
+                      </span>
+                    )}
+                    {!rel && (m as ModelTask).metrics && (
+                      <span aria-label={`Model ${m.task_id} metrics`} style={{ display: 'block', font: '400 12px/1.4 var(--font-sans)', color: 'var(--text-muted)', marginTop: 3 }}>
+                        fit {((m as ModelTask).metrics!.gbm.r2 * 100).toFixed(0)}% · typical miss ${Math.round((m as ModelTask).metrics!.gbm.mae).toLocaleString()}
+                      </span>
+                    )}
+                  </span>
+                  <Badge tone={m.status === 'trained' ? 'success' : 'neutral'}>{m.status}</Badge>
+                </button>
+                <button aria-label={`Delete model ${m.task_id}`} onClick={() => api.deleteModel(m.task_id).then(refresh)}
+                  style={{ border: 'none', background: 'transparent', cursor: 'pointer', padding: '0 14px' }}>
+                  <Icon as={Trash2} size={15} color="var(--text-subtle)" />
+                </button>
+              </div>
+            </Card>
+          );
+        })}
       </div>
     </section>
   );

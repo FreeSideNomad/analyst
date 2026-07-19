@@ -71,6 +71,12 @@ class DatasetRepository(Protocol):
     def model(self, task_id: str) -> dict: ...
     def delete_model(self, task_id: str) -> None: ...
 
+    # Feature 018 — relational graph (GNN) models
+    def relational_bundle(self) -> dict: ...
+    def add_relational_bundle(self) -> dict: ...
+    def create_relational_task(self, task_name: str) -> dict: ...
+    def train_relational(self, task_id: str) -> dict: ...
+
     # Feature 015 — dashboards (agent-assembled, filterable widget grids)
     def dashboards(self) -> list: ...
     def put_dashboard(self, dashboard: Any) -> None: ...
@@ -256,6 +262,90 @@ class FixtureRepository:
                 ["YearBuilt", 0.17],
             ],
             predictions_dataset="sample_model_predictions.csv",
+            version=1,
+        )
+        return task
+
+    # Feature 018 — canned relational flow (demo/e2e without torch).
+    def relational_bundle(self) -> dict:
+        return {
+            "key": "berka",
+            "title": "Berka bank (relational)",
+            "description": "Real Czech banking data (PKDD'99), nine linked tables.",
+            "available": True,
+            "added": "berka_loan.csv" in self._records,
+            "tasks": [
+                {"name": "loan_default", "question": "Will this loan end in default?"}
+            ],
+        }
+
+    def add_relational_bundle(self) -> dict:
+        import dataclasses
+
+        names = []
+        for tname in ("loan", "account", "trans"):
+            name = f"berka_{tname}.csv"
+            if name not in self._records:
+                summary = dataclasses.replace(
+                    fixtures.uploaded_transactions(), name=name
+                )
+                self._records[name] = DatasetRecord(
+                    summary=summary,
+                    file_name=name,
+                    status=IngestionStatus.COMPLETE,
+                    ingested_at="2026-07-19",
+                )
+            names.append(name)
+        return {"tables": names}
+
+    def create_relational_task(self, task_name: str) -> dict:
+        task: dict[str, Any] = {
+            "task_id": f"berka-{task_name}".replace("_", "-"),
+            "kind": "relational",
+            "dataset": "berka",
+            "task": task_name,
+            "framing": {
+                "question": "Will this loan end in default?",
+                "moment": "Predicted at the moment the loan is granted.",
+                "honesty": "The recorded outcome columns are hidden from the model.",
+            },
+            "excluded_outcomes": ["loan.payments", "loan.status"],
+            "seed": 13,
+            "status": "defined",
+            "metrics": None,
+            "story": None,
+            "predictions_dataset": None,
+            "version": 0,
+        }
+        self._model_tasks[str(task["task_id"])] = task
+        return task
+
+    def train_relational(self, task_id: str) -> dict:
+        task = self._model_tasks[task_id]
+        task.update(
+            status="trained",
+            metrics={
+                "graph": {"test_auroc": 0.7205, "test_avg_precision": 0.25},
+                "baseline": {"test_auroc": 0.7647, "test_avg_precision": 0.26},
+                "hybrid": {"test_auroc": 0.818, "test_avg_precision": 0.33},
+            },
+            story={
+                "entity_table": "loan",
+                "tables": ["account", "loan", "trans"],
+                "edges": ["loan.account_id → account.account_id"],
+                "split": "by time — trained on the past, judged on the future",
+                "split_sizes": {"train": 254, "val": 146, "test": 282},
+                "num_layers": 4,
+                "num_neighbors": [16, 64, 16, 8],
+                "excluded_outcomes": ["loan.payments", "loan.status"],
+                "framing": task["framing"],
+            },
+            evaluation=(
+                "On the future the models never saw, the simple approach "
+                "scored 0.76, the graph approach 0.72, and the combined "
+                "approach 0.82."
+            ),
+            predictions_dataset="berka_loan_default_predictions.csv",
             version=1,
         )
         return task
@@ -1691,6 +1781,196 @@ class StoreRepository:
         self.store.drop_projection(f"{task_id}.features")
         del tasks[task_id]
         self._save_models(tasks)
+
+    # -- Feature 018: relational graph (GNN) models ----------------------
+
+    _ML_VARIANT_MESSAGE = (
+        "Relational graph models need the ML variant of analyst "
+        "(the analyst:ml image, or `uv sync --extra ml`). Everything "
+        "else — including single-table models — keeps working."
+    )
+
+    def relational_bundle(self) -> dict:
+        from analyst.engine import relgraph
+
+        info: dict = {
+            "key": "berka",
+            "title": "Berka bank (relational)",
+            "description": (
+                "Real Czech banking data (PKDD'99): accounts, loans, "
+                "transactions, clients, cards — nine linked tables, the "
+                "classic dataset for learning across relationships."
+            ),
+            "available": relgraph.available(),
+            "added": False,
+            "tasks": [],
+        }
+        if not relgraph.available():
+            info["message"] = self._ML_VARIANT_MESSAGE
+            return info
+        from analyst.engine.relgraph.registry import get_spec
+        from analyst.engine.relgraph.schema import load_task_spec
+
+        spec = get_spec("berka")
+        info["added"] = all(f"berka_{t}.csv" in self._records for t in spec.tables)
+        info["tasks"] = [
+            {
+                "name": name,
+                "question": load_task_spec(spec.root, "berka", name).framing.get(
+                    "question", name
+                ),
+            }
+            for name in ("loan_default", "account_churn", "card_adoption")
+        ]
+        return info
+
+    def add_relational_bundle(self) -> dict:
+        """Bring Berka in through the NORMAL ingestion pipeline — one
+        workspace dataset per table, downloaded on demand and cached.
+
+        The decoded tables come from the engine's built database (dates
+        parsed, districts renamed, counterparties derived). Reference data
+        is system-recognized: catalogued deterministically, never via the
+        agent (replay containers must not need recorded turns for it)."""
+        import duckdb
+
+        from analyst.engine import relgraph
+
+        if not relgraph.available():
+            raise ValueError(self._ML_VARIANT_MESSAGE)
+        from analyst.engine.relgraph.builddb import db_path
+        from analyst.engine.relgraph.pipeline import ensure_data
+        from analyst.engine.relgraph.registry import get_spec
+
+        ensure_data("berka")
+        spec = get_spec("berka")
+        agent_cataloguer = self.service.cataloguer
+        self.service.cataloguer = None
+        con = duckdb.connect(str(db_path("berka")), read_only=True)
+        ingested: list[str] = []
+        try:
+            for tname in spec.tables:
+                name = f"berka_{tname}.csv"
+                if name in self._records:
+                    ingested.append(name)
+                    continue
+                frame = con.execute(f'SELECT * FROM "{tname}"').df()
+                ingested.append(self._ingest_frame(name, frame))
+        finally:
+            con.close()
+            self.service.cataloguer = agent_cataloguer
+        return {"tables": ingested}
+
+    def _ingest_frame(self, name: str, frame) -> str:  # noqa: ANN001
+        import io
+
+        buffer = io.StringIO()
+        frame.to_csv(buffer, index=False)
+        (record,) = self.ingest(name, buffer.getvalue().encode())
+        return record.name
+
+    def create_relational_task(self, task_name: str) -> dict:
+        """Define a relational task as decisions: plain-language framing,
+        named-and-excluded outcome columns, honest time split. No agent
+        exchange — the framing is authored task metadata."""
+        from analyst.engine import relgraph
+
+        if not relgraph.available():
+            raise ValueError(self._ML_VARIANT_MESSAGE)
+        missing = self._relational_prerequisites()
+        if missing:
+            raise ValueError(
+                "This workspace cannot support a relational model yet — "
+                "missing: " + "; ".join(missing) + ". Add the Berka bundle "
+                "from the gallery, or ingest linked tables with dates."
+            )
+        from analyst.engine.relgraph.pipeline import DEFAULT_SEED, ensure_task
+
+        task_spec = ensure_task("berka", task_name)
+        tasks = self._load_models()
+        task_id = f"berka-{task_spec.name}".replace("_", "-")
+        tasks[task_id] = {
+            "task_id": task_id,
+            "kind": "relational",
+            "dataset": "berka",
+            "task": task_spec.name,
+            "framing": dict(task_spec.framing),
+            "excluded_outcomes": sorted(task_spec.exclude),
+            "seed": DEFAULT_SEED,
+            "status": "defined",
+            "metrics": None,
+            "story": None,
+            "predictions_dataset": None,
+            "version": 0,
+        }
+        self._save_models(tasks)
+        return tasks[task_id]
+
+    def _relational_prerequisites(self) -> list[str]:
+        """What this workspace lacks for relational modeling (empty = ready)."""
+        missing: list[str] = []
+        relationships = self.store.discover_relationships()
+        if not relationships:
+            missing.append("validated links between tables")
+        has_time = any(
+            c.inferred_type.value in ("date", "datetime")
+            for r in self._records.values()
+            for c in r.summary.profile.columns
+        )
+        if not has_time:
+            missing.append("a date column to split honestly by time")
+        return missing
+
+    def train_relational(self, task_id: str) -> dict:
+        """Train all three tiers locally; predictions become an ordinary
+        dataset. A failure leaves the registry exactly as it was."""
+        from analyst.engine.relgraph.pipeline import train_tiers
+
+        tasks = self._load_models()
+        task = self._require_model(task_id)
+        if task.get("kind") != "relational":
+            raise ValueError(f"'{task_id}' is not a relational task.")
+        result = train_tiers(task["dataset"], task["task"], seed=task["seed"])
+        version = int(task.get("version", 0)) + 1
+        out = result.predictions.copy()
+        out["model"] = f"{task_id} v{version}"
+        previous = task.get("predictions_dataset")
+        if previous and previous in self._records:
+            self.delete(previous)
+        agent_cataloguer = self.service.cataloguer
+        self.service.cataloguer = None
+        try:
+            predictions_name = self._ingest_frame(
+                f"{task_id}.predictions.v{version}.csv", out
+            )
+        finally:
+            self.service.cataloguer = agent_cataloguer
+        graph_score = result.metrics["graph"]["test_auroc"]
+        baseline_score = result.metrics["baseline"]["test_auroc"]
+        hybrid_score = result.metrics["hybrid"]["test_auroc"]
+        best = max(
+            ("graph approach", graph_score),
+            ("simple approach", baseline_score),
+            ("combined approach", hybrid_score),
+            key=lambda item: item[1],
+        )
+        task["evaluation"] = (
+            f"On the future the models never saw, the simple approach "
+            f"scored {baseline_score:.2f}, the graph approach "
+            f"{graph_score:.2f}, and the combined approach "
+            f"{hybrid_score:.2f} (0.5 is a coin flip, 1.0 is perfect "
+            f"ranking) — the {best[0]} reads the risk best here."
+        )
+        task.update(
+            status="trained",
+            metrics=result.metrics,
+            story=result.story,
+            predictions_dataset=predictions_name,
+            version=version,
+        )
+        tasks[task_id] = task
+        self._save_models(tasks)
+        return task
 
     def _require_model(self, task_id: str) -> dict:
         from analyst.domain.models import UnknownModelError

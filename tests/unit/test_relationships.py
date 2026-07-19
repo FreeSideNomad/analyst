@@ -277,3 +277,27 @@ def test_connection_qualified_parent_name_matches():
     assert _name_matches_table("customer", "crm.customers")
     assert _name_matches_table("customer", "customers.csv")
     assert not _name_matches_table("product", "crm.customers")
+
+
+# --------------------------------------------------------------------------- #
+# Feature 018 — bundle-/schema-prefixed table names still match by tail
+# (berka_account, sales_orders); RI validation still gates the candidate.
+# --------------------------------------------------------------------------- #
+def test_prefixed_table_names_match_by_tail():
+    con = _con()
+    _table(
+        con,
+        "berka_account",
+        "account_id INTEGER, district VARCHAR",
+        [(1, "N"), (2, "S")],
+    )
+    _table(
+        con,
+        "berka_loan",
+        "loan_id INTEGER, account_id INTEGER",
+        [(10, 1), (11, 2), (12, 1)],
+    )
+    rels = discover(con, [_dt(con, "berka_loan"), _dt(con, "berka_account")])
+    fk = [r for r in rels if r.child_table == "berka_loan"]
+    assert len(fk) == 1
+    assert (fk[0].child_column, fk[0].parent_table) == ("account_id", "berka_account")
