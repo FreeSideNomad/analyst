@@ -5,7 +5,7 @@ name: pages
 on:
   push:
     branches: [main]
-    paths: ["docs/site/**", "tutorial/pages/**", ".github/workflows/pages.yml"]
+    paths: ["docs/site/**", "tutorial/pages/**", "tutorial/files/**", "tutorial/docker-compose.yml", ".github/workflows/pages.yml"]
   workflow_dispatch:
 
 permissions:
@@ -25,8 +25,13 @@ jobs:
       - uses: actions/configure-pages@v5
       # The tutorial's single source of truth is tutorial/pages/ (next to
       # its Makefile and stack); copy it into the site at build time.
-      - name: Include the tutorial
-        run: cp -r tutorial/pages docs/site/tutorial
+      - name: Include the tutorial (pages + downloadable files + compose)
+        run: |
+          cp -r tutorial/pages docs/site/tutorial
+          cp -r tutorial/files docs/site/tutorial/files
+          cp tutorial/docker-compose.yml docs/site/tutorial/
+          (cd tutorial/files && zip -q /tmp/analyst-tutorial-files.zip *)
+          cp /tmp/analyst-tutorial-files.zip docs/site/tutorial/files/analyst-tutorial-files.zip
       - uses: actions/jekyll-build-pages@v1
         with:
           source: docs/site

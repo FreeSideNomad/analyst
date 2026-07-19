@@ -1,32 +1,61 @@
-# The tutorial's ML stack: the analyst ML-variant app and a Postgres that
-# `make berka-db` seeds with the real PKDD'99 Berka banking data.
-# The app reaches the database at host `berka-db` (same network).
+# The analyst tutorial stack — everything the tutorial uses, one file.
+#
+#   curl -O https://freesidenomad.github.io/analyst/tutorial/docker-compose.yml
+#   docker compose up -d                       # the app (start here)
+#   docker compose --profile databases up -d   # + the three tutorial databases
+#   docker compose --profile ml up -d          # + the ML app for relational models
+#
+# Optional AI features pick up a key from your shell:
+#   export ANTHROPIC_API_KEY=sk-ant-...   (or CLAUDE_CODE_OAUTH_TOKEN=...)
+
 name: analyst-tutorial
 
 services:
-  analyst-ml:
-    image: analyst:ml
-    platform: linux/amd64   # pyg-lib ships no linux/arm64 wheel (emulated on Apple Silicon)
+  analyst:
+    image: ghcr.io/freesidenomad/analyst:latest
     ports:
-      - "8001:8000"
+      - "8000:8000"
     volumes:
-      - analyst-tutorial-ml:/data
+      - analyst-data:/data
     environment:
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN:-}
       ANALYST_CATALOG: ${ANALYST_CATALOG:-live}
       ANALYST_SECRET_KEY: ${ANALYST_SECRET_KEY:-tutorial-secret}
-    depends_on:
-      - berka-db
 
+  # Real banking data (the public PKDD'99 "Berka" dataset): nine linked
+  # tables, one million transactions — arrives pre-loaded.
   berka-db:
-    image: postgres:16-alpine
-    container_name: analyst-tutorial-berka
-    environment:
-      POSTGRES_PASSWORD: tutorial
-      POSTGRES_DB: berka
+    image: ghcr.io/freesidenomad/analyst-tutorial-berka:latest
+    profiles: ["databases", "ml"]
+
+  # A small CRM and a small billing system that share customer keys —
+  # the "one question across two databases" part of the tutorial.
+  crm-db:
+    image: ghcr.io/freesidenomad/analyst-tutorial-crm:latest
+    profiles: ["databases"]
+
+  billing-db:
+    image: ghcr.io/freesidenomad/analyst-tutorial-billing:latest
+    profiles: ["databases"]
+
+  # The ML variant: adds relational (graph) models. Published for
+  # linux/amd64; on Apple Silicon it runs under emulation (slower —
+  # training takes minutes instead of ~30 seconds; that's expected).
+  analyst-ml:
+    image: ghcr.io/freesidenomad/analyst:ml
+    platform: linux/amd64
     ports:
-      - "55433:5432"
+      - "8001:8000"
+    volumes:
+      - analyst-ml-data:/data
+    environment:
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN:-}
+      ANALYST_CATALOG: ${ANALYST_CATALOG:-live}
+      ANALYST_SECRET_KEY: ${ANALYST_SECRET_KEY:-tutorial-secret}
+    profiles: ["ml"]
 
 volumes:
-  analyst-tutorial-ml:
+  analyst-data:
+  analyst-ml-data:

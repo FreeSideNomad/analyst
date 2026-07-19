@@ -112,6 +112,9 @@ jobs:
           path: tests/.ml_cache
           key: ml-cache-v2
 
+      - name: Tutorial label fidelity (UI controls the tutorial names must exist)
+        run: python3 tutorial/check_labels.py
+
       - name: Lint (ruff)
         run: uv run ruff check src tests acceptance
 
@@ -270,4 +273,7 @@ jobs:
     if: needs.changes.outputs.docs_only == 'true'
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+      - name: Tutorial label fidelity (UI controls the tutorial names must exist)
+        run: python3 tutorial/check_labels.py
       - run: echo "Documentation-only change — code, boards and containers unaffected."
