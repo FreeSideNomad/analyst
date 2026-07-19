@@ -1,0 +1,33 @@
+name: tutorial-smoke
+
+# Acts as the tutorial's actual audience: a docker-only user pulling the
+# compose file and sample files from the LIVE Pages site and the images
+# from ghcr. Covers the keyless spine (uploads, links, the three seeded
+# databases, the relational bundle training end to end). No secrets.
+
+on:
+  schedule:
+    - cron: "47 10 * * *"   # daily, after the nightly suite
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run the tutorial as a docker-only user would
+        run: sh tutorial/smoke.sh
+
+      - name: Open an issue on failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue create \
+            --title "Tutorial smoke failed ($(date -u +%F))" \
+            --body "The published tutorial stack broke for a docker-only user: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+          Compose/pages/images/labels drifted, or a published image is unhealthy. The tutorial is the user-facing contract — treat as a bug." \
+            --label bug || true
