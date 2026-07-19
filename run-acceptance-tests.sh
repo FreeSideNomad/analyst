@@ -14,6 +14,8 @@
 #   ./run-acceptance-tests.sh            # all feature boards
 #   E2E=0 ./run-acceptance-tests.sh      # skip browser-bound boards
 #   ./run-acceptance-tests.sh -k delete  # extra args forwarded to pytest
+#   BOARD_FILTER='012|018' ...           # only boards whose folder matches
+#   BOARD_EXCLUDE='012|018|019' ...      # every board except these
 set -eu
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
@@ -25,6 +27,13 @@ DAE="${DAE:-$ROOT/acceptance/vendor}"
 for SPEC in "$ROOT"/features/*/spec.md; do
     [ -f "$SPEC" ] || continue
     FEATURE="$(dirname "$SPEC")"
+    NAME="$(basename "$FEATURE")"
+    if [ -n "${BOARD_FILTER:-}" ] && ! echo "$NAME" | grep -qE "$BOARD_FILTER"; then
+        continue
+    fi
+    if [ -n "${BOARD_EXCLUDE:-}" ] && echo "$NAME" | grep -qE "$BOARD_EXCLUDE"; then
+        continue
+    fi
     HANDLERS="acceptance.handlers"
     [ -f "$FEATURE/.handlers" ] && HANDLERS="$(cat "$FEATURE/.handlers")"
     case "$HANDLERS" in

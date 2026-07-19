@@ -1,0 +1,84 @@
+name: nightly
+
+# The exhaustive proof, on a schedule instead of on every PR:
+#   - the full unit suite with the ML stack
+#   - every acceptance board including the three deployed-container
+#     journeys
+#   - ML_FULL=1: the heavy Berka reference matrix (account_churn,
+#     card_adoption) that PR runs gate out
+# Failures open a GitHub issue instead of blocking anyone's merge. This
+# is also where dependency rot and flake patterns surface: it runs on
+# main with no code change, so a red here is a real signal.
+
+on:
+  schedule:
+    - cron: "17 9 * * *"   # daily, 09:17 UTC
+  workflow_dispatch:
+
+jobs:
+  full-suite:
+    name: Everything, including the ML_FULL reference matrix
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install dependencies
+        run: |
+          uv sync --extra ml
+          cd frontend && bun install --frozen-lockfile
+
+      - name: Install Playwright Chromium
+        run: uv run playwright install --with-deps chromium
+
+      - name: Cache the on-demand ML datasets
+        uses: actions/cache@v4
+        with:
+          path: tests/.ml_cache
+          key: ml-cache-v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Pre-build the app image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: analyst:e2e
+          cache-from: type=gha
+
+      - name: Pre-build the ML image variant
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: ml
+          load: true
+          tags: analyst:e2e-ml
+          cache-from: type=gha
+
+      - name: Unit tests (full, with the ML stack)
+        run: uv run pytest tests/unit -q
+
+      - name: All boards + container journeys + the ML_FULL matrix
+        run: ML_FULL=1 ./run-acceptance-tests.sh -q
+
+      - name: Open an issue on failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue create \
+            --title "Nightly full suite failed ($(date -u +%F))" \
+            --body "The nightly exhaustive run went red: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+          This ran on main with no code change — treat as a real signal (dependency rot, flake, or a tier-classification gap that let a regression merge)." \
+            --label bug || true

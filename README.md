@@ -131,7 +131,11 @@ and handoffs.
 The same checks run **on every commit** (`.pre-commit-config.yaml`) and **in
 CI** (`.github/workflows/ci.yml`): `ruff` lint + format, `mypy`, unit tests,
 the frontend lint/typecheck/build, and every acceptance board — 276 scenarios
-across 18 boards, browser E2E and three deployed-container journeys included. Agent behavior is pinned with
+across 18 boards, browser E2E and three deployed-container journeys included.
+CI is **tiered by test impact**: docs-only changes skip the heavy suites,
+non-ML changes skip the ML boards and container journeys, spine-module and
+ML changes (and every push to main) run everything — and a **nightly** run
+adds the heavy ML_FULL reference matrix, opening an issue on failure. Agent behavior is pinned with
 live-recorded, deterministically replayed cassettes; invariants carry
 mutation gates. Nothing lands with a regression.
 `docker.yml` publishes the image to GHCR on every push to `main`; `pages.yml`
