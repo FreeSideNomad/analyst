@@ -22,9 +22,10 @@ SOURCE_TREES = [ROOT / "frontend" / "src", ROOT / "src" / "analyst"]
 # Bold spans that are emphasis or domain terms, not UI controls.
 ALLOWED_EMPHASIS = {
     "analyst",
-    "All you need is Docker and a browser.",
-    "Part 1 — no AI key needed.",
-    "Part 2 — bring an AI key.",
+    "You need Docker, a browser, and a Claude token.",
+    "Claude subscription (recommended).",
+    "Anthropic API key.",
+    "What Claude can and cannot see.",
     "without the data moving",
     "held back",
     "hidden from the model",
