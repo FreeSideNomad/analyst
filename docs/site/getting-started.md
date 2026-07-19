@@ -59,7 +59,8 @@ recovery path around the encryption).
 The app opens on **Ingest & profile** — the semantic catalog on the left,
 table detail on the right. **Query** is where you ask questions; **Charts**
 holds the answers you saved (they re-run live when opened); **Dashboards**
-assembles filterable, printable widget grids from a plain-English request.
+assembles filterable, printable widget grids from a plain-English request;
+**Models** trains guided prediction models on real data, locally.
 
 ![Query view](img/query-home.png)
 

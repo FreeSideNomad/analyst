@@ -22,7 +22,16 @@ from analyst.api.repository import (
     FixtureRepository,
     StoreRepository,
 )
-from analyst.api.routes import auth, charts, dashboards, databases, datasets, qa, system
+from analyst.api.routes import (
+    auth,
+    charts,
+    dashboards,
+    databases,
+    datasets,
+    models,
+    qa,
+    system,
+)
 from analyst.engine.reader import (
     EmptyFileError,
     FileTooLargeError,
@@ -109,6 +118,23 @@ def build_assembler() -> object | None:
     return None
 
 
+def build_model_guide() -> object | None:
+    """Model-definition guidance (feature 012) — same opt-in modes."""
+    from analyst.agentic.gateway import LLMGateway, ReplayBackend
+    from analyst.agentic.models import ModelGuide
+
+    mode = catalog_mode()
+    if mode == "replay":
+        return ModelGuide(
+            LLMGateway(ReplayBackend(os.environ["ANALYST_CATALOG_CASSETTE"]))
+        )
+    if mode == "live":
+        from analyst.agentic.claude_backend import ClaudeAgentBackend
+
+        return ModelGuide(LLMGateway(ClaudeAgentBackend()))
+    return None
+
+
 def _build_repository() -> DatasetRepository:
     if fixtures_enabled():
         return FixtureRepository()
@@ -117,6 +143,7 @@ def _build_repository() -> DatasetRepository:
         cataloguer=build_cataloguer(),
         curator=build_curator(),
         assembler=build_assembler(),
+        model_guide=build_model_guide(),
     )
 
 
@@ -156,6 +183,7 @@ def create_app(repo: DatasetRepository | None = None) -> FastAPI:
     app.include_router(auth.workspaces_router)
     app.include_router(charts.router)
     app.include_router(dashboards.router)
+    app.include_router(models.router)
     app.include_router(databases.router)
     app.include_router(datasets.router)
     app.include_router(qa.router)

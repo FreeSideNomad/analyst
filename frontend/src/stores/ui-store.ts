@@ -3,9 +3,9 @@
 import { create } from 'zustand';
 
 interface UIState {
-  view: 'ingest' | 'workspace' | 'charts' | 'dashboards';
+  view: 'ingest' | 'workspace' | 'charts' | 'dashboards' | 'models';
   detailCollapsed: boolean;
-  setView: (view: 'ingest' | 'workspace' | 'charts' | 'dashboards') => void;
+  setView: (view: 'ingest' | 'workspace' | 'charts' | 'dashboards' | 'models') => void;
   toggleDetail: () => void;
 }
 export const useUI = create<UIState>((set) => ({

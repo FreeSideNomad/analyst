@@ -53,7 +53,10 @@ docker run -d --name analyst \
    semantic catalog, relationships.
 3. **[Ask questions](ask.html)** — plain-English Q&A, clarifications, the
    trust trail, saved charts, exports, dashboards, cross-database questions.
-4. **[Administration](admin.html)** — data governance, credential storage,
+4. **[Guided models](models.html)** — train a prediction model through
+   decisions, not code: real sample data on demand, agent-proposed features,
+   deterministic local training, honest evaluation.
+5. **[Administration](admin.html)** — data governance, credential storage,
    workspaces, backups.
 
 ## Why it's different

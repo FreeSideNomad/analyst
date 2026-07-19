@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: ["**"]
+    branches: [main]
   pull_request:
 
 concurrency:
@@ -23,6 +23,12 @@ jobs:
 
       - name: Install dependencies (uv provisions Python 3.14)
         run: uv sync
+
+      - name: Cache the on-demand ML datasets (feature 012 real-data tests)
+        uses: actions/cache@v4
+        with:
+          path: tests/.ml_cache
+          key: ml-cache-v1
 
       - name: Lint (ruff)
         run: uv run ruff check src tests acceptance
@@ -79,5 +85,23 @@ jobs:
       - name: Install Playwright Chromium
         run: uv run playwright install --with-deps chromium
 
-      - name: Run acceptance boards (feature 001 in-process, feature 002 e2e)
+      - name: Cache the on-demand ML datasets (feature 012 real-data board)
+        uses: actions/cache@v4
+        with:
+          path: tests/.ml_cache
+          key: ml-cache-v1
+
+      - name: Set up Docker Buildx (container e2e, feature 012)
+        uses: docker/setup-buildx-action@v3
+
+      - name: Pre-build the app image with layer cache (container e2e)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: analyst:e2e
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Run acceptance boards (all features, incl. the deployed-container journey)
         run: ./run-acceptance-tests.sh

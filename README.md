@@ -51,6 +51,7 @@ configuration reference.
 | **Data normalization** | Case/whitespace variants of the same value ("East"/"east"/"EAST") are detected with evidence and proposed as explicit rules — **never silently applied**; approve and every query sees the standard, revoke and the originals return. |
 | **Human-curatable catalog** | Open cataloguing questions are real forms (pick an option or answer in your own words) and every description takes corrections; the agent completes the analysis with your answer as ground truth, and settled meanings are sticky — never overwritten by automation. |
 | **Interactive dashboards** | Describe a dashboard in plain English and the agent assembles it: filterable (before aggregation), cross-filtering on click, drill-down to rows, conversational editing, print preview — every widget with its own trust trail. |
+| **Guided predictive models** | Train a real model without writing code: pick a dataset and a target, the agent proposes features with plain-language reasons, and a committed deterministic trainer (linear baseline + LightGBM) runs locally. Honest holdout evaluation in dollars, predictions land as an ordinary queryable dataset, and the registry tells each model's full story. The LLM never writes training code and never sees rows. |
 | **Database federation** | PostgreSQL, SQLite, SQL Server, DB2 — queried read-only **in place**, nothing copied. Encrypted-at-rest credential storage (operator-supplied key, Docker-secret friendly) with automatic reconnect after restarts. |
 | **Team-ready** | Google/Microsoft OAuth; first user becomes admin; isolated workspaces. |
 
@@ -116,6 +117,7 @@ and handoffs.
 | 015 | Interactive dashboards — agent-assembled, filterable, cross-filtering, drill-down |
 | 016 | Catalog curation — answer clarifications, correct meanings; human-settled and sticky |
 | 017 | Cross-database joins — one question spanning two connected databases, joined locally |
+| 012 | Guided predictive models — real sample data on demand, agent-proposed features, deterministic local training, honest evaluation |
 
 ### Quality gate
 

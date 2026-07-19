@@ -162,3 +162,24 @@ def test_columns_named_after_sql_aliases_profile_fine(tmp_path):
     assert v.distinct_count == 2
     bins = {b.label: b.count for b in v.distribution}
     assert bins == {"a": 2, "b": 1}
+
+
+def test_profiling_is_reproducible_on_real_scale_data():
+    """Charter: 'profiling is reproducible for a given source snapshot'.
+    Unseeded DISTINCT sampling broke this above ~20 distinct values
+    (surfaced by feature 012's real Ames data)."""
+    import os
+
+    import duckdb
+
+    os.environ.setdefault("ANALYST_ML_CACHE", "tests/.ml_cache")
+    from analyst.engine.mlsamples import fetch_sample_csv
+    from analyst.engine.profiler import profile_relation
+
+    csv_path = fetch_sample_csv("ames")
+    con = duckdb.connect()
+    con.execute(f"CREATE VIEW t AS SELECT * FROM read_csv_auto('{csv_path}')")
+    first = profile_relation(con, "t")
+    second = profile_relation(con, "t")
+    for a, b in zip(first.columns, second.columns):
+        assert a.samples == b.samples, a.name

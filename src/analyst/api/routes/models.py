@@ -1,0 +1,119 @@
+"""Model routes — feature 012.
+
+Task dictionaries cross the wire as stored (snake_case registry records);
+the guidance/training errors map to the established codes. The trainer only
+ever runs server-side committed code.
+"""
+
+from __future__ import annotations
+
+from fastapi import APIRouter, Depends, HTTPException
+
+from analyst.api.deps import get_repository
+from analyst.api.repository import DatasetRepository
+from analyst.api.routes.datasets import to_dataset_schema
+from analyst.api.schemas import Camel
+from analyst.domain.models import UnknownModelError
+
+router = APIRouter(prefix="/api")
+
+
+class NewTaskRequest(Camel):
+    dataset: str
+    target: str
+
+
+class FeaturesRequest(Camel):
+    accepted: list[str]
+
+
+class TrainRequest(Camel):
+    params: dict = {}
+
+
+def _guard(call):  # noqa: ANN001, ANN202
+    from analyst.agentic.models import ModelGuidanceError
+    from analyst.engine.mltrain import LeakageError
+
+    try:
+        return call()
+    except UnknownModelError as exc:
+        raise HTTPException(404, f"No such model: {exc}") from None
+    except KeyError as exc:
+        raise HTTPException(404, f"No such dataset: {exc}") from None
+    except (ValueError, LeakageError) as exc:
+        raise HTTPException(400, str(exc)) from None
+    except ModelGuidanceError as exc:
+        raise HTTPException(502, str(exc)) from None
+
+
+@router.get("/models/gallery")
+def gallery(repo: DatasetRepository = Depends(get_repository)) -> dict:
+    return {
+        "samples": [
+            {
+                "key": s.key,
+                "title": s.title,
+                "target": s.target,
+                "description": s.description,
+            }
+            for s in repo.model_gallery()
+        ]
+    }
+
+
+@router.post("/models/gallery/{key}")
+def add_sample(key: str, repo: DatasetRepository = Depends(get_repository)) -> dict:
+    from analyst.engine.mlsamples import UnknownSampleError
+
+    from typing import cast
+
+    from analyst.api.repository import DatasetRecord
+
+    try:
+        record = repo.add_sample(key)
+    except UnknownSampleError as exc:
+        raise HTTPException(404, f"No such sample: {exc}") from None
+    return to_dataset_schema(cast(DatasetRecord, record)).dump()
+
+
+@router.post("/models/tasks")
+def create_task(
+    body: NewTaskRequest, repo: DatasetRepository = Depends(get_repository)
+) -> dict:
+    return _guard(lambda: repo.create_model_task(body.dataset, body.target))
+
+
+@router.patch("/models/tasks/{task_id}/features")
+def update_features(
+    task_id: str,
+    body: FeaturesRequest,
+    repo: DatasetRepository = Depends(get_repository),
+) -> dict:
+    return _guard(lambda: repo.update_task_features(task_id, body.accepted))
+
+
+@router.post("/models/tasks/{task_id}/train")
+def train(
+    task_id: str,
+    body: TrainRequest,
+    repo: DatasetRepository = Depends(get_repository),
+) -> dict:
+    return _guard(lambda: repo.train_model(task_id, body.params or None))
+
+
+@router.get("/models")
+def list_models(repo: DatasetRepository = Depends(get_repository)) -> dict:
+    return {"models": repo.models()}
+
+
+@router.get("/models/{task_id}")
+def get_model(task_id: str, repo: DatasetRepository = Depends(get_repository)) -> dict:
+    return _guard(lambda: repo.model(task_id))
+
+
+@router.delete("/models/{task_id}", status_code=204)
+def delete_model(
+    task_id: str, repo: DatasetRepository = Depends(get_repository)
+) -> None:
+    _guard(lambda: repo.delete_model(task_id))

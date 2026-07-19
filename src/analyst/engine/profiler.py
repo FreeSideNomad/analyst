@@ -166,9 +166,12 @@ def profile_relation(
                 con, rel, col, int(row_count) - int(null_count), sample_cap
             )
 
+        # ORDER BY makes the sampled MEMBERSHIP deterministic — the charter
+        # requires reproducible profiling, and replayed agent cassettes
+        # depend on stable prompts (surfaced by feature 012's real data).
         samples = con.execute(
             f"SELECT DISTINCT {col} FROM {rel} "
-            f"WHERE {col} IS NOT NULL LIMIT {int(sample_cap)}"
+            f"WHERE {col} IS NOT NULL ORDER BY 1 LIMIT {int(sample_cap)}"
         ).fetchall()
 
         distribution = _distribution(
