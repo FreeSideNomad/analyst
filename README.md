@@ -27,8 +27,10 @@ docker run -d --name analyst \
 
 Open <http://localhost:8000>. Ingestion, profiling, cataloguing, and
 relationship discovery run **fully locally** with no external calls. Add
-`-e ANTHROPIC_API_KEY=...` to enable natural-language Q&A and
-`-e ANALYST_CATALOG=live` for agent-written catalog descriptions — the
+`-e ANTHROPIC_API_KEY=...` (or a Claude subscription token via
+`-e CLAUDE_CODE_OAUTH_TOKEN=...`, from `claude setup-token`) plus
+`-e ANALYST_CATALOG=live` to enable natural-language Q&A, dashboards,
+curation, and agent-written catalog descriptions — the
 governance invariant holds regardless: **raw bulk data never leaves the box**
 (only schema, profiles, capped samples, and small result sets reach the
 model; SQL executes locally in DuckDB).
@@ -44,8 +46,11 @@ configuration reference.
 | **Agentic ingestion** | CSV/TSV/Excel/JSON → profiled (types, nulls, cardinality, distributions), materialized to Parquet/DuckDB, catalogued in plain English. Messy files (synthesized headers, duplicate columns, mixed types, encodings) handled and recorded. |
 | **Relationship discovery** | PK/FK links discovered even when undeclared — proposed by name/type, **validated against the data** (referential integrity), marked required/optional. Declared, composite, and cross-source (file ↔ database) keys included. |
 | **Workspace-aware semantic layer** | Each table is catalogued *knowing* the rest of the workspace; adding `orders` teaches `customers` it is now referenced. The catalog persists and survives restarts. |
-| **Plain-English Q&A** | Questions span files *and* connected databases (federated joins). Confidence-gated: the agent asks a clarifying question when ambiguous, abstains with a reason rather than hallucinating. |
-| **Trust trail** | Every answer expands into assumptions, data lineage, and the exact SQL. Results export to CSV or save back as first-class datasets. |
+| **Plain-English Q&A** | Questions span files *and* connected databases — including a single question joining tables from **two different databases**, executed locally. Confidence-gated: the agent asks a clarifying question when ambiguous, abstains with a reason rather than hallucinating. |
+| **Trust trail** | Every answer expands into assumptions, data lineage, and the exact SQL. Results save back as first-class datasets or as **saved charts** that re-run live on open; result sets and whole datasets export to CSV/Parquet/Excel at full fidelity. |
+| **Data normalization** | Case/whitespace variants of the same value ("East"/"east"/"EAST") are detected with evidence and proposed as explicit rules — **never silently applied**; approve and every query sees the standard, revoke and the originals return. |
+| **Human-curatable catalog** | Open cataloguing questions are real forms (pick an option or answer in your own words) and every description takes corrections; the agent completes the analysis with your answer as ground truth, and settled meanings are sticky — never overwritten by automation. |
+| **Interactive dashboards** | Describe a dashboard in plain English and the agent assembles it: filterable (before aggregation), cross-filtering on click, drill-down to rows, conversational editing, print preview — every widget with its own trust trail. |
 | **Database federation** | PostgreSQL, SQLite, SQL Server, DB2 — queried read-only **in place**, nothing copied. Encrypted-at-rest credential storage (operator-supplied key, Docker-secret friendly) with automatic reconnect after restarts. |
 | **Team-ready** | Google/Microsoft OAuth; first user becomes admin; isolated workspaces. |
 
@@ -66,6 +71,7 @@ uv run uvicorn analyst.api.app:app --reload --port 8000   # API :8000
 cd frontend && bun run dev                                # web :5173, proxies /api
 
 uv run pytest tests/unit     # unit tests (incl. the API layer)
+uv run python scripts/make_cross_dbs.py   # synthetic 2-DB sample kit (017)
 uv run ruff check .          # lint
 uv run mypy src/analyst      # static types
 cd frontend && bun run lint && bun run build   # frontend gate
@@ -115,7 +121,9 @@ and handoffs.
 
 The same checks run **on every commit** (`.pre-commit-config.yaml`) and **in
 CI** (`.github/workflows/ci.yml`): `ruff` lint + format, `mypy`, unit tests,
-the frontend lint/typecheck/build, and every acceptance board — 161 scenarios
-across 10 boards, browser E2E included. Nothing lands with a regression.
+the frontend lint/typecheck/build, and every acceptance board — 233 scenarios
+across 15 boards, browser E2E included. Agent behavior is pinned with
+live-recorded, deterministically replayed cassettes; invariants carry
+mutation gates. Nothing lands with a regression.
 `docker.yml` publishes the image to GHCR on every push to `main`; `pages.yml`
 publishes the manual.

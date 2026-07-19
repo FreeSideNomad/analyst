@@ -60,3 +60,13 @@ docker run -d --name analyst -p 8000:8000 -v analyst-data:/data ... \
 
 `GET /api/health` returns `{"ok": true, ...}` — the image ships a Docker
 `HEALTHCHECK` wired to it.
+
+
+## What lives in the data volume
+
+Everything the app knows is under `/data`: Parquet versions, the DuckDB
+catalog, and the per-dataset sidecars — semantic catalog entries,
+normalization decisions, curation (human-settled meanings), saved charts
+(`charts.json`), and dashboards (`dashboards.json`). Backing up the volume
+backs up all of it; the only thing deliberately *outside* is the operator
+key that unlocks stored database credentials.

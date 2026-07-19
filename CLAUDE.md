@@ -55,14 +55,24 @@ Run the whole pipeline with:
   never skipped or xfail'd. A red board is intended: it drives the next slice.
 - Always run Python via `uv run` (see `pyproject.toml`).
 
-### Current state (Feature 001 in progress)
+### Current state (features 001–017 shipped)
 
-Fully bound and **passing**:
+**All 15 boards are fully bound and green — 233 scenarios** (in-process +
+Playwright browser e2e). Each feature folder's `.handlers` file names its
+binding module: `acceptance/handlers.py` (001), `ctxNNN.py` (in-process
+seams), `e2e_NNN.py` (modules that also boot the fixtures app + Chromium;
+skipped with `E2E=0`).
 
-- `A clean CSV becomes a profiled, queryable dataset`
-- `Numeric columns get distribution statistics`
-- `An ingested dataset remains queryable after a restart`
+Conventions that keep the boards honest:
 
-Remaining scenarios are generated as explicit failing tests that document the
-desired behavior, driving later slices. As each slice lands, add its step
-bindings to `acceptance/handlers.py` and re-run the pipeline.
+- **Agent turns replay cassettes** in `tests/cassettes/`, recorded once live
+  by `scripts/record_*_cassette.py`. Recording scripts must mirror the
+  bindings byte-for-byte (same fixtures, same workspace) or replay keys miss.
+- **Commit the implementation BEFORE running mutation gates** — gates revert
+  with `git checkout`, which destroys uncommitted work.
+- Never `git commit -q` — it hides pre-commit failures and drops commits
+  silently.
+- ruff's autofix strips imports that only later-appended code uses; hoist
+  imports when growing a handler module incrementally.
+- Playwright `get_by_label` matches substrings: keep aria-labels
+  prefix-free of each other or bind with `exact=True`.

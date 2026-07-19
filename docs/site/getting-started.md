@@ -25,7 +25,8 @@ keep it on durable storage and back it up like any database volume.
 
 | Environment variable | What it does |
 |---|---|
-| `ANTHROPIC_API_KEY` | Enables the LLM features: natural-language Q&A and (with `ANALYST_CATALOG=live`) agent-written catalog descriptions. Without it, ingestion/profiling/cataloguing still work — fully offline and deterministic. |
+| `ANTHROPIC_API_KEY` | Enables the LLM features: natural-language Q&A, dashboards, catalog curation, and (with `ANALYST_CATALOG=live`) agent-written catalog descriptions. Without it, ingestion/profiling/cataloguing/normalization still work — fully offline and deterministic, and the UI says so instead of degrading silently. |
+| `CLAUDE_CODE_OAUTH_TOKEN` | Alternative to the API key: a long-lived Claude **subscription** token (run `claude setup-token` on a logged-in machine). Needed for containers — a host's keychain login does not reach inside. |
 | `ANALYST_CATALOG=live` | Opt into live agent cataloguing (richer plain-English table/column meanings). Default is the offline, data-grounded cataloguer. |
 | `ANALYST_SECRET_KEY` or `ANALYST_SECRET_KEY_FILE` | The operator key that encrypts stored database credentials so connections survive restarts. Recommended: a Docker secret mounted read-only, `ANALYST_SECRET_KEY_FILE=/run/secrets/analyst_secret_key`. **No key → credentials are session-only** (the fail-safe). |
 | `ANALYST_SESSION_SECRET` | Stable signing key for login sessions (set it in any multi-user deployment). |
@@ -56,7 +57,9 @@ recovery path around the encryption).
 ## First look
 
 The app opens on **Ingest & profile** — the semantic catalog on the left,
-table detail on the right. The **Query** view is where you ask questions.
+table detail on the right. **Query** is where you ask questions; **Charts**
+holds the answers you saved (they re-run live when opened); **Dashboards**
+assembles filterable, printable widget grids from a plain-English request.
 
 ![Query view](img/query-home.png)
 

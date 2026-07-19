@@ -30,8 +30,9 @@ docker run -d --name analyst \
 Open **http://localhost:8000**. That's it — full ingestion, profiling,
 cataloguing, and relationship discovery run locally with no external calls.
 
-To enable the LLM features (natural-language Q&A, richer agent-written
-descriptions), add an Anthropic API key — governance holds regardless: only
+To enable the LLM features (natural-language Q&A, dashboards, curation,
+richer agent-written descriptions), add an Anthropic API key or a Claude
+subscription token (`claude setup-token`) — governance holds regardless: only
 schema, profiles, capped samples, and small result sets ever reach the model,
 never your bulk data.
 
@@ -51,7 +52,7 @@ docker run -d --name analyst \
 2. **[Ingest & profile](ingest.html)** — files, connected databases, the
    semantic catalog, relationships.
 3. **[Ask questions](ask.html)** — plain-English Q&A, clarifications, the
-   trust trail, saving results.
+   trust trail, saved charts, exports, dashboards, cross-database questions.
 4. **[Administration](admin.html)** — data governance, credential storage,
    workspaces, backups.
 
@@ -68,7 +69,13 @@ docker run -d --name analyst \
   and asks a clarifying question when it isn't (two candidate "region"
   columns, say).
 - **Trust trail on every answer** — assumptions, data lineage, and the exact
-  SQL, expandable under every result.
+  SQL, expandable under every result, chart, and dashboard widget.
+- **Keep what matters** — answers become saved charts that re-run live;
+  dashboards assemble from a sentence and stay filterable, cross-filtering,
+  and printable; everything exports (CSV/Parquet/Excel) at full fidelity.
+- **You own the meaning** — normalization rules and catalog corrections are
+  proposed with evidence and only ever applied by you; human-settled
+  meanings are never overwritten by automation.
 - **Real governance** — SQL executes locally in DuckDB; connected databases
   are queried read-only in place (nothing copied); credentials are encrypted
   at rest under an operator-supplied key.
