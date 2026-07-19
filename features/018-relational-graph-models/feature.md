@@ -2,7 +2,7 @@
 slug: relational-graph-models
 title: Relational graph (GNN) model backend — validated against the paper
 outcome: The Models area gains a relational tier — a GNN backend (plus the hybrid GNN-embeddings→GBM combination the paper found best) that learns across linked tables instead of one flat feature table. Its code validity is proven the only honest way public data allows — by reproducing the owner's paper's reference AUROCs on the Berka tasks within tolerance, deterministically: graph model 0.718 (loan_default) / 0.759 (account_churn) / 0.679 (card_adoption), relational-feature baseline 0.765 / 0.902 / 0.800. Trained relational models land in the SAME registry, write predictions as ordinary queryable datasets, and are guided through the same decisions-not-code flow as 012. The torch stack ships as a separate analyst:ml image variant; the default image stays lean.
-status: ready
+status: done
 autonomy_level: high
 owner: igormusic
 area: models
