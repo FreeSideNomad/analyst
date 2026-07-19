@@ -68,6 +68,9 @@ contract), and [`docs/PRD.md`](docs/PRD.md) (product vision).
 make build   # build the local Docker image (web UI + API in one)
 make run     # start the app container + seeded demo DBs (config via .env)
 
+# ML variant (feature 018 — relational graph models; linux/amd64 only):
+docker build --platform linux/amd64 --target ml -t analyst:ml .
+
 # dev servers (uv sync + `cd frontend && bun install` first):
 uv run uvicorn analyst.api.app:app --reload --port 8000   # API :8000
 cd frontend && bun run dev                                # web :5173, proxies /api
@@ -125,8 +128,8 @@ and handoffs.
 
 The same checks run **on every commit** (`.pre-commit-config.yaml`) and **in
 CI** (`.github/workflows/ci.yml`): `ruff` lint + format, `mypy`, unit tests,
-the frontend lint/typecheck/build, and every acceptance board — 233 scenarios
-across 15 boards, browser E2E included. Agent behavior is pinned with
+the frontend lint/typecheck/build, and every acceptance board — 263 scenarios
+across 17 boards, browser E2E and both deployed-container journeys included. Agent behavior is pinned with
 live-recorded, deterministically replayed cassettes; invariants carry
 mutation gates. Nothing lands with a regression.
 `docker.yml` publishes the image to GHCR on every push to `main`; `pages.yml`
