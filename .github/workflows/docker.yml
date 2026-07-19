@@ -86,3 +86,17 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      # The ML edition (relational graph models). amd64 only — pyg-lib
+      # publishes no linux/arm64 wheel; Apple Silicon runs it emulated.
+      - name: Publish the ML image variant
+        if: steps.decide.outputs.publish == 'true'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: ml
+          platforms: linux/amd64
+          push: true
+          tags: ghcr.io/${{ github.repository }}:ml
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
