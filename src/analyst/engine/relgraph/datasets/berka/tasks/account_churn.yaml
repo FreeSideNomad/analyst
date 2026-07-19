@@ -1,0 +1,49 @@
+# Balance migration, the commercial-banking meaning of churn: for each
+# account and quarter start, label 1 if incoming deposit volume over the next
+# 90 days falls below half of the previous 90 days' volume. Accounts enter
+# the grid once open at least 90 days with any prior deposits. (Full
+# dormancy barely exists in this data: the bank credits interest monthly and
+# nearly every account keeps some cash activity.)
+name: account_churn
+entity_table: account
+entity_column: account_id
+time_column: open_date
+horizon_days: 90
+metric: auroc
+# Churn's signal is the account's own recent deposit history: wide two-hop
+# sampling beats deeper-but-narrower counterparty paths here (0.77 vs 0.74).
+graph:
+  num_layers: 2
+  num_neighbors: [128, 128]
+label_query: |
+  WITH grid AS (
+    SELECT unnest(generate_series(
+      DATE '1995-01-01', DATE '1998-09-01', INTERVAL 3 MONTH
+    ))::DATE AS as_of
+  ),
+  vol AS (
+    SELECT a.account_id, g.as_of,
+      (SELECT COALESCE(SUM(t.amount), 0) FROM trans t
+        WHERE t.account_id = a.account_id AND t.type = 'PRIJEM'
+          AND t.trans_date > g.as_of - INTERVAL 90 DAY
+          AND t.trans_date <= g.as_of) AS prev_deposits,
+      (SELECT COALESCE(SUM(t.amount), 0) FROM trans t
+        WHERE t.account_id = a.account_id AND t.type = 'PRIJEM'
+          AND t.trans_date > g.as_of
+          AND t.trans_date <= g.as_of + INTERVAL 90 DAY) AS next_deposits
+    FROM account a
+    JOIN grid g ON a.open_date <= g.as_of - INTERVAL 90 DAY
+  )
+  SELECT account_id,
+         as_of,
+         CASE WHEN next_deposits < 0.5 * prev_deposits THEN 1 ELSE 0 END AS label
+  FROM vol
+  WHERE prev_deposits > 0
+framing:
+  question: Will this account go quiet in the next year?
+  moment: >-
+    The prediction is made at a fixed review date, using each account's
+    activity up to that day.
+  honesty: >-
+    Whether the account actually went quiet is only known later — nothing
+    dated after the review moment is shown to the model.

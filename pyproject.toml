@@ -31,6 +31,29 @@ dbs = [
     "pymssql>=2.3.0",
     "ibm-db>=3.2.0",
 ]
+# The relational-graph (GNN) tier — feature 018. Optional so the default
+# image stays lean; the analyst:ml image variant and local ML dev install
+# with `uv sync --extra ml`. CPU torch only.
+ml = [
+    "torch>=2.12,<2.13",  # newest torch with pyg-lib wheels (cp314)
+    "torch-geometric>=2.8.0",
+    # Native neighbor sampler from the PyG flat index; the local-version
+    # variants split by platform (+pt212 = macOS arm64, +pt212cpu = linux/win).
+    "pyg-lib==0.7.0+pt212; sys_platform == 'darwin'",
+    "pyg-lib==0.7.0+pt212cpu; sys_platform != 'darwin'",
+    "pytorch-frame>=0.3.0",
+    "relbench==1.1.0",  # the paper's exact version (reproduction fidelity)
+    "pyyaml>=6.0",
+]
+
+[tool.uv.sources]
+pyg-lib = { index = "pyg" }
+
+[[tool.uv.index]]
+name = "pyg"
+url = "https://data.pyg.org/whl/torch-2.12.0+cpu.html"
+format = "flat"
+explicit = true
 
 [build-system]
 requires = ["uv_build>=0.9.15,<0.10.0"]
@@ -64,6 +87,17 @@ warn_unused_ignores = true
 [[tool.mypy.overrides]]
 module = ["openpyxl.*", "claude_agent_sdk.*", "xlrd.*", "pymssql", "ibm_db_dbi"]
 ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# The optional ml extra (feature 018) — not installed in every dev env.
+module = ["torch.*", "torch_geometric.*", "torch_frame.*", "relbench.*", "yaml"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# Vendored engine: kept faithful to the paper (reproduction gate) rather
+# than annotated to analyst's strictness.
+module = ["analyst.engine.relgraph.*"]
+ignore_errors = true
 
 [tool.pytest.ini_options]
 markers = [

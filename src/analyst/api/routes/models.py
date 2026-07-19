@@ -34,6 +34,7 @@ class TrainRequest(Camel):
 def _guard(call):  # noqa: ANN001, ANN202
     from analyst.agentic.models import ModelGuidanceError
     from analyst.engine.mltrain import LeakageError
+    from analyst.engine.relgraph.errors import RelgraphError
 
     try:
         return call()
@@ -45,6 +46,10 @@ def _guard(call):  # noqa: ANN001, ANN202
         raise HTTPException(400, str(exc)) from None
     except ModelGuidanceError as exc:
         raise HTTPException(502, str(exc)) from None
+    except RelgraphError as exc:
+        raise HTTPException(
+            502, f"Training failed and nothing was saved: {exc}"
+        ) from None
 
 
 @router.get("/models/gallery")
@@ -105,6 +110,40 @@ def train(
 @router.get("/models")
 def list_models(repo: DatasetRepository = Depends(get_repository)) -> dict:
     return {"models": repo.models()}
+
+
+# Feature 018 — relational graph models. Declared before the {task_id}
+# routes so "relational" never matches as a task id.
+
+
+class RelationalTaskRequest(Camel):
+    task: str
+
+
+@router.get("/models/relational")
+def relational_bundle(repo: DatasetRepository = Depends(get_repository)) -> dict:
+    return repo.relational_bundle()
+
+
+@router.post("/models/relational/bundle")
+def add_relational_bundle(
+    repo: DatasetRepository = Depends(get_repository),
+) -> dict:
+    return _guard(repo.add_relational_bundle)
+
+
+@router.post("/models/relational/tasks")
+def create_relational_task(
+    body: RelationalTaskRequest, repo: DatasetRepository = Depends(get_repository)
+) -> dict:
+    return _guard(lambda: repo.create_relational_task(body.task))
+
+
+@router.post("/models/relational/tasks/{task_id}/train")
+def train_relational(
+    task_id: str, repo: DatasetRepository = Depends(get_repository)
+) -> dict:
+    return _guard(lambda: repo.train_relational(task_id))
 
 
 @router.get("/models/{task_id}")

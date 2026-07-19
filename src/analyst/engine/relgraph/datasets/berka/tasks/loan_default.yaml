@@ -1,0 +1,32 @@
+# Will this loan end in default? Predicted at grant date from the account's
+# prior history. Status B (finished, unpaid) and D (running, in debt) are the
+# real default outcomes. loan.status and loan.payments are outcomes recorded
+# after grant, so they are hidden from models.
+name: loan_default
+entity_table: loan
+entity_column: loan_id
+time_column: grant_date
+horizon_days: 365
+metric: auroc
+# Four hops: loan -> account -> transactions -> counterparty -> the
+# counterparty's other transactions (shared-payee structure).
+graph:
+  num_layers: 4
+  num_neighbors: [16, 64, 16, 8]
+exclude:
+  - loan.status
+  - loan.payments
+label_query: |
+  SELECT loan_id,
+         grant_date AS as_of,
+         CASE WHEN status IN ('B', 'D') THEN 1 ELSE 0 END AS label
+  FROM loan
+framing:
+  question: Will this loan end in default?
+  moment: >-
+    The prediction is made at the moment the loan is granted, using only
+    what the bank knew about the account up to that day.
+  honesty: >-
+    The loan's recorded status and payment history are how the story ended
+    — they are named below and hidden from the model, because predicting
+    with them would be answering the question with the answer.

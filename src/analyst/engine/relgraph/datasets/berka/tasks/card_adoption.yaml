@@ -1,0 +1,43 @@
+# Will this account adopt a credit card in the next year? For each account
+# and half-year start, restricted to accounts with no card yet, label 1 if a
+# card is issued to any of the account's dispositions within 365 days.
+name: card_adoption
+entity_table: account
+entity_column: account_id
+time_column: open_date
+horizon_days: 365
+metric: auroc
+graph:
+  num_layers: 3
+  num_neighbors: [64, 16, 8]
+label_query: |
+  WITH grid AS (
+    SELECT unnest(generate_series(
+      DATE '1995-01-01', DATE '1997-12-01', INTERVAL 6 MONTH
+    ))::DATE AS as_of
+  )
+  SELECT a.account_id,
+         g.as_of,
+         CASE WHEN EXISTS (
+           SELECT 1 FROM card c
+           JOIN disp d ON d.disp_id = c.disp_id
+           WHERE d.account_id = a.account_id
+             AND c.issued > g.as_of
+             AND c.issued <= g.as_of + INTERVAL 365 DAY
+         ) THEN 1 ELSE 0 END AS label
+  FROM account a
+  JOIN grid g ON a.open_date <= g.as_of
+  WHERE NOT EXISTS (
+    SELECT 1 FROM card c
+    JOIN disp d ON d.disp_id = c.disp_id
+    WHERE d.account_id = a.account_id
+      AND c.issued <= g.as_of
+  )
+framing:
+  question: Will this account take a payment card in the next year?
+  moment: >-
+    The prediction is made at a fixed review date, from the account's
+    history up to that day.
+  honesty: >-
+    Card issue dates after the review moment are the outcome — the model
+    never sees them.

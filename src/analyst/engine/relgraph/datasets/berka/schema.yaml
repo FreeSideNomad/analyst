@@ -1,0 +1,177 @@
+# Berka / PKDD'99 Czech bank dataset (real, anonymized banking data).
+# Source: https://github.com/jlacko/berka-dataset (mirror of the PKDD'99
+# Discovery Challenge data; original: sorry.vse.cz/~berka).
+name: berka
+val_timestamp: "1996-07-01"
+test_timestamp: "1997-06-01"
+
+sources:
+  - name: district
+    url: https://raw.githubusercontent.com/jlacko/berka-dataset/master/district.asc
+    fallback_url: http://sorry.vse.cz/~berka/challenge/pkdd1999/district.asc
+    sha256: 7f03cf3b9b82f0fdcc3abdf6cc716f145db8e9875c68e2d2e2f7151e9ecf4df3
+    filename: district.asc
+  - name: client
+    url: https://raw.githubusercontent.com/jlacko/berka-dataset/master/client.asc
+    fallback_url: http://sorry.vse.cz/~berka/challenge/pkdd1999/client.asc
+    sha256: e435c6b92d246f4f0dfd5e2827469d745c06238714c32b3ffb415eebe794e1a7
+    filename: client.asc
+  - name: account
+    url: https://raw.githubusercontent.com/jlacko/berka-dataset/master/account.asc
+    fallback_url: http://sorry.vse.cz/~berka/challenge/pkdd1999/account.asc
+    sha256: 58d7f50abd72e9b1a5568346f74bb54cd71224ee1db9f09a27d7cac563f38cc6
+    filename: account.asc
+  - name: disp
+    url: https://raw.githubusercontent.com/jlacko/berka-dataset/master/disp.asc
+    fallback_url: http://sorry.vse.cz/~berka/challenge/pkdd1999/disp.asc
+    sha256: ebd801f77b6d322e8ebc08e52f188e7c8fca539325f85f57f8c73434da9d32d8
+    filename: disp.asc
+  - name: card
+    url: https://raw.githubusercontent.com/jlacko/berka-dataset/master/card.asc
+    fallback_url: http://sorry.vse.cz/~berka/challenge/pkdd1999/card.asc
+    sha256: fc669bde6adf6457d87421c0bfb218e9c384a7032c6accd348d207a405e72109
+    filename: card.asc
+  - name: loan
+    url: https://raw.githubusercontent.com/jlacko/berka-dataset/master/loan.asc
+    fallback_url: http://sorry.vse.cz/~berka/challenge/pkdd1999/loan.asc
+    sha256: 68535f609a254aa7a3f03dd8e27dcb822b532df12a0d6046f0666b8dc0b8ae8e
+    filename: loan.asc
+  - name: order
+    url: https://raw.githubusercontent.com/jlacko/berka-dataset/master/order.asc
+    fallback_url: http://sorry.vse.cz/~berka/challenge/pkdd1999/order.asc
+    sha256: 035930fa6acd2ca42a935e654b21e1bb260248f49b6dc6e7de6351b7c4d56d02
+    filename: order.asc
+  - name: trans
+    url: https://raw.githubusercontent.com/jlacko/berka-dataset/master/trans.asc
+    fallback_url: http://sorry.vse.cz/~berka/challenge/pkdd1999/trans.asc
+    sha256: 75ab2f39df9d79d79c5c900de90ddd28248b689f214598ac9fa2ff0f574a70d2
+    filename: trans.asc
+
+tables:
+  district:
+    file: district.asc
+    delimiter: ";"
+    primary_key: district_id
+    columns:
+      - {name: district_id, type: int}
+      - {name: district_name, type: string}
+      - {name: region, type: string}
+      - {name: inhabitants, type: int}
+      - {name: avg_salary, type: float}
+      - {name: unemployment_rate_95, type: float}
+      - {name: unemployment_rate_96, type: float}
+      - {name: entrepreneurs_per_1000, type: float}
+      - {name: crimes_95, type: float}
+      - {name: crimes_96, type: float}
+
+  client:
+    file: client.asc
+    delimiter: ";"
+    primary_key: client_id
+    columns:
+      - {name: client_id, type: int}
+      - {name: birth_date, type: date}
+      - {name: gender, type: string}
+      - {name: district_id, type: int}
+    foreign_keys:
+      - {column: district_id, references: {table: district, column: district_id}}
+
+  account:
+    file: account.asc
+    delimiter: ";"
+    primary_key: account_id
+    time_column: open_date
+    columns:
+      - {name: account_id, type: int}
+      - {name: district_id, type: int}
+      - {name: frequency, type: string}
+      - {name: open_date, type: date}
+    foreign_keys:
+      - {column: district_id, references: {table: district, column: district_id}}
+
+  disp:
+    file: disp.asc
+    delimiter: ";"
+    primary_key: disp_id
+    columns:
+      - {name: disp_id, type: int}
+      - {name: client_id, type: int}
+      - {name: account_id, type: int}
+      - {name: type, type: string}
+    foreign_keys:
+      - {column: client_id, references: {table: client, column: client_id}}
+      - {column: account_id, references: {table: account, column: account_id}}
+
+  card:
+    file: card.asc
+    delimiter: ";"
+    primary_key: card_id
+    time_column: issued
+    columns:
+      - {name: card_id, type: int}
+      - {name: disp_id, type: int}
+      - {name: type, type: string}
+      - {name: issued, type: date}
+    foreign_keys:
+      - {column: disp_id, references: {table: disp, column: disp_id}}
+
+  loan:
+    file: loan.asc
+    delimiter: ";"
+    primary_key: loan_id
+    time_column: grant_date
+    columns:
+      - {name: loan_id, type: int}
+      - {name: account_id, type: int}
+      - {name: grant_date, type: date}
+      - {name: amount, type: float}
+      - {name: duration, type: int}
+      - {name: payments, type: float}
+      - {name: status, type: string}
+    foreign_keys:
+      - {column: account_id, references: {table: account, column: account_id}}
+
+  order:
+    file: order.asc
+    delimiter: ";"
+    primary_key: order_id
+    columns:
+      - {name: order_id, type: int}
+      - {name: account_id, type: int}
+      - {name: counterparty_id, type: string}
+      - {name: amount, type: float}
+      - {name: k_symbol, type: string}
+    foreign_keys:
+      - {column: account_id, references: {table: account, column: account_id}}
+      - {column: counterparty_id,
+         references: {table: counterparty, column: counterparty_id}}
+
+  trans:
+    file: trans.asc
+    delimiter: ";"
+    primary_key: trans_id
+    time_column: trans_date
+    columns:
+      - {name: trans_id, type: int}
+      - {name: account_id, type: int}
+      - {name: counterparty_id, type: string}
+      - {name: trans_date, type: date}
+      - {name: type, type: string}
+      - {name: operation, type: string}
+      - {name: amount, type: float}
+      - {name: balance, type: float}
+      - {name: k_symbol, type: string}
+    foreign_keys:
+      - {column: account_id, references: {table: account, column: account_id}}
+      - {column: counterparty_id,
+         references: {table: counterparty, column: counterparty_id}}
+
+  # Derived: one node per distinct payment counterparty (bank, account) pair,
+  # materialized by hooks.py from transfers and standing orders. Accounts
+  # paying the same counterparty are connected through it.
+  counterparty:
+    derived: true
+    primary_key: counterparty_id
+    columns:
+      - {name: counterparty_id, type: string}
+      - {name: counterparty_bank, type: string}

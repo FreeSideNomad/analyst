@@ -208,6 +208,44 @@ export interface ModelTask {
   version: number;
 }
 
+export interface RelationalBundle {
+  key: string;
+  title: string;
+  description: string;
+  available: boolean;
+  added: boolean;
+  message?: string;
+  tasks: { name: string; question: string }[];
+}
+
+export interface RelationalStory {
+  entity_table: string;
+  tables: string[];
+  edges: string[];
+  split: string;
+  split_sizes: Record<string, number>;
+  num_layers: number;
+  num_neighbors: number[];
+  excluded_outcomes: string[];
+  framing: Record<string, string>;
+}
+
+export interface RelationalTask {
+  task_id: string;
+  kind: 'relational';
+  dataset: string;
+  task: string;
+  framing: { question: string; moment: string; honesty: string };
+  excluded_outcomes: string[];
+  seed: number;
+  status: string;
+  metrics: Record<'graph' | 'baseline' | 'hybrid', { test_auroc: number; test_avg_precision: number }> | null;
+  story: RelationalStory | null;
+  evaluation?: string;
+  predictions_dataset: string | null;
+  version: number;
+}
+
 export interface Health {
   ok: boolean;
   fixtures: boolean;
@@ -229,8 +267,12 @@ export interface ApiClient {
   createModelTask(dataset: string, target: string): Promise<ModelTask>;
   updateModelFeatures(taskId: string, accepted: string[]): Promise<ModelTask>;
   trainModel(taskId: string, params?: Record<string, number>): Promise<ModelTask>;
-  listModels(): Promise<{ models: ModelTask[] }>;
+  listModels(): Promise<{ models: (ModelTask | RelationalTask)[] }>;
   deleteModel(taskId: string): Promise<void>;
+  relationalBundle(): Promise<RelationalBundle>;
+  addRelationalBundle(): Promise<{ tables: string[] }>;
+  createRelationalTask(task: string): Promise<RelationalTask>;
+  trainRelational(taskId: string): Promise<RelationalTask>;
   createDashboard(request: string): Promise<DashboardCreateResult>;
   editDashboard(dashboardId: string, request: string): Promise<DashboardCreateResult>;
   runDashboard(dashboardId: string, filters: { column: string; value: string }[]): Promise<DashboardRun>;
