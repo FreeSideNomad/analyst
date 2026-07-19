@@ -55,9 +55,9 @@ Run the whole pipeline with:
   never skipped or xfail'd. A red board is intended: it drives the next slice.
 - Always run Python via `uv run` (see `pyproject.toml`).
 
-### Current state (features 001–018 shipped)
+### Current state (features 001–019 shipped)
 
-**All 17 boards are fully bound and green — 263 scenarios** (in-process +
+**All 18 boards are fully bound and green — 276 scenarios** (in-process +
 Playwright browser e2e). Each feature folder's `.handlers` file names its
 binding module: `acceptance/handlers.py` (001), `ctxNNN.py` (in-process
 seams), `e2e_NNN.py` (modules that also boot the fixtures app + Chromium;
