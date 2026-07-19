@@ -233,8 +233,18 @@ export interface RelationalStory {
 export interface RelationalTask {
   task_id: string;
   kind: 'relational';
-  dataset: string;
-  task: string;
+  dataset?: string;
+  task?: string;
+  authored?: boolean;
+  source?: string;
+  question?: string;
+  entity_table?: string;
+  label_sql?: string;
+  val_cutoff?: string;
+  test_cutoff?: string;
+  hidden_columns?: string[];
+  warnings?: string[];
+  canary?: number | null;
   framing: { question: string; moment: string; honesty: string };
   excluded_outcomes: string[];
   seed: number;
@@ -273,6 +283,9 @@ export interface ApiClient {
   addRelationalBundle(): Promise<{ tables: string[] }>;
   createRelationalTask(task: string): Promise<RelationalTask>;
   trainRelational(taskId: string): Promise<RelationalTask>;
+  authorRelational(question: string): Promise<RelationalTask>;
+  updateRelationalDecisions(taskId: string, changes: { valCutoff?: string; testCutoff?: string; hide?: string[] }): Promise<RelationalTask>;
+  confirmRelational(taskId: string): Promise<RelationalTask>;
   createDashboard(request: string): Promise<DashboardCreateResult>;
   editDashboard(dashboardId: string, request: string): Promise<DashboardCreateResult>;
   runDashboard(dashboardId: string, filters: { column: string; value: string }[]): Promise<DashboardRun>;

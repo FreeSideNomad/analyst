@@ -135,6 +135,23 @@ def build_model_guide() -> object | None:
     return None
 
 
+def build_graph_author() -> object | None:
+    """Relational-task authoring (feature 019) — same opt-in modes."""
+    from analyst.agentic.gateway import LLMGateway, ReplayBackend
+    from analyst.agentic.graphauthor import GraphAuthor
+
+    mode = catalog_mode()
+    if mode == "replay":
+        return GraphAuthor(
+            LLMGateway(ReplayBackend(os.environ["ANALYST_CATALOG_CASSETTE"]))
+        )
+    if mode == "live":
+        from analyst.agentic.claude_backend import ClaudeAgentBackend
+
+        return GraphAuthor(LLMGateway(ClaudeAgentBackend()))
+    return None
+
+
 def _build_repository() -> DatasetRepository:
     if fixtures_enabled():
         return FixtureRepository()
@@ -144,6 +161,7 @@ def _build_repository() -> DatasetRepository:
         curator=build_curator(),
         assembler=build_assembler(),
         model_guide=build_model_guide(),
+        graph_author=build_graph_author(),
     )
 
 

@@ -34,7 +34,7 @@
       Swiss International Design System UI; zustand state; renders the AskQuestion primitive, trust trail, and interactive dashboards; consumes FastAPI backend.
 - [x] **Guided predictive models (Models area MVP)** `id:guided-predictive-models-mvp` priority:5 status:shipped area:models → feature:guided-predictive-models
       Parked feature 012: LLM-guided no-code ML — task definition, feature selection, local linear+LightGBM training, honest eval, predictions as datasets. MVP = single-table regression on Ames. Resume via /engineer.discuss guided-predictive-models.
-- [ ] **Relational features, temporal splits & classification** `id:relational-temporal-models` priority:6 status:planned area:models → feature:—
+- [ ] **Relational features, temporal splits & classification** `id:relational-temporal-models` priority:6 status:in-progress area:models → feature:guided-graph-authoring
       Models ladder 2: multi-table feature building along validated relationships, out-of-time splits with horizons, binary classification. Makes Home Credit runnable. Depends on feature 012 MVP.
 - [ ] **Q&A over predictions (facts x models)** `id:qa-predictions-integration` priority:7 status:planned area:models → feature:—
       Models ladder 3: predict-X questions route into the model flow; questions span facts and predictions; models become catalog citizens.

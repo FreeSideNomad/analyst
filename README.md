@@ -53,6 +53,7 @@ configuration reference.
 | **Interactive dashboards** | Describe a dashboard in plain English and the agent assembles it: filterable (before aggregation), cross-filtering on click, drill-down to rows, conversational editing, print preview — every widget with its own trust trail. |
 | **Guided predictive models** | Train a real model without writing code: pick a dataset and a target, the agent proposes features with plain-language reasons, and a committed deterministic trainer (linear baseline + LightGBM) runs locally. Honest holdout evaluation in dollars, predictions land as an ordinary queryable dataset, and the registry tells each model's full story. The LLM never writes training code and never sees rows. |
 | **Relational graph models (ML variant)** | A GNN tier that learns across *linked* tables — accounts→transactions→counterparties — plus an engineered-feature baseline and a hybrid (GNN embeddings → boosting) that combines them. Validated by reproducing the reference results of real published research on the Berka banking dataset, deterministically. Honest by design: outcome columns are named and hidden, the split is by time, and when the simple tier wins the registry says so. Ships as the `ml` image target (torch stays out of the default image). |
+| **Guided graph authoring** | Point the relational tier at YOUR linked data — uploaded tables or a connected database. The graph structure is derived from validated links (never invented); the agent turns your question into confirmable decisions (outcome definition, prediction moment, cutoffs, hidden outcome columns); honesty is structural where no reference exists: a shuffled-label canary must score a coin flip and give-away columns are flagged before training. |
 | **Database federation** | PostgreSQL, SQLite, SQL Server, DB2 — queried read-only **in place**, nothing copied. Encrypted-at-rest credential storage (operator-supplied key, Docker-secret friendly) with automatic reconnect after restarts. |
 | **Team-ready** | Google/Microsoft OAuth; first user becomes admin; isolated workspaces. |
 
@@ -123,13 +124,14 @@ and handoffs.
 | 017 | Cross-database joins — one question spanning two connected databases, joined locally |
 | 012 | Guided predictive models — real sample data on demand, agent-proposed features, deterministic local training, honest evaluation |
 | 018 | Relational graph (GNN) models — three tiers on linked tables, reference-validated against published results on Berka; `ml` image variant |
+| 019 | Guided graph authoring — relational models on your own data (uploads or connected DBs), equivalence-gated against the curated reference |
 
 ### Quality gate
 
 The same checks run **on every commit** (`.pre-commit-config.yaml`) and **in
 CI** (`.github/workflows/ci.yml`): `ruff` lint + format, `mypy`, unit tests,
-the frontend lint/typecheck/build, and every acceptance board — 263 scenarios
-across 17 boards, browser E2E and both deployed-container journeys included. Agent behavior is pinned with
+the frontend lint/typecheck/build, and every acceptance board — 276 scenarios
+across 18 boards, browser E2E and three deployed-container journeys included. Agent behavior is pinned with
 live-recorded, deterministically replayed cassettes; invariants carry
 mutation gates. Nothing lands with a regression.
 `docker.yml` publishes the image to GHCR on every push to `main`; `pages.yml`
