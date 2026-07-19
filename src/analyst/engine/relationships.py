@@ -115,7 +115,16 @@ def _name_matches_table(base: str, table: str) -> bool:
     # review #7: rstrip("s") stripped ALL trailing s ("class"->"clas"); depluralize
     # a single trailing 's' only.
     singular = t[:-1] if t.endswith("s") else t
-    return t in {base, base + "s", base + "es"} or singular == base
+    if t in {base, base + "s", base + "es"} or singular == base:
+        return True
+    # Bundle-/schema-prefixed names (berka_account, sales_orders): match on
+    # the tail after the last underscore. Safe — every candidate must still
+    # survive referential-integrity validation.
+    tail = t.rsplit("_", 1)[-1]
+    if tail == t:
+        return False
+    tail_singular = tail[:-1] if tail.endswith("s") else tail
+    return tail in {base, base + "s", base + "es"} or tail_singular == base
 
 
 def _candidate_parent_columns(

@@ -49,3 +49,13 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=10s \
     CMD curl -fsS http://127.0.0.1:8000/api/health || exit 1
 
 CMD ["uvicorn", "analyst.api.app:app", "--host", "0.0.0.0", "--port", "8000"]
+
+# ML variant (feature 018): + the CPU torch stack for relational graph
+# models. Build with `--target ml` (tag analyst:ml). linux/amd64 only —
+# pyg-lib publishes no linux/arm64 wheel; Apple-Silicon Docker runs it
+# under Rosetta emulation.
+FROM runtime AS ml
+RUN uv sync --frozen --no-dev --extra ml
+
+# Default (last) target stays the lean runtime image.
+FROM runtime
