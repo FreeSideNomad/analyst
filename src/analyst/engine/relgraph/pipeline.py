@@ -68,13 +68,19 @@ def _edges_story(spec: DatasetSpec) -> list[str]:
 
 
 def train_tiers(dataset: str, task: str, seed: int = DEFAULT_SEED) -> RelationalResult:
-    """Train all three tiers on the task's honest split; assemble the story."""
+    """Train all three tiers on a CURATED task (downloaded bundle)."""
+    spec = get_spec(dataset)
+    task_spec = ensure_task(dataset, task)
+    return train_prepared(spec, task_spec, seed=seed)
+
+
+def train_prepared(spec, task_spec, seed: int = DEFAULT_SEED) -> RelationalResult:
+    """Train all three tiers for an already-built spec + materialized task
+    (curated bundles and workspace-generated specs share this path)."""
     from .models import baseline as baseline_model
     from .models import graph as graph_model
     from .models import hybrid as hybrid_model
 
-    spec = get_spec(dataset)
-    task_spec = ensure_task(dataset, task)
     frame = load_training_table(spec.name, task_spec.name).reset_index(drop=True)
 
     graph_metrics, graph_details = graph_model.train_and_evaluate(

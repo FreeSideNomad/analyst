@@ -32,6 +32,7 @@ class TrainRequest(Camel):
 
 
 def _guard(call):  # noqa: ANN001, ANN202
+    from analyst.agentic.graphauthor import GraphAuthoringError
     from analyst.agentic.models import ModelGuidanceError
     from analyst.engine.mltrain import LeakageError
     from analyst.engine.relgraph.errors import RelgraphError
@@ -44,7 +45,7 @@ def _guard(call):  # noqa: ANN001, ANN202
         raise HTTPException(404, f"No such dataset: {exc}") from None
     except (ValueError, LeakageError) as exc:
         raise HTTPException(400, str(exc)) from None
-    except ModelGuidanceError as exc:
+    except (ModelGuidanceError, GraphAuthoringError) as exc:
         raise HTTPException(502, str(exc)) from None
     except RelgraphError as exc:
         raise HTTPException(
@@ -144,6 +145,40 @@ def train_relational(
     task_id: str, repo: DatasetRepository = Depends(get_repository)
 ) -> dict:
     return _guard(lambda: repo.train_relational(task_id))
+
+
+# Feature 019 — guided authoring on the user's own linked data.
+
+
+class AuthorRequest(Camel):
+    question: str
+
+
+class IncludeColumnRequest(Camel):
+    column: str
+
+
+@router.post("/models/relational/author")
+def author_relational(
+    body: AuthorRequest, repo: DatasetRepository = Depends(get_repository)
+) -> dict:
+    return _guard(lambda: repo.author_relational_task(body.question))
+
+
+@router.post("/models/relational/tasks/{task_id}/confirm")
+def confirm_relational(
+    task_id: str, repo: DatasetRepository = Depends(get_repository)
+) -> dict:
+    return _guard(lambda: repo.confirm_relational_task(task_id))
+
+
+@router.post("/models/relational/tasks/{task_id}/include-column")
+def include_hidden_column(
+    task_id: str,
+    body: IncludeColumnRequest,
+    repo: DatasetRepository = Depends(get_repository),
+) -> dict:
+    return _guard(lambda: repo.include_hidden_column(task_id, body.column))
 
 
 @router.get("/models/{task_id}")

@@ -77,6 +77,11 @@ class DatasetRepository(Protocol):
     def create_relational_task(self, task_name: str) -> dict: ...
     def train_relational(self, task_id: str) -> dict: ...
 
+    # Feature 019 — guided graph authoring (the user's own linked data)
+    def author_relational_task(self, question: str) -> dict: ...
+    def confirm_relational_task(self, task_id: str) -> dict: ...
+    def include_hidden_column(self, task_id: str, column: str) -> dict: ...
+
     # Feature 015 — dashboards (agent-assembled, filterable widget grids)
     def dashboards(self) -> list: ...
     def put_dashboard(self, dashboard: Any) -> None: ...
@@ -349,6 +354,53 @@ class FixtureRepository:
             version=1,
         )
         return task
+
+    # Feature 019 — canned authoring flow (demo/e2e without torch/agent).
+    def author_relational_task(self, question: str) -> dict:
+        task: dict[str, Any] = {
+            "task_id": "authored-loan-default",
+            "kind": "relational",
+            "authored": True,
+            "source": "demo connection",
+            "question": question,
+            "entity_table": "berka_loan",
+            "entity_column": "loan_id",
+            "time_column": "grant_date",
+            "horizon_days": 365,
+            "val_cutoff": "1996-07-01",
+            "test_cutoff": "1997-06-01",
+            "label_sql": (
+                "SELECT loan_id, grant_date AS as_of, CASE WHEN status IN "
+                "('B','D') THEN 1 ELSE 0 END AS label FROM berka_loan"
+            ),
+            "time_columns": {"berka_loan": "grant_date"},
+            "framing": {
+                "question": "Will this loan end in default?",
+                "moment": "Predicted at the moment the loan is granted.",
+                "honesty": "Columns recording the outcome are hidden.",
+            },
+            "hidden_columns": ["status"],
+            "warnings": [],
+            "canary": None,
+            "seed": 13,
+            "status": "proposed",
+            "metrics": None,
+            "story": None,
+            "predictions_dataset": None,
+            "version": 0,
+        }
+        self._model_tasks[str(task["task_id"])] = task
+        return task
+
+    def confirm_relational_task(self, task_id: str) -> dict:
+        task = self._model_tasks[task_id]
+        task.update(status="defined", canary=0.5023, warnings=[])
+        return task
+
+    def include_hidden_column(self, task_id: str, column: str) -> dict:
+        raise ValueError(
+            f"'{column}' is read by the outcome definition — it stays hidden."
+        )
 
     def models(self) -> list[dict]:
         return list(self._model_tasks.values())
@@ -843,6 +895,7 @@ class StoreRepository:
         curator: object = None,
         assembler: object = None,
         model_guide: object = None,
+        graph_author: object = None,
     ) -> None:
         import tempfile
 
@@ -863,6 +916,7 @@ class StoreRepository:
         self.curator: Any = curator
         self.assembler: Any = assembler
         self.model_guide: Any = model_guide
+        self.graph_author: Any = graph_author
         self._records: dict[str, DatasetRecord] = {}
         self._rehydrate()
 
@@ -1924,13 +1978,22 @@ class StoreRepository:
     def train_relational(self, task_id: str) -> dict:
         """Train all three tiers locally; predictions become an ordinary
         dataset. A failure leaves the registry exactly as it was."""
-        from analyst.engine.relgraph.pipeline import train_tiers
+        from analyst.engine.relgraph.pipeline import train_prepared, train_tiers
 
         tasks = self._load_models()
         task = self._require_model(task_id)
         if task.get("kind") != "relational":
             raise ValueError(f"'{task_id}' is not a relational task.")
-        result = train_tiers(task["dataset"], task["task"], seed=task["seed"])
+        if task.get("authored"):
+            if task.get("status") == "proposed":
+                raise ValueError(
+                    "The decisions have not been confirmed yet — review and "
+                    "confirm them first; nothing trains unconfirmed."
+                )
+            spec, task_spec, _ = self._prepare_authored(task)
+            result = train_prepared(spec, task_spec, seed=task["seed"])
+        else:
+            result = train_tiers(task["dataset"], task["task"], seed=task["seed"])
         version = int(task.get("version", 0)) + 1
         out = result.predictions.copy()
         out["model"] = f"{task_id} v{version}"
@@ -1961,16 +2024,262 @@ class StoreRepository:
             f"{hybrid_score:.2f} (0.5 is a coin flip, 1.0 is perfect "
             f"ranking) — the {best[0]} reads the risk best here."
         )
+        story = dict(result.story)
+        if task.get("authored"):
+            story["source"] = task["source"]
+            story["local_build"] = (
+                "Training used a temporary local copy of these tables, built "
+                "on this machine and never leaving it."
+            )
+            story["framing"] = task["framing"]
         task.update(
             status="trained",
             metrics=result.metrics,
-            story=result.story,
+            story=story,
             predictions_dataset=predictions_name,
             version=version,
         )
         tasks[task_id] = task
         self._save_models(tasks)
         return task
+
+    # -- Feature 019: guided graph authoring ------------------------------
+
+    def _workspace_structure(self) -> tuple[dict, dict, list]:
+        """(structure summary, alias→dataset map, relationships) derived
+        from the catalog — tables in the workspace minus system-generated
+        predictions datasets."""
+        from analyst.engine.relgraph.workspace import table_alias, time_candidates
+
+        records = {
+            name: rec
+            for name, rec in self._records.items()
+            if ".predictions." not in name
+        }
+        relationships = self.store.discover_relationships(include_federated=True)
+        aliases = {name: table_alias(name) for name in records}
+        by_alias = {aliases[name]: name for name in records}
+        tables = [
+            {
+                "name": aliases[name],
+                "rows": rec.summary.profile.row_count,
+                "columns": [
+                    {"name": c.name, "type": c.inferred_type.value}
+                    for c in rec.summary.profile.columns
+                ],
+            }
+            for name, rec in records.items()
+        ]
+        edges = [
+            f"{aliases[r.child_table]}.{r.child_column} → "
+            f"{aliases[r.parent_table]}.{r.parent_column}"
+            for r in relationships
+            if r.child_table in aliases and r.parent_table in aliases
+        ]
+        candidates = {
+            aliases[name]: cols
+            for name, cols in time_candidates(
+                {n: r.summary.profile for n, r in records.items()}
+            ).items()
+        }
+        structure = {
+            "tables": sorted(tables, key=lambda t: str(t["name"])),
+            "edges": sorted(edges),
+            "time_candidates": candidates,
+        }
+        return structure, by_alias, list(relationships)
+
+    def author_relational_task(self, question: str) -> dict:
+        """One authoring turn: the user's question + the derived structure
+        → proposed decisions, persisted as a PENDING task. Nothing trains
+        before confirmation (AC-3); a failed turn creates nothing (AC-9)."""
+        from analyst.agentic.graphauthor import GraphAuthoringError
+        from analyst.domain.charts import chart_id_for
+        from analyst.domain.query import query_table_from_summary
+        from analyst.engine import relgraph
+        from analyst.engine.relgraph.workspace import label_columns
+
+        if not relgraph.available():
+            raise ValueError(self._ML_VARIANT_MESSAGE)
+        missing = self._relational_prerequisites()
+        if missing:
+            raise ValueError(
+                "This workspace cannot support a relational model yet — "
+                "missing: " + "; ".join(missing) + "."
+            )
+        if self.graph_author is None:
+            raise GraphAuthoringError(
+                "Authoring a relational task needs the AI features — set "
+                "ANTHROPIC_API_KEY / CLAUDE_CODE_OAUTH_TOKEN and "
+                "ANALYST_CATALOG=live. Trained models keep working."
+            )
+        structure, by_alias, _ = self._workspace_structure()
+        governance = query_table_from_summary(
+            self._records[sorted(by_alias.values())[0]].summary
+        )
+        authored = self.graph_author.author(governance, structure, question)
+        entity_ds = by_alias.get(authored.entity_table)
+        if entity_ds is None:
+            raise GraphAuthoringError(
+                f"The proposal named an unknown table '{authored.entity_table}'."
+            )
+        entity_cols = [c.name for c in self._records[entity_ds].summary.profile.columns]
+        # The hidden set = mechanical floor (columns the outcome definition
+        # reads) ∪ the agent's post-outcome judgment (columns recording
+        # anything only knowable after the prediction moment — e.g. berka's
+        # repayment total). Users can only ever GROW it.
+        hidden = sorted(
+            {
+                *label_columns(authored.label_sql, entity_cols),
+                *(c for c in authored.outcome_columns if c in entity_cols),
+            }
+            - {authored.entity_column, authored.time_column}
+        )
+        sources = sorted(
+            {
+                name.split(".", 1)[0] if self._records[name].federated else "uploads"
+                for name in by_alias.values()
+            }
+        )
+        tasks = self._load_models()
+        task_id = chart_id_for(f"authored {question}", set(tasks))
+        tasks[task_id] = {
+            "task_id": task_id,
+            "kind": "relational",
+            "authored": True,
+            "source": ", ".join(sources),
+            "question": question,
+            "entity_table": authored.entity_table,
+            "entity_column": authored.entity_column,
+            "time_column": authored.time_column,
+            "horizon_days": authored.horizon_days,
+            "val_cutoff": authored.val_cutoff,
+            "test_cutoff": authored.test_cutoff,
+            "label_sql": authored.label_sql,
+            "time_columns": authored.time_columns,
+            "framing": authored.framing,
+            "hidden_columns": hidden,
+            "warnings": [],
+            "canary": None,
+            "seed": 13,
+            "status": "proposed",
+            "metrics": None,
+            "story": None,
+            "predictions_dataset": None,
+            "version": 0,
+        }
+        self._save_models(tasks)
+        return tasks[task_id]
+
+    def _prepare_authored(self, task: dict):  # noqa: ANN202
+        """Spec + materialized TaskSpec for an authored task, rebuilt from
+        the live catalog (drift in the workspace surfaces as plain errors)."""
+        from analyst.engine.relgraph.schema import TaskSpec
+        from analyst.engine.relgraph.tasks import materialize
+        from analyst.engine.relgraph.workspace import (
+            build_from_frames,
+            graph_hints,
+            spec_from_workspace,
+        )
+        from analyst.engine.sql_guard import assert_safe_select
+
+        structure, by_alias, relationships = self._workspace_structure()
+        records = {name: self._records[name] for name in by_alias.values()}
+        time_by_ds = {
+            by_alias[alias]: col
+            for alias, col in (task.get("time_columns") or {}).items()
+            if alias in by_alias
+        }
+        spec = spec_from_workspace(
+            {n: r.summary.profile for n, r in records.items()},
+            relationships,
+            name=f"ws-{task['task_id']}",
+            val_cutoff=task["val_cutoff"],
+            test_cutoff=task["test_cutoff"],
+            time_columns=time_by_ds,
+        )
+        source_names = {alias: ds for alias, ds in by_alias.items()}
+        fingerprint = build_from_frames(spec, self.store.fetch_frame, source_names)
+        import duckdb as _duckdb
+
+        from analyst.engine.relgraph.builddb import db_path
+
+        con = _duckdb.connect(str(db_path(spec.name)), read_only=True)
+        try:
+            assert_safe_select(con, task["label_sql"])
+        finally:
+            con.close()
+        task_spec = TaskSpec(
+            name=task["task_id"],
+            dataset=spec.name,
+            entity_table=task["entity_table"],
+            entity_column=task["entity_column"],
+            time_column=task["time_column"],
+            horizon_days=int(task["horizon_days"]),
+            metric="auroc",
+            label_query=task["label_sql"],
+            exclude=[f"{task['entity_table']}.{c}" for c in task["hidden_columns"]],
+            graph=graph_hints(spec, task["entity_table"]),
+            framing=dict(task["framing"]),
+        )
+        materialize(spec, task_spec)
+        return spec, task_spec, fingerprint
+
+    def confirm_relational_task(self, task_id: str) -> dict:
+        """The user confirmed the decisions: build, validate, run the
+        honesty checks, and mark the task defined (still untrained)."""
+        from analyst.engine.relgraph.honesty import (
+            giveaway_columns,
+            shuffled_label_canary,
+        )
+        from analyst.engine.relgraph.tasks import load_training_table
+
+        tasks = self._load_models()
+        task = self._require_model(task_id)
+        if not task.get("authored"):
+            raise ValueError(f"'{task_id}' is not an authored task.")
+        spec, task_spec, _ = self._prepare_authored(task)
+        frame = load_training_table(spec.name, task_spec.name)
+        canary = shuffled_label_canary(spec, task_spec, frame, seed=task["seed"])
+        entity_ds = {v: k for k, v in self._alias_map().items()}
+        entity_frame = self.store.fetch_frame(self._alias_map()[task["entity_table"]])
+        remaining = [
+            c.name
+            for c in spec.table(task["entity_table"]).columns
+            if c.name not in task["hidden_columns"]
+            and c.name not in (task["entity_column"], task["time_column"])
+        ]
+        flagged = giveaway_columns(
+            frame, entity_frame, task["entity_column"], remaining
+        )
+        _ = entity_ds
+        task["canary"] = round(canary, 4)
+        task["warnings"] = [
+            f"'{c}' alone nearly perfectly predicts the outcome — it likely "
+            "records the outcome and should stay hidden."
+            for c in flagged
+        ]
+        task["flagged_columns"] = flagged
+        task["status"] = "defined"
+        tasks[task_id] = task
+        self._save_models(tasks)
+        return task
+
+    def _alias_map(self) -> dict[str, str]:
+        _, by_alias, _ = self._workspace_structure()
+        return by_alias
+
+    def include_hidden_column(self, task_id: str, column: str) -> dict:
+        """Asking to include a hidden outcome column back is always refused
+        with the reason (AC-6) — the hidden set only ever grows."""
+        task = self._require_model(task_id)
+        if column in task.get("hidden_columns", []):
+            raise ValueError(
+                f"'{column}' is read by the outcome definition — including "
+                "it would be answering the question with the answer. It "
+                "stays hidden."
+            )
+        raise ValueError(f"'{column}' is not a hidden column of this task.")
 
     def _require_model(self, task_id: str) -> dict:
         from analyst.domain.models import UnknownModelError
