@@ -92,6 +92,26 @@ with `docker build --target ml` (linux/amd64). The default image stays
 lean; in it, the relational tier explains plainly that the ML variant is
 needed while everything else keeps working.
 
+## Author a relational model on YOUR data
+
+The relational tier is not just for the sample bundle: type a question
+about your own linked tables — uploaded files or a **connected
+database** — and the app authors the task with you. The graph structure
+is derived from what the workspace has already validated (profiled
+types, integrity-checked links, date columns); the agent proposes the
+decisions — which table is the entity, the exact outcome definition, the
+prediction moment, the honest time cutoffs, and the columns that must be
+hidden because they record the outcome — and **you confirm or adjust
+every one** before anything trains.
+
+Honesty stays provable even where no reference results exist: at
+confirmation the app trains a quick model on deliberately shuffled
+outcomes (an honest pipeline scores a coin flip — anything more means a
+leak in the plumbing), flags any column that alone nearly perfectly
+predicts the outcome, and the registry story names the data's source and
+states that training used a temporary local copy that never left the
+machine.
+
 ## Governance, as always
 
 The model only ever guides: it sees schema, profile facts, and catalog text —
