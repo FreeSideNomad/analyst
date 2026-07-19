@@ -207,3 +207,62 @@ def test_offline_task_creation_is_honest(tmp_path):
     repo.add_sample("ames")
     with pytest.raises(ModelGuidanceError, match="AI"):
         repo.create_model_task("ames.csv", "SalePrice")
+
+
+# --------------------------------------------------------------------------- #
+# API routes
+# --------------------------------------------------------------------------- #
+from fastapi.testclient import TestClient  # noqa: E402
+
+from analyst.api.app import create_app  # noqa: E402
+
+
+def test_model_routes_full_journey(tmp_path):
+    repo, name = _repo_with_ames(tmp_path)
+    client = TestClient(create_app(repo))
+    gallery = client.get("/api/models/gallery").json()["samples"]
+    assert [g["key"] for g in gallery] == ["ames", "king_county"]
+
+    task = client.post(
+        "/api/models/tasks", json={"dataset": name, "target": "SalePrice"}
+    ).json()
+    assert task["status"] == "defined"
+    task = client.patch(
+        f"/api/models/tasks/{task['task_id']}/features",
+        json={"accepted": FEATURES},
+    ).json()
+    task = client.post(f"/api/models/tasks/{task['task_id']}/train", json={}).json()
+    assert task["status"] == "trained" and task["metrics"]["gbm"]["r2"] >= 0.80
+    listed = client.get("/api/models").json()["models"]
+    assert len(listed) == 1
+    assert client.delete(f"/api/models/{task['task_id']}").status_code == 204
+
+
+def test_model_route_errors(tmp_path):
+    repo, name = _repo_with_ames(tmp_path)
+    client = TestClient(create_app(repo))
+    assert client.get("/api/models/nope").status_code == 404
+    assert client.post("/api/models/gallery/nope").status_code == 404
+    assert (
+        client.post(
+            "/api/models/tasks", json={"dataset": name, "target": "Nope"}
+        ).status_code
+        == 400
+    )
+    task = client.post(
+        "/api/models/tasks", json={"dataset": name, "target": "SalePrice"}
+    ).json()
+    assert (
+        client.patch(
+            f"/api/models/tasks/{task['task_id']}/features",
+            json={"accepted": ["SalePrice"]},
+        ).status_code
+        == 400
+    )
+    assert (
+        client.post(
+            f"/api/models/tasks/{task['task_id']}/train",
+            json={"params": {"learning_rate": 99}},
+        ).status_code
+        == 400
+    )

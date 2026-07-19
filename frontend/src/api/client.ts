@@ -2,7 +2,7 @@
 // HTTP-only. There is no TS mock any more — the mock lives in the backend
 // (src/analyst/api/fixtures.py) and is served through these same endpoints.
 // Dev: Vite proxies /api → http://localhost:8000 (see vite.config.ts).
-import type { ApiClient, CurationState, DashboardCreateResult, DashboardRun, IngestionResult, NormalizationState, QueryResult, AnswerResult, SavedChartMeta } from './types';
+import type { ApiClient, CurationState, DashboardCreateResult, DashboardRun, IngestionResult, ModelTask, NormalizationState, QueryResult, AnswerResult, SavedChartMeta } from './types';
 
 const BASE = import.meta.env.VITE_API_BASE ?? '';
 
@@ -33,6 +33,13 @@ export const api: ApiClient = {
     }),
   listCharts: () => j('/api/charts'),
   listDashboards: () => j('/api/dashboards'),
+  modelGallery: () => j('/api/models/gallery'),
+  addModelSample: (key) => j(`/api/models/gallery/${encodeURIComponent(key)}`, { method: 'POST' }),
+  createModelTask: (dataset, target) => j<ModelTask>('/api/models/tasks', { method: 'POST', headers: JSON_HEADERS, body: JSON.stringify({ dataset, target }) }),
+  updateModelFeatures: (taskId, accepted) => j<ModelTask>(`/api/models/tasks/${encodeURIComponent(taskId)}/features`, { method: 'PATCH', headers: JSON_HEADERS, body: JSON.stringify({ accepted }) }),
+  trainModel: (taskId, params) => j<ModelTask>(`/api/models/tasks/${encodeURIComponent(taskId)}/train`, { method: 'POST', headers: JSON_HEADERS, body: JSON.stringify({ params: params ?? {} }) }),
+  listModels: () => j('/api/models'),
+  deleteModel: (taskId) => j<void>(`/api/models/${encodeURIComponent(taskId)}`, { method: 'DELETE' }),
   createDashboard: (request) => j<DashboardCreateResult>('/api/dashboards', { method: 'POST', headers: JSON_HEADERS, body: JSON.stringify({ request }) }),
   editDashboard: (dashboardId, request) => j<DashboardCreateResult>(`/api/dashboards/${encodeURIComponent(dashboardId)}/edit`, { method: 'POST', headers: JSON_HEADERS, body: JSON.stringify({ request }) }),
   runDashboard: (dashboardId, filters) => j<DashboardRun>(`/api/dashboards/${encodeURIComponent(dashboardId)}/run`, { method: 'POST', headers: JSON_HEADERS, body: JSON.stringify({ filters }) }),

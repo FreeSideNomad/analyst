@@ -189,6 +189,25 @@ export interface DashboardCreateResult {
   clarification?: { question: string; options: string[] } | null;
 }
 
+export interface ModelSample { key: string; title: string; target: string; description: string }
+export interface ModelTask {
+  task_id: string;
+  dataset: string;
+  target: string;
+  task_type: string;
+  teaching_note: string;
+  split_note: string;
+  proposed: { name: string; reason: string }[];
+  accepted: string[];
+  params: Record<string, number>;
+  status: string;
+  metrics: { linear: { r2: number; mae: number }; gbm: { r2: number; mae: number } } | null;
+  importances: [string, number][];
+  predictions_dataset: string | null;
+  evaluation?: string;
+  version: number;
+}
+
 export interface Health {
   ok: boolean;
   fixtures: boolean;
@@ -205,6 +224,13 @@ export interface ApiClient {
   suggestCorrection(name: string, column: string | null, note: string): Promise<CurationState>;
   listCharts(): Promise<{ charts: SavedChartMeta[] }>;
   listDashboards(): Promise<{ dashboards: DashboardMeta[] }>;
+  modelGallery(): Promise<{ samples: ModelSample[] }>;
+  addModelSample(key: string): Promise<Dataset>;
+  createModelTask(dataset: string, target: string): Promise<ModelTask>;
+  updateModelFeatures(taskId: string, accepted: string[]): Promise<ModelTask>;
+  trainModel(taskId: string, params?: Record<string, number>): Promise<ModelTask>;
+  listModels(): Promise<{ models: ModelTask[] }>;
+  deleteModel(taskId: string): Promise<void>;
   createDashboard(request: string): Promise<DashboardCreateResult>;
   editDashboard(dashboardId: string, request: string): Promise<DashboardCreateResult>;
   runDashboard(dashboardId: string, filters: { column: string; value: string }[]): Promise<DashboardRun>;
