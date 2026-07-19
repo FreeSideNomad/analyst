@@ -339,6 +339,13 @@ class DatasetStore:
         return self._con.execute(f"SELECT * FROM {_quote_ident(dataset)}").fetchall()
 
     @_synchronized
+    def fetch_frame(self, dataset: str, columns: tuple[str, ...] = ()):  # noqa: ANN201
+        """The dataset (or selected columns) as a pandas DataFrame — the
+        committed trainer's read path (feature 012). Engine-internal."""
+        cols = ", ".join(_quote_ident(c) for c in columns) if columns else "*"
+        return self._con.execute(f"SELECT {cols} FROM {_quote_ident(dataset)}").df()
+
+    @_synchronized
     def value_counts(self, dataset: str, column: str) -> dict[str, int]:
         """Non-null value → row count for one column (feature 013 detection)."""
         rows = self._con.execute(

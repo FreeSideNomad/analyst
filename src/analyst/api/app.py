@@ -109,6 +109,23 @@ def build_assembler() -> object | None:
     return None
 
 
+def build_model_guide() -> object | None:
+    """Model-definition guidance (feature 012) — same opt-in modes."""
+    from analyst.agentic.gateway import LLMGateway, ReplayBackend
+    from analyst.agentic.models import ModelGuide
+
+    mode = catalog_mode()
+    if mode == "replay":
+        return ModelGuide(
+            LLMGateway(ReplayBackend(os.environ["ANALYST_CATALOG_CASSETTE"]))
+        )
+    if mode == "live":
+        from analyst.agentic.claude_backend import ClaudeAgentBackend
+
+        return ModelGuide(LLMGateway(ClaudeAgentBackend()))
+    return None
+
+
 def _build_repository() -> DatasetRepository:
     if fixtures_enabled():
         return FixtureRepository()
@@ -117,6 +134,7 @@ def _build_repository() -> DatasetRepository:
         cataloguer=build_cataloguer(),
         curator=build_curator(),
         assembler=build_assembler(),
+        model_guide=build_model_guide(),
     )
 
 

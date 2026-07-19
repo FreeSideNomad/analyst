@@ -61,6 +61,16 @@ class DatasetRepository(Protocol):
     def dismiss_normalization(self, name: str, rule_id: str) -> None: ...
     def revoke_normalization(self, name: str, rule_id: str) -> None: ...
 
+    # Feature 012 — guided predictive models
+    def model_gallery(self) -> list: ...
+    def add_sample(self, key: str) -> object: ...
+    def create_model_task(self, dataset: str, target: str) -> dict: ...
+    def update_task_features(self, task_id: str, accepted: list[str]) -> dict: ...
+    def train_model(self, task_id: str, params: dict | None = None) -> dict: ...
+    def models(self) -> list[dict]: ...
+    def model(self, task_id: str) -> dict: ...
+    def delete_model(self, task_id: str) -> None: ...
+
     # Feature 015 — dashboards (agent-assembled, filterable widget grids)
     def dashboards(self) -> list: ...
     def put_dashboard(self, dashboard: Any) -> None: ...
@@ -148,6 +158,8 @@ class FixtureRepository:
         self._curation: dict[str, dict] = {}
         # Feature 015: dashboards (in-memory, canned assembly/run).
         self._dashboards: dict[str, Any] = {}
+        # Feature 012: model tasks (in-memory, canned).
+        self._model_tasks: dict[str, dict] = {}
 
     def list_datasets(self) -> list[DatasetRecord]:
         return list(self._records.values())
@@ -175,6 +187,95 @@ class FixtureRepository:
 
     def recatalogue_affected(self, new_names: list[str]) -> None:
         """No-op: fixture catalogs are static seed data (feature 010)."""
+
+    # Feature 012 — guided predictive models over canned data (the browser
+    # flow is drivable in demos/e2e without network or training).
+    def model_gallery(self) -> list:
+        from analyst.engine.mlsamples import GALLERY
+
+        return list(GALLERY)
+
+    def add_sample(self, key: str) -> object:
+        from analyst.engine.mlsamples import sample
+
+        entry = sample(key)  # validates the key
+        name = f"{entry.key}.csv"
+        if name not in self._records:
+            summary = fixtures.uploaded_transactions()
+            import dataclasses
+
+            summary = dataclasses.replace(summary, name=name)
+            self._records[name] = DatasetRecord(
+                summary=summary,
+                file_name=name,
+                status=IngestionStatus.COMPLETE,
+                ingested_at="2026-07-19",
+            )
+        return self._records[name]
+
+    def create_model_task(self, dataset: str, target: str) -> dict:
+        task: dict[str, Any] = {
+            "task_id": "sample-model",
+            "dataset": dataset,
+            "target": target,
+            "task_type": "regression",
+            "teaching_note": "Predicting a price is like fitting a line — but bendier.",
+            "split_note": "I will hide 20% of the rows and grade myself on them.",
+            "proposed": [
+                {"name": "OverallQual", "reason": "Quality drives price."},
+                {"name": "GrLivArea", "reason": "Bigger homes cost more."},
+                {"name": "YearBuilt", "reason": "Newer homes sell higher."},
+            ],
+            "accepted": ["OverallQual", "GrLivArea", "YearBuilt"],
+            "params": {},
+            "status": "defined",
+            "metrics": None,
+            "importances": [],
+            "predictions_dataset": None,
+            "version": 0,
+        }
+        self._model_tasks[str(task["task_id"])] = task
+        return task
+
+    def update_task_features(self, task_id: str, accepted: list[str]) -> dict:
+        task = self._model_tasks[task_id]
+        task["accepted"] = accepted
+        return task
+
+    def train_model(self, task_id: str, params: dict | None = None) -> dict:
+        task = self._model_tasks[task_id]
+        task.update(
+            status="trained",
+            metrics={
+                "linear": {"r2": 0.863, "mae": 19414.0},
+                "gbm": {"r2": 0.896, "mae": 17143.0},
+            },
+            importances=[
+                ["OverallQual", 0.52],
+                ["GrLivArea", 0.31],
+                ["YearBuilt", 0.17],
+            ],
+            predictions_dataset="sample_model_predictions.csv",
+            version=1,
+        )
+        return task
+
+    def models(self) -> list[dict]:
+        return list(self._model_tasks.values())
+
+    def model(self, task_id: str) -> dict:
+        from analyst.domain.models import UnknownModelError
+
+        if task_id not in self._model_tasks:
+            raise UnknownModelError(task_id)
+        return self._model_tasks[task_id]
+
+    def delete_model(self, task_id: str) -> None:
+        from analyst.domain.models import UnknownModelError
+
+        if task_id not in self._model_tasks:
+            raise UnknownModelError(task_id)
+        del self._model_tasks[task_id]
 
     # Feature 015 — dashboards over canned data (assembly, run, drill are
     # deterministic so demos and browser e2e are drivable).
@@ -651,6 +752,7 @@ class StoreRepository:
         cataloguer: object = None,
         curator: object = None,
         assembler: object = None,
+        model_guide: object = None,
     ) -> None:
         import tempfile
 
@@ -670,6 +772,7 @@ class StoreRepository:
         )
         self.curator: Any = curator
         self.assembler: Any = assembler
+        self.model_guide: Any = model_guide
         self._records: dict[str, DatasetRecord] = {}
         self._rehydrate()
 
@@ -1431,6 +1534,168 @@ class StoreRepository:
         if dashboard_id not in data:
             raise UnknownDashboardError(dashboard_id)
         return next(d for d in self.dashboards() if d.dashboard_id == dashboard_id)
+
+    # ------------------------------------------------------------------ #
+    # Feature 012 — guided predictive models. The guide proposes; the person
+    # decides; the COMMITTED trainer trains; predictions become an ordinary
+    # dataset through the normal ingest path. Registry sidecar: models.json.
+    # ------------------------------------------------------------------ #
+    def model_gallery(self) -> list:
+        from analyst.engine.mlsamples import GALLERY
+
+        return list(GALLERY)
+
+    def add_sample(self, key: str) -> object:
+        from analyst.engine.mlsamples import fetch_sample_csv
+
+        csv_path = fetch_sample_csv(key)
+        name = f"{key}.csv"
+        if name in self._records:
+            return self._records[name]
+        (record,) = self.ingest(name, csv_path.read_bytes())
+        return record
+
+    def create_model_task(self, dataset: str, target: str) -> dict:
+        from analyst.agentic.models import ModelGuidanceError
+        from analyst.domain.charts import chart_id_for
+        from analyst.domain.query import query_table_from_summary
+
+        record = self._records.get(dataset)
+        if record is None:
+            raise KeyError(dataset)
+        if all(c.name != target for c in record.summary.profile.columns):
+            raise ValueError(f"'{target}' is not a column of {dataset}.")
+        if self.model_guide is None:
+            raise ModelGuidanceError(
+                "Defining a model needs the AI features — set "
+                "ANTHROPIC_API_KEY / CLAUDE_CODE_OAUTH_TOKEN and "
+                "ANALYST_CATALOG=live. Trained models keep working."
+            )
+        guidance = self.model_guide.guide(
+            query_table_from_summary(record.summary), target
+        )
+        tasks = self._load_models()
+        task_id = chart_id_for(f"{dataset} {target}", set(tasks))
+        tasks[task_id] = {
+            "task_id": task_id,
+            "dataset": dataset,
+            "target": target,
+            "task_type": "regression",
+            "teaching_note": guidance.teaching_note,
+            "split_note": guidance.split_note,
+            "proposed": [
+                {"name": f.name, "reason": f.reason} for f in guidance.features
+            ],
+            "accepted": [f.name for f in guidance.features],
+            "params": {},
+            "status": "defined",
+            "metrics": None,
+            "importances": [],
+            "predictions_dataset": None,
+            "version": 0,
+        }
+        self._save_models(tasks)
+        return tasks[task_id]
+
+    def update_task_features(self, task_id: str, accepted: list[str]) -> dict:
+        from analyst.domain.charts import UnknownChartError as _  # noqa: F401
+        from analyst.engine.mltrain import LeakageError
+
+        tasks = self._load_models()
+        task = self._require_model(task_id)
+        cleaned = [f for f in accepted if f]
+        if not cleaned:
+            raise ValueError("At least one feature must stay selected.")
+        if task["target"] in cleaned:
+            raise LeakageError(
+                f"'{task['target']}' is the value being predicted — it cannot "
+                "also be a feature."
+            )
+        record = self._records.get(task["dataset"])
+        columns = {c.name for c in record.summary.profile.columns} if record else set()
+        unknown = [f for f in cleaned if f not in columns]
+        if unknown:
+            raise ValueError(f"Unknown feature column(s): {unknown}")
+        task["accepted"] = cleaned
+        tasks[task_id] = task
+        self._save_models(tasks)
+        return task
+
+    def train_model(self, task_id: str, params: dict | None = None) -> dict:
+        import io
+
+        from analyst.engine.mltrain import train
+
+        tasks = self._load_models()
+        task = self._require_model(task_id)
+        frame = self.store.fetch_frame(task["dataset"])
+        result = train(frame, task["target"], list(task["accepted"]), params)
+        version = int(task.get("version", 0)) + 1
+        out = result.predictions.copy()
+        out.insert(0, "row", out.index)
+        out["model"] = f"{task_id} v{version}"
+        buffer = io.StringIO()
+        out.to_csv(buffer, index=False)
+        previous = task.get("predictions_dataset")
+        if previous and previous in self._records:
+            self.delete(previous)
+        # Ingestion sanitizes file names — store the ACTUAL dataset name.
+        (predictions_record,) = self.ingest(
+            f"{task_id}.predictions.v{version}.csv", buffer.getvalue().encode()
+        )
+        task.update(
+            status="trained",
+            metrics=result.metrics,
+            importances=[[n, v] for n, v in result.importances],
+            predictions_dataset=predictions_record.name,
+            params=result.params,
+            version=version,
+            row_count=result.row_count,
+            holdout_count=result.holdout_count,
+        )
+        tasks[task_id] = task
+        self._save_models(tasks)
+        return task
+
+    def models(self) -> list[dict]:
+        return list(self._load_models().values())
+
+    def model(self, task_id: str) -> dict:
+        return self._require_model(task_id)
+
+    def delete_model(self, task_id: str) -> None:
+        tasks = self._load_models()
+        self._require_model(task_id)
+        del tasks[task_id]
+        self._save_models(tasks)
+
+    def _require_model(self, task_id: str) -> dict:
+        from analyst.domain.models import UnknownModelError
+
+        tasks = self._load_models()
+        if task_id not in tasks:
+            raise UnknownModelError(task_id)
+        return tasks[task_id]
+
+    def _load_models(self) -> dict:
+        import json
+        from pathlib import Path
+
+        sidecar = Path(str(self.store.base_dir)) / "models.json"
+        if not sidecar.is_file():
+            return {}
+        try:
+            return dict(json.loads(sidecar.read_text())["models"])
+        except Exception:  # noqa: BLE001
+            _LOG.warning("ignoring unreadable models sidecar")
+            return {}
+
+    def _save_models(self, tasks: dict) -> None:
+        import json
+        from pathlib import Path
+
+        sidecar = Path(str(self.store.base_dir)) / "models.json"
+        sidecar.write_text(json.dumps({"models": tasks}, indent=2))
 
     def _load_dashboards(self) -> dict:
         import json
