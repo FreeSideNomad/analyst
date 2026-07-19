@@ -53,6 +53,33 @@ def test_gallery_entries_and_cache():
     assert Path(path).stat().st_mtime == mtime
 
 
+def test_corrupt_download_is_cleared_and_retried(tmp_path, monkeypatch):
+    # A partial/corrupt OpenML download fails its checksum forever unless the
+    # openml cache is cleared — fetch_sample_csv must recover in one retry.
+    import sklearn.datasets
+
+    monkeypatch.setenv("ANALYST_ML_CACHE", str(tmp_path))
+    (tmp_path / "openml").mkdir()
+    (tmp_path / "openml" / "corrupt.arff").write_text("garbage")
+    calls: list[int] = []
+
+    def fake_fetch(**kwargs):
+        calls.append(1)
+        if (tmp_path / "openml").exists():
+            raise ValueError("md5 checksum of local file does not match")
+
+        class Fetched:
+            frame = pd.DataFrame({"SalePrice": [1, 2]})
+
+        return Fetched()
+
+    monkeypatch.setattr(sklearn.datasets, "fetch_openml", fake_fetch)
+    path = fetch_sample_csv("ames")
+    assert len(calls) == 2  # failed once, cache cleared, succeeded
+    assert not (tmp_path / "openml").exists()
+    assert Path(path).is_file()
+
+
 def test_ames_shape(ames):
     assert ames.shape == (1460, 81)
     assert "SalePrice" in ames.columns

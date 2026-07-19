@@ -72,14 +72,25 @@ def fetch_sample_csv(key: str) -> Path:
     csv_path = cache / f"{entry.key}.csv"
     if csv_path.is_file():
         return csv_path
+    import shutil
+
     from sklearn.datasets import fetch_openml
 
-    fetched = fetch_openml(
-        data_id=entry.openml_id,
-        as_frame=True,
-        data_home=str(cache / "openml"),
-        parser="auto",
-    )
+    def _fetch():  # type: ignore[no-untyped-def]
+        return fetch_openml(
+            data_id=entry.openml_id,
+            as_frame=True,
+            data_home=str(cache / "openml"),
+            parser="auto",
+        )
+
+    try:
+        fetched = _fetch()
+    except ValueError:
+        # A corrupt/partial download stays in the openml cache and fails
+        # its checksum forever — clear it and retry once from scratch.
+        shutil.rmtree(cache / "openml", ignore_errors=True)
+        fetched = _fetch()
     frame = fetched.frame
     tmp = csv_path.with_suffix(".tmp")
     frame.to_csv(tmp, index=False)
