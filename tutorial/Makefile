@@ -28,6 +28,11 @@ berka-db: ## start + seed the Berka Postgres (real PKDD'99 banking data)
 	@echo "Berka is seeded. Connect from the ML app with:"
 	@echo "  host=berka-db  port=5432  database=berka  user=postgres  password=tutorial"
 
+files: ## regenerate the COMMITTED tutorial/files set (maintainers)
+	cp $(ROOT)/samples/messy_sales.csv $(ROOT)/samples/company.xlsx files/
+	cp $(ROOT)/samples/verify/messy_orders.csv files/
+	cd $(ROOT) && uv run python tutorial/make_linked_pair.py $(abspath files)
+
 data: ## generate tutorial data: the cross-database SQLite pair + sample copies
 	mkdir -p data
 	cd $(ROOT) && uv run python scripts/make_cross_dbs.py $(abspath data)
@@ -47,4 +52,4 @@ clean: down ## stop everything and remove tutorial volumes + generated data
 	docker compose down -v
 	rm -rf data
 
-.PHONY: help app app-ml dbs berka-db data status down clean
+.PHONY: help app app-ml dbs berka-db files data status down clean

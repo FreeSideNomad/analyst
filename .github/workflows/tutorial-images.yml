@@ -1,0 +1,114 @@
+name: tutorial-images
+
+# Build and publish the tutorial's pre-seeded database images so a
+# docker-only user can run the whole tutorial with no repo checkout:
+#   ghcr.io/<owner>/analyst-tutorial-berka    real PKDD'99 banking data
+#   ghcr.io/<owner>/analyst-tutorial-crm      small CRM (shares keys with billing)
+#   ghcr.io/<owner>/analyst-tutorial-billing  small billing system
+#
+# Method: seed a throwaway Postgres with the repo's own seed scripts,
+# pg_dump the result, bake the gzipped dump into postgres:16-alpine's
+# /docker-entrypoint-initdb.d (loads on first container start).
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "scripts/seed_berka_db.py"
+      - "scripts/make_cross_dbs.py"
+      - "scripts/seed_sqlite_to_postgres.py"
+      - "src/analyst/engine/relgraph/datasets/**"
+      - ".github/workflows/tutorial-images.yml"
+  workflow_dispatch:
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    services:
+      seedpg:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: seed
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Cache the on-demand datasets
+        uses: actions/cache@v4
+        with:
+          path: tests/.ml_cache
+          key: ml-cache-v2
+
+      - name: Create the three databases in the seed Postgres
+        env:
+          PGPASSWORD: seed
+        run: |
+          for db in berka crm billing; do
+            psql -h 127.0.0.1 -U postgres -c "CREATE DATABASE $db"
+          done
+
+      - name: Seed Berka (downloads the public dataset on demand)
+        env:
+          ANALYST_ML_CACHE: ${{ github.workspace }}/tests/.ml_cache
+        run: |
+          uv run python scripts/seed_berka_db.py postgres \
+            "host=127.0.0.1 port=5432 dbname=berka user=postgres password=seed"
+
+      - name: Seed the CRM / billing pair
+        run: |
+          uv run python scripts/make_cross_dbs.py /tmp/pair
+          uv run python scripts/seed_sqlite_to_postgres.py /tmp/pair/crm.db \
+            "host=127.0.0.1 port=5432 dbname=crm user=postgres password=seed"
+          uv run python scripts/seed_sqlite_to_postgres.py /tmp/pair/billing.db \
+            "host=127.0.0.1 port=5432 dbname=billing user=postgres password=seed"
+
+      - name: Dump each database
+        env:
+          PGPASSWORD: seed
+        run: |
+          mkdir -p /tmp/dumps
+          for db in berka crm billing; do
+            pg_dump -h 127.0.0.1 -U postgres --no-owner --no-privileges "$db" \
+              | gzip > "/tmp/dumps/$db.sql.gz"
+          done
+          ls -lh /tmp/dumps
+
+      - name: Log in to ghcr
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push the three seeded images
+        run: |
+          OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          for db in berka crm billing; do
+            dir=/tmp/img-$db
+            mkdir -p "$dir"
+            cp "/tmp/dumps/$db.sql.gz" "$dir/"
+            cat > "$dir/Dockerfile" <<EOF
+          FROM postgres:16-alpine
+          ENV POSTGRES_DB=$db POSTGRES_PASSWORD=tutorial
+          COPY $db.sql.gz /docker-entrypoint-initdb.d/
+          EOF
+            docker build -t "ghcr.io/$OWNER/analyst-tutorial-$db:latest" "$dir"
+            docker push "ghcr.io/$OWNER/analyst-tutorial-$db:latest"
+          done
