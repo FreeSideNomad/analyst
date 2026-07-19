@@ -158,11 +158,33 @@ class IncludeColumnRequest(Camel):
     column: str
 
 
+class DecisionsRequest(Camel):
+    val_cutoff: str | None = None
+    test_cutoff: str | None = None
+    hide: list[str] = []
+
+
 @router.post("/models/relational/author")
 def author_relational(
     body: AuthorRequest, repo: DatasetRepository = Depends(get_repository)
 ) -> dict:
     return _guard(lambda: repo.author_relational_task(body.question))
+
+
+@router.patch("/models/relational/tasks/{task_id}/decisions")
+def update_relational_decisions(
+    task_id: str,
+    body: DecisionsRequest,
+    repo: DatasetRepository = Depends(get_repository),
+) -> dict:
+    return _guard(
+        lambda: repo.update_relational_decisions(
+            task_id,
+            val_cutoff=body.val_cutoff,
+            test_cutoff=body.test_cutoff,
+            hide=body.hide or None,
+        )
+    )
 
 
 @router.post("/models/relational/tasks/{task_id}/confirm")

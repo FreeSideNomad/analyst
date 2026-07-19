@@ -170,6 +170,70 @@ function RelationalFlow({ task: initial, onDone }: { task: RelationalTask; onDon
   );
 }
 
+function AuthoringFlow({ task: initial, onDone }: { task: RelationalTask; onDone: () => void }) {
+  const [task, setTask] = useState(initial);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [hideChoice, setHideChoice] = useState('');
+  const act = async (fn: () => Promise<RelationalTask>) => {
+    setBusy(true); setError(null);
+    try { setTask(await fn()); } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
+  };
+  if (task.status === 'trained') return <RelationalFlow task={task} onDone={onDone} />;
+  if (task.status === 'defined') {
+    return (
+      <Card style={{ padding: 18, maxWidth: 720 }}>
+        <div style={{ ...EYEBROW, marginBottom: 8 }}>Decisions confirmed</div>
+        <div aria-label="Confirmed honesty checks" style={{ marginBottom: 12, padding: '10px 12px', background: 'var(--brand-subtle)', borderRadius: 'var(--radius-md)', font: '400 13px/1.6 var(--font-sans)', color: 'var(--text-strong)' }}>
+          Honesty check: training on deliberately shuffled outcomes scored {task.canary?.toFixed(2)} — a coin flip, as honest wiring should. {task.warnings && task.warnings.length > 0 ? task.warnings.join(' ') : 'No columns give the answer away.'}
+        </div>
+        {error && <div role="alert" style={{ marginBottom: 10, font: '500 12.5px/1.4 var(--font-sans)', color: 'var(--amber-600)' }}>{error}</div>}
+        <button aria-label="Train relational model" disabled={busy} onClick={() => act(() => api.trainRelational(task.task_id))}
+          style={{ padding: '9px 16px', border: 'none', borderRadius: 'var(--radius-md)', background: 'var(--brand)', color: '#fff', cursor: 'pointer', font: '600 13px/1 var(--font-sans)', opacity: busy ? 0.6 : 1 }}>
+          {busy ? 'Training locally (graph + simple + combined)…' : 'Train locally'}
+        </button>
+      </Card>
+    );
+  }
+  return (
+    <Card style={{ padding: 18, maxWidth: 720 }} aria-label="Authored decisions">
+      <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 10 }}>
+        <span style={EYEBROW}>Proposed decisions — confirm or adjust</span>
+        <span className="mono" style={{ font: '700 13px/1 var(--font-mono)' }}>{task.entity_table}</span>
+      </div>
+      <p style={{ margin: '0 0 8px', font: '600 14px/1.5 var(--font-sans)', color: 'var(--text-strong)' }}>{task.framing.question}</p>
+      <p style={{ margin: '0 0 8px', font: '400 13px/1.6 var(--font-sans)', color: 'var(--text-body)' }}>{task.framing.moment}</p>
+      <p style={{ margin: '0 0 10px', padding: '10px 12px', background: 'var(--brand-subtle)', borderRadius: 'var(--radius-md)', font: '400 13px/1.55 var(--font-sans)', color: 'var(--text-strong)' }}>{task.framing.honesty}</p>
+      <div className="mono" style={{ marginBottom: 10, font: '400 12px/1.5 var(--font-mono)', color: 'var(--text-muted)', overflowX: 'auto' }}>{task.label_sql}</div>
+      <div aria-label="Hidden outcome columns" style={{ marginBottom: 10, font: '500 12.5px/1.5 var(--font-sans)', color: 'var(--text-muted)' }}>
+        Hidden from the model: {(task.hidden_columns ?? []).map((c) => <span key={c} className="mono" style={{ marginRight: 8 }}>{c}</span>)}
+      </div>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+        <label style={{ font: '500 12px/1 var(--font-sans)', color: 'var(--text-muted)' }}>
+          Validation cutoff{' '}
+          <input aria-label="Validation cutoff" value={task.val_cutoff ?? ''} onChange={(e) => setTask({ ...task, val_cutoff: e.target.value })}
+            style={{ width: 110, height: 30, padding: '0 8px', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-md)', font: '400 12.5px/1 var(--font-mono)' }} />
+        </label>
+        <label style={{ font: '500 12px/1 var(--font-sans)', color: 'var(--text-muted)' }}>
+          Test cutoff{' '}
+          <input aria-label="Test cutoff" value={task.test_cutoff ?? ''} onChange={(e) => setTask({ ...task, test_cutoff: e.target.value })}
+            style={{ width: 110, height: 30, padding: '0 8px', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-md)', font: '400 12.5px/1 var(--font-mono)' }} />
+        </label>
+        <input aria-label="Hide another column" placeholder="hide another column…" value={hideChoice} onChange={(e) => setHideChoice(e.target.value)}
+          style={{ width: 170, height: 30, padding: '0 8px', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-md)', font: '400 12.5px/1 var(--font-sans)' }} />
+      </div>
+      {error && <div role="alert" style={{ marginBottom: 10, font: '500 12.5px/1.4 var(--font-sans)', color: 'var(--amber-600)' }}>{error}</div>}
+      <button aria-label="Confirm decisions" disabled={busy} onClick={() => act(async () => {
+        await api.updateRelationalDecisions(task.task_id, { valCutoff: task.val_cutoff, testCutoff: task.test_cutoff, hide: hideChoice ? [hideChoice.trim()] : [] });
+        return api.confirmRelational(task.task_id);
+      })}
+        style={{ padding: '9px 16px', border: 'none', borderRadius: 'var(--radius-md)', background: 'var(--brand)', color: '#fff', cursor: 'pointer', font: '600 13px/1 var(--font-sans)', opacity: busy ? 0.6 : 1 }}>
+        {busy ? 'Checking honesty…' : 'Confirm decisions'}
+      </button>
+    </Card>
+  );
+}
+
 export function ModelsPage() {
   const datasets = useCatalog((s) => s.datasets);
   const [samples, setSamples] = useState<ModelSample[]>([]);
@@ -177,6 +241,8 @@ export function ModelsPage() {
   const [models, setModels] = useState<(ModelTask | RelationalTask)[]>([]);
   const [task, setTask] = useState<ModelTask | null>(null);
   const [relTask, setRelTask] = useState<RelationalTask | null>(null);
+  const [authTask, setAuthTask] = useState<RelationalTask | null>(null);
+  const [authQuestion, setAuthQuestion] = useState('');
   const [dataset, setDataset] = useState('');
   const [target, setTarget] = useState('');
   const [relChoice, setRelChoice] = useState('');
@@ -210,6 +276,14 @@ export function ModelsPage() {
       .catch((e) => setError(e.message || 'Could not start the model.'))
       .finally(() => setBusy(null));
   };
+  const startAuthoring = () => {
+    if (!authQuestion.trim()) return;
+    setBusy('author'); setError(null);
+    api.authorRelational(authQuestion.trim())
+      .then(setAuthTask)
+      .catch((e) => setError(e.message || 'Could not author the task.'))
+      .finally(() => setBusy(null));
+  };
   const startRelational = () => {
     if (!relChoice) return;
     setBusy('rel-start'); setError(null);
@@ -218,6 +292,17 @@ export function ModelsPage() {
       .catch((e) => setError(e.message || 'Could not start the relational model.'))
       .finally(() => setBusy(null));
   };
+  if (authTask) {
+    return (
+      <section style={{ flex: 1, overflow: 'auto', padding: '26px 30px' }}>
+        <button aria-label="Back to models" onClick={() => { setAuthTask(null); refresh(); }}
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginBottom: 12, padding: '5px 9px', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-md)', background: 'transparent', cursor: 'pointer', font: '600 12px/1 var(--font-sans)', color: 'var(--text-muted)' }}>
+          <Icon as={ChevronLeft} size={13} /> Models
+        </button>
+        <AuthoringFlow task={authTask} onDone={() => { setAuthTask(null); refresh(); }} />
+      </section>
+    );
+  }
   if (relTask) {
     return (
       <section style={{ flex: 1, overflow: 'auto', padding: '26px 30px' }}>
@@ -285,7 +370,16 @@ export function ModelsPage() {
               )}
             </Card>
             {bundle.available && (
-              <div style={{ display: 'flex', gap: 8 }}>
+              <div style={{ display: 'flex', gap: 8, flexDirection: 'column' }}>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <input aria-label="Authoring question" placeholder="ask about your own linked data… e.g. which loans will default?" value={authQuestion} onChange={(e) => setAuthQuestion(e.target.value)}
+                    style={{ width: 380, height: 36, padding: '0 10px', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-md)', font: '400 13px/1 var(--font-sans)' }} />
+                  <button aria-label="Author relational task" disabled={!authQuestion.trim() || busy === 'author'} onClick={startAuthoring}
+                    style={{ padding: '0 16px', border: 'none', borderRadius: 'var(--radius-md)', background: 'var(--brand)', color: '#fff', cursor: 'pointer', font: '600 13px/1 var(--font-sans)', opacity: !authQuestion.trim() ? 0.5 : 1 }}>
+                    {busy === 'author' ? 'Authoring…' : 'Author'}
+                  </button>
+                </div>
+                <div style={{ display: 'flex', gap: 8 }}>
                 <select aria-label="Relational task" value={relChoice} onChange={(e) => setRelChoice(e.target.value)}
                   style={{ width: 300, height: 36, padding: '0 9px', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-md)', font: '400 13px/1 var(--font-sans)' }}>
                   <option value="">choose a question…</option>
@@ -295,6 +389,7 @@ export function ModelsPage() {
                   style={{ padding: '0 16px', border: 'none', borderRadius: 'var(--radius-md)', background: 'var(--brand)', color: '#fff', cursor: 'pointer', font: '600 13px/1 var(--font-sans)', opacity: !relChoice ? 0.5 : 1 }}>
                   {busy === 'rel-start' ? 'Preparing…' : 'Start'}
                 </button>
+                </div>
               </div>
             )}
           </div>
@@ -327,7 +422,7 @@ export function ModelsPage() {
           return (
             <Card key={m.task_id} style={{ padding: 0 }}>
               <div style={{ display: 'flex', alignItems: 'center' }}>
-                <button aria-label={`Open model ${m.task_id}`} onClick={() => (rel ? setRelTask(rel) : setTask(m as ModelTask))}
+                <button aria-label={`Open model ${m.task_id}`} onClick={() => (rel ? (rel.authored ? setAuthTask(rel) : setRelTask(rel)) : setTask(m as ModelTask))}
                   style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 11, padding: '13px 15px', border: 'none', background: 'transparent', cursor: 'pointer', textAlign: 'left' }}>
                   <Icon as={rel ? Network : Brain} size={17} color="var(--brand)" />
                   <span style={{ flex: 1 }}>

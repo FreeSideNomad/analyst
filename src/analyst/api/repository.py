@@ -79,6 +79,13 @@ class DatasetRepository(Protocol):
 
     # Feature 019 — guided graph authoring (the user's own linked data)
     def author_relational_task(self, question: str) -> dict: ...
+    def update_relational_decisions(
+        self,
+        task_id: str,
+        val_cutoff: str | None = None,
+        test_cutoff: str | None = None,
+        hide: list[str] | None = None,
+    ) -> dict: ...
     def confirm_relational_task(self, task_id: str) -> dict: ...
     def include_hidden_column(self, task_id: str, column: str) -> dict: ...
 
@@ -390,6 +397,23 @@ class FixtureRepository:
             "version": 0,
         }
         self._model_tasks[str(task["task_id"])] = task
+        return task
+
+    def update_relational_decisions(
+        self,
+        task_id: str,
+        val_cutoff: str | None = None,
+        test_cutoff: str | None = None,
+        hide: list[str] | None = None,
+    ) -> dict:
+        task = self._model_tasks[task_id]
+        if val_cutoff:
+            task["val_cutoff"] = val_cutoff
+        if test_cutoff:
+            task["test_cutoff"] = test_cutoff
+        for column in hide or []:
+            if column not in task["hidden_columns"]:
+                task["hidden_columns"] = sorted([*task["hidden_columns"], column])
         return task
 
     def confirm_relational_task(self, task_id: str) -> dict:
@@ -1963,7 +1987,7 @@ class StoreRepository:
     def _relational_prerequisites(self) -> list[str]:
         """What this workspace lacks for relational modeling (empty = ready)."""
         missing: list[str] = []
-        relationships = self.store.discover_relationships()
+        relationships = self.store.discover_relationships(include_federated=True)
         if not relationships:
             missing.append("validated links between tables")
         has_time = any(
@@ -2224,6 +2248,32 @@ class StoreRepository:
         )
         materialize(spec, task_spec)
         return spec, task_spec, fingerprint
+
+    def update_relational_decisions(
+        self,
+        task_id: str,
+        val_cutoff: str | None = None,
+        test_cutoff: str | None = None,
+        hide: list[str] | None = None,
+    ) -> dict:
+        """Adjust proposed decisions BEFORE confirming (AC-3: the user
+        confirms or adjusts). Cutoffs may move; the hidden set only grows."""
+        tasks = self._load_models()
+        task = self._require_model(task_id)
+        if not task.get("authored") or task.get("status") != "proposed":
+            raise ValueError("Only proposed authored decisions can be adjusted.")
+        if val_cutoff:
+            task["val_cutoff"] = val_cutoff
+        if test_cutoff:
+            task["test_cutoff"] = test_cutoff
+        if task["val_cutoff"] >= task["test_cutoff"]:
+            raise ValueError("The validation cutoff must precede the test cutoff.")
+        for column in hide or []:
+            if column and column not in task["hidden_columns"]:
+                task["hidden_columns"] = sorted([*task["hidden_columns"], column])
+        tasks[task_id] = task
+        self._save_models(tasks)
+        return task
 
     def confirm_relational_task(self, task_id: str) -> dict:
         """The user confirmed the decisions: build, validate, run the
