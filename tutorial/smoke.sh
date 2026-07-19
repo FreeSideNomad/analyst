@@ -1,15 +1,21 @@
 #!/bin/sh
 # Tutorial smoke — behaves exactly like the docker-only user the tutorial
 # is written for: everything comes from the LIVE Pages site and the
-# PUBLISHED ghcr images. Keyless spine only (Part 1 + the relational
-# bundle), so it needs no secrets.
+# PUBLISHED ghcr images. The tutorial requires a Claude token, so the
+# smoke does too: set CLAUDE_CODE_OAUTH_TOKEN (or ANTHROPIC_API_KEY) in
+# the environment, exactly as the tutorial tells its reader to.
 #
-#   sh tutorial/smoke.sh                 # against the live site
-#   PAGES=http://localhost:4000 sh ...   # against a local preview
+#   CLAUDE_CODE_OAUTH_TOKEN=... sh tutorial/smoke.sh   # against the live site
+#   PAGES=http://localhost:4000 sh ...                 # against a local preview
 #
 # Exits non-zero on the first broken link, unhealthy container, failed
 # upload, missing relationship, failed connection, or failed training.
 set -eu
+
+if [ -z "${CLAUDE_CODE_OAUTH_TOKEN:-}" ] && [ -z "${ANTHROPIC_API_KEY:-}" ]; then
+  echo "CLAUDE_CODE_OAUTH_TOKEN (or ANTHROPIC_API_KEY) must be set — the tutorial requires it, so the smoke does too." >&2
+  exit 1
+fi
 
 PAGES="${PAGES:-https://freesidenomad.github.io/analyst/tutorial}"
 WORK="$(mktemp -d)"
@@ -48,7 +54,7 @@ say "chapter 1: uploads profile and link up"
 for f in messy_sales.csv customers.csv purchases.csv company.xlsx messy_orders.csv; do
   curl -fsS -X POST http://localhost:8000/api/datasets/ingest -F "file=@$f" >/dev/null
 done
-deadline=$(( $(date +%s) + 180 ))
+deadline=$(( $(date +%s) + 600 ))
 until curl -fsS http://localhost:8000/api/datasets | python3 -c "
 import json, sys
 data = json.load(sys.stdin)
@@ -90,7 +96,7 @@ print('all three databases catalogued in place')
   sleep 5
 done
 
-say "chapter 6 (keyless part): the relational bundle trains on the ML app"
+say "chapter 5: the relational bundle trains on the ML app"
 curl -fsS -X POST http://localhost:8001/api/models/relational/bundle >/dev/null
 deadline=$(( $(date +%s) + 300 ))
 until curl -fsS http://localhost:8001/api/datasets | python3 -c "

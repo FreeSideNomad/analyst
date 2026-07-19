@@ -5,8 +5,10 @@
 #   docker compose --profile databases up -d   # + the three tutorial databases
 #   docker compose --profile ml up -d          # + the ML app for relational models
 #
-# Optional AI features pick up a key from your shell:
-#   export ANTHROPIC_API_KEY=sk-ant-...   (or CLAUDE_CODE_OAUTH_TOKEN=...)
+# A Claude token is REQUIRED — the analysis is done by Claude. Export it
+# in this shell before `up` (see the tutorial's "Get your Claude token"):
+#   export CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat...   (claude setup-token)
+#   or: export ANTHROPIC_API_KEY=sk-ant-api...
 
 name: analyst-tutorial
 

@@ -2,8 +2,9 @@ name: tutorial-smoke
 
 # Acts as the tutorial's actual audience: a docker-only user pulling the
 # compose file and sample files from the LIVE Pages site and the images
-# from ghcr. Covers the keyless spine (uploads, links, the three seeded
-# databases, the relational bundle training end to end). No secrets.
+# from ghcr, with a Claude token exported — the tutorial requires one, so
+# the smoke runs with the CLAUDE_CODE_OAUTH_TOKEN repo secret and fails
+# fast if it's missing.
 
 on:
   schedule:
@@ -18,6 +19,8 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Run the tutorial as a docker-only user would
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
         run: sh tutorial/smoke.sh
 
       - name: Open an issue on failure

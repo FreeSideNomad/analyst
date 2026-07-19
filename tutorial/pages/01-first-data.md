@@ -13,8 +13,6 @@ are, and *it* does the careful-analyst work — profiling, describing,
 linking — while you stay in charge of every decision that matters. This
 chapter shows that promise on deliberately imperfect files.
 
-No AI key needed for anything in this chapter.
-
 ## 1.1 Upload a messy file — and get a clean picture
 
 Download **[messy_sales.csv](files/messy_sales.csv)** — a small sales
@@ -34,11 +32,9 @@ instead of silent surprises.
 
 Read the dataset and column descriptions on the same screen. This is the
 **catalog** — the app's running understanding of what your data *means*,
-written in plain sentences, built only from evidence it can point to
-(the schema and the profile — never from guessing at rows it hasn't
-examined). Without an AI key the descriptions are drawn directly from
-the profile, and a banner says so plainly rather than pretending
-otherwise.
+written in plain sentences by Claude, built only from evidence it can
+point to (the schema and the profile — never from guessing at rows it
+hasn't examined).
 
 The catalog matters because everything later — questions, dashboards,
 models — reads it. The better the app's understanding, the better every
