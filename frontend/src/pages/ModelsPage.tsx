@@ -196,8 +196,8 @@ function AuthoringFlow({ task: initial, onDone }: { task: RelationalTask; onDone
     );
   }
   return (
-    <Card style={{ padding: 18, maxWidth: 720 }} aria-label="Authored decisions">
-      <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 10 }}>
+    <Card style={{ padding: 18, maxWidth: 720 }}>
+      <div aria-label="Authored decisions" style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 10 }}>
         <span style={EYEBROW}>Proposed decisions — confirm or adjust</span>
         <span className="mono" style={{ font: '700 13px/1 var(--font-mono)' }}>{task.entity_table}</span>
       </div>

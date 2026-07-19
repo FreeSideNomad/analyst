@@ -605,12 +605,11 @@ def given_ml_stack(ctx: ScenarioContext) -> None:
             f"{port}:8000",
             "-v",
             f"{REPO_ROOT}/tests/cassettes:/cassettes:ro",
-            "-v",
-            f"{REPO_ROOT}/tests/.ml_cache:/mlcache:ro",
+            # No ro ml-cache mount: the authored flow builds its training
+            # database under the WRITABLE /data/ml-cache default (the data
+            # arrives via the connected Postgres, not the curated bundle).
             "-e",
             "ANALYST_CATALOG_CASSETTE=/cassettes/graph_authoring.json",
-            "-e",
-            "ANALYST_ML_CACHE=/mlcache",
             "-e",
             "ANALYST_SECRET_KEY=e2e-019-passphrase",
             "analyst:e2e-ml",
@@ -657,7 +656,7 @@ def when_authoring_journey(ctx: ScenarioContext) -> None:
         },
         timeout=120,
     )
-    assert resp.status_code == 200, resp.text[:300]
+    assert resp.status_code == 201, resp.text[:300]
     deadline = _time.monotonic() + 600
     while _time.monotonic() < deadline:
         datasets = httpx.get(f"{url}/api/datasets", timeout=10).json()
