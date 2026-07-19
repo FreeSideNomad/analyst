@@ -339,6 +339,22 @@ class DatasetStore:
         return self._con.execute(f"SELECT * FROM {_quote_ident(dataset)}").fetchall()
 
     @_synchronized
+    def create_projection(
+        self, view: str, dataset: str, columns: tuple[str, ...]
+    ) -> None:
+        """A queryable view of selected columns (feature 012: the accepted
+        feature table, with lineage to its source dataset)."""
+        cols = ", ".join(_quote_ident(c) for c in columns)
+        self._con.execute(
+            f"CREATE OR REPLACE VIEW {_quote_ident(view)} AS "
+            f"SELECT {cols} FROM {_quote_ident(dataset)}"
+        )
+
+    @_synchronized
+    def drop_projection(self, view: str) -> None:
+        self._con.execute(f"DROP VIEW IF EXISTS {_quote_ident(view)}")
+
+    @_synchronized
     def fetch_frame(self, dataset: str, columns: tuple[str, ...] = ()):  # noqa: ANN201
         """The dataset (or selected columns) as a pandas DataFrame — the
         committed trainer's read path (feature 012). Engine-internal."""

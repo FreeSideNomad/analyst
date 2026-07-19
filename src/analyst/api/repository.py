@@ -1595,6 +1595,9 @@ class StoreRepository:
             "version": 0,
         }
         self._save_models(tasks)
+        self.store.create_projection(
+            f"{task_id}.features", dataset, tuple(tasks[task_id]["accepted"])
+        )
         return tasks[task_id]
 
     def update_task_features(self, task_id: str, accepted: list[str]) -> dict:
@@ -1619,6 +1622,9 @@ class StoreRepository:
         task["accepted"] = cleaned
         tasks[task_id] = task
         self._save_models(tasks)
+        self.store.create_projection(
+            f"{task_id}.features", task["dataset"], tuple(cleaned)
+        )
         return task
 
     def train_model(self, task_id: str, params: dict | None = None) -> dict:
@@ -1643,6 +1649,14 @@ class StoreRepository:
         (predictions_record,) = self.ingest(
             f"{task_id}.predictions.v{version}.csv", buffer.getvalue().encode()
         )
+        gbm = result.metrics["gbm"]
+        task["evaluation"] = (
+            f"Typically off by ${gbm['mae']:,.0f} on a home. The upgraded "
+            f"model explains {gbm['r2']:.0%} of price variation "
+            f"(the simple line: {result.metrics['linear']['r2']:.0%}) — "
+            f"graded only on the {result.holdout_count} held-out homes it "
+            "never saw."
+        )
         task.update(
             status="trained",
             metrics=result.metrics,
@@ -1666,6 +1680,7 @@ class StoreRepository:
     def delete_model(self, task_id: str) -> None:
         tasks = self._load_models()
         self._require_model(task_id)
+        self.store.drop_projection(f"{task_id}.features")
         del tasks[task_id]
         self._save_models(tasks)
 
