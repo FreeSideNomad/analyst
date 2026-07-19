@@ -2,7 +2,7 @@
 slug: guided-graph-authoring
 title: Guided graph authoring — relational models on YOUR data (files & connected DBs)
 outcome: A UI-only user points the relational (GNN) tier at their OWN linked data — uploaded tables or, the likeliest real case, a connected relational database — and trains the three-tier model through guided decisions. The graph schema is generated mechanically from what analyst already validated (profiled types, RI-checked links, time columns); the LLM authors only the declarative task decisions (entity, label, horizon, cutoffs, outcome exclusions), each confirmed in plain language; no generated Python, ever. Code validity is proven by equivalence — curated Berka arriving as uploads and as a connected Postgres database must reproduce the 018 bundle's reference numbers — plus structural honesty gates (shuffled-label canary, auto-exclusion of label-derived columns) that hold on ANY dataset.
-status: ready
+status: done
 autonomy_level: high
 owner: igormusic
 area: models
