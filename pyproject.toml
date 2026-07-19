@@ -53,6 +53,12 @@ line-length = 88
 python_version = "3.14"
 files = ["src/analyst"]
 warn_redundant_casts = true
+
+# The ML stack ships no stubs; the trainer is exhaustively unit-tested
+# against real data instead (feature 012).
+[[tool.mypy.overrides]]
+module = ["sklearn.*", "lightgbm.*", "pandas.*"]
+ignore_missing_imports = true
 warn_unused_ignores = true
 
 [[tool.mypy.overrides]]
