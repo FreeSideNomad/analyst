@@ -1,17 +1,17 @@
 ---
 layout: default
-title: Tutorial 4 — ask your data questions
+title: Tutorial 3 — ask your data questions
 ---
 
-# 4 · Ask your data questions
+# 3 · Ask your data questions
 
-[← Add your AI key](key.html)
+[← Connect your databases](02-databases.html)
 
 This is the part the product is named for: anyone on your team asking
 data questions in plain English and getting answers they can check —
 not a chat that *sounds* confident, but answers that show their work.
 
-## 4.1 Ask, then open the receipts
+## 3.1 Ask, then open the receipts
 
 Switch to **Query** and ask:
 
@@ -27,7 +27,7 @@ This is why answers here are trustable where chatbot answers aren't:
 you never have to take the number on faith — the reasoning is one click
 away, every time, on every answer, chart, and dashboard in the product.
 
-## 4.2 It asks when unsure — and refuses to make things up
+## 3.2 It asks when unsure — and refuses to make things up
 
 Ask something genuinely ambiguous — for example, *"average amount by
 status"* when more than one of your datasets has a status-like column.
@@ -38,7 +38,7 @@ Then try *"what will revenue be in 2031?"* — it declines, and tells you
 why: there's nothing in your data that can answer it. A wrong number
 would have looked more impressive; the refusal is the feature.
 
-## 4.3 Keep the good ones
+## 3.3 Keep the good ones
 
 - **Save as chart** on an answer you like, give it a name, and find it
   under **Charts**. Open it later: it *re-runs live* against your
@@ -49,7 +49,7 @@ would have looked more impressive; the refusal is the feature.
 - **Export chart result as CSV / as Excel** when the destination is a
   spreadsheet or another tool — full fidelity, no truncation.
 
-## 4.4 One question across two databases
+## 3.4 One question across two databases
 
 Remember the CRM and billing connections from chapter 2? Ask:
 
@@ -61,7 +61,7 @@ Open the receipts — the SQL names both connections. (Enterprise should
 total 150, smb 50 — the tutorial data is small enough to check by
 hand, which is rather the point.)
 
-## 4.5 Teach the catalog what you know
+## 3.5 Teach the catalog what you know
 
 The app wrote its understanding of your data; you know your business
 better. Two ways your knowledge takes over:
@@ -74,7 +74,7 @@ better. Two ways your knowledge takes over:
   settled: no amount of future automation will overwrite what a human
   decided.
 
-## 4.6 A dashboard from one sentence
+## 3.6 A dashboard from one sentence
 
 Switch to **Dashboards** and type:
 

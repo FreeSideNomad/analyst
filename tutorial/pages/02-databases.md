@@ -23,7 +23,7 @@ That adds a Postgres loaded with **real banking data** — the public
 PKDD'99 "Berka" dataset: nine linked tables covering accounts, loans,
 cards, and about a million transactions from a real (anonymized) bank —
 plus a small **CRM** and a small **billing** database that share
-customer keys. No AI key needed for anything in this chapter.
+customer keys.
 
 ## 2.1 Connect the bank
 
@@ -81,4 +81,4 @@ machine (under a key you control) and replayed at startup.
 SQLite, SQL Server, DB2 — into the same workspace as your files, with
 nothing copied and nothing to re-configure after a restart.
 
-Next: [Add your AI key →](key.html)
+Next: [Ask your data questions →](03-ask.html)

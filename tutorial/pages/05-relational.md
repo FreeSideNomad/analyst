@@ -1,9 +1,9 @@
 ---
 layout: default
-title: Tutorial 6 — models that understand relationships
+title: Tutorial 5 — models that understand relationships
 ---
 
-# 6 · Models that understand relationships
+# 5 · Models that understand relationships
 
 [← Train a model without writing code](04-models.html)
 
@@ -24,16 +24,13 @@ Open **http://localhost:8001** → **Models**. On Apple Silicon this
 edition runs under emulation — training takes a few minutes instead of
 about thirty seconds. That's expected.
 
-Most of this chapter needs **no AI key**; the last section (authoring on
-your own database) uses one.
-
-## 6.1 Real banking data, one click
+## 5.1 Real banking data, one click
 
 In the relational section, click **Add to workspace** on **Berka bank
 (relational)**. The nine linked tables you met in chapter 2 arrive
 through the normal pipeline — profiled, described, links verified.
 
-## 6.2 Will this loan default?
+## 5.2 Will this loan default?
 
 Pick the question **"Will this loan end in default?"** and start.
 
@@ -68,7 +65,7 @@ published research this pipeline was validated against.
 Predictions, as always, land in your catalog as an ordinary dataset —
 one row per loan with its actual outcome and predicted risk.
 
-## 6.3 Your database, your question *(needs the AI key)*
+## 5.3 Your database, your question
 
 The finale. The bank data is also sitting in the Postgres you connected
 in chapter 2 — the way *your* data would be. Connect it here on the ML
