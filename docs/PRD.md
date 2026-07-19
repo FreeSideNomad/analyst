@@ -225,3 +225,20 @@ Verified via adversarial multi-vote (22/25 claims confirmed; 3 refuted and exclu
 - Enterprise accuracy cliff (6–21%) — medium/visrow 2026
 
 **Caveat:** several headline numbers come from 2026 arXiv preprints (self-benchmarked, sometimes vendor-adjacent) and vendor blogs (self-asserted). Treat as directional. This space moves monthly — re-scan before major positioning decisions.
+
+
+## Amendment 2026-07-19 — Guided predictive modeling (owner-approved)
+
+analyst extends from "what happened?" to "what will happen?": a
+concept-literate, non-coding user trains trustworthy predictive models
+through a guided conversation — task definition, feature selection, local
+training (linear regression as the teaching anchor, LightGBM as the
+upgrade; relational-graph models later behind the same declarative task
+spec), honest evaluation in plain language, and predictions as ordinary
+queryable datasets that charts, dashboards, exports, and Q&A consume for
+free. Acceptance criteria run against REALISTIC datasets (downloaded on
+demand and cached, never stored in git; deterministic snapshots + seeds so
+quality thresholds are assertable), and the full flow is verified
+end-to-end against the deployed Docker container. Sample data for the
+graph tier reuses the reference datasets from the owner's relational-graph
+paper to validate code against known results.

@@ -65,6 +65,7 @@ This project is developed under **DAE (Disciplined Agentic Engineering)** with *
 - Natural-language Q&A over the loaded dataset collection, with ambiguity resolved via the structured **AskQuestion** primitive (confidence-gated, native React multiple-choice).
 - Data exports and charts.
 - **Interactive dashboards** (Tableau-like): agent-authored, then filterable/re-visualizable, built and refined through the agentic AskQuestion workflow.
+- **Guided predictive modeling** (amendment 2026-07-19, owner-approved): LLM-guided, no-code ML over ingested data — declarative task definitions, agent-proposed features, LOCAL training (linear/LightGBM first; graph models later behind the same task spec), honest out-of-sample evaluation, predictions landing as first-class datasets. The agent fills validated artifacts; committed engine code trains; generated code is never executed. Training/scoring stay local — only metadata, capped samples, and parameters ever cross to the model (the standing governance invariant, unchanged).
 
 **MVP (first slice — to be confirmed at feature triage):**
 - Single-file Excel/CSV ingestion → profiling → Parquet + catalog entry → answer NL questions over that one dataset.
